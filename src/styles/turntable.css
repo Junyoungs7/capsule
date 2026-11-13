@@ -1,0 +1,157 @@
+/* ── Turntable (픽셀 아트 하이파이 데크) ──
+   데크·레코드·톤암은 Turntable.tsx 의 3px 도트 스프라이트(정적 SVG). 애니메이션은 transform/opacity 만,
+   움직이는 요소에 backdrop-filter/filter 없음. 좌표는 스프라이트 격자(1도트=3px)와 짝. */
+.turntable {
+  position: fixed;
+  left: 32px;
+  top: 236px;
+  width: 272px;
+  z-index: 20;
+  --tray: 162px; /* 서랍 트레이 높이 — 창(최대 크기)은 카드 + 이 값 */
+}
+.desktop[data-only='turntable'] .turntable { left: 8px; top: 8px; }
+.tt-card { padding: 14px 16px 38px; }
+.tt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.tt-head > span { display: flex; flex-direction: column; min-width: 0; }
+.tt-head b { font: 650 15px/1.2 var(--font-display); }
+.tt-head small { color: var(--text-2); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-stop {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px 6px 8px;
+  border: 0;
+  border-radius: 99px;
+  font-weight: 600;
+  background: var(--fill-2);
+}
+.tt-stop svg { width: 16px; height: 16px; }
+.tt-stop:disabled { opacity: 0.4; cursor: default; }
+
+/* ── 서랍: 정적 클립 상자(overflow: clip) 안에서 .tt-drawer 만 translateY. 닫힘 = 앞판만 보임 ── */
+.tt-drawer-clip { position: absolute; left: 0; top: 246px; width: 240px; height: calc(var(--tray) + 24px); overflow: clip; pointer-events: none; }
+.tt-drawer {
+  transform: translateY(calc(-1 * var(--tray)));
+  transition: transform var(--dur-smooth) var(--spring-smooth);
+  pointer-events: auto;
+}
+.turntable[data-open='true'] .tt-drawer { transform: none; }
+.tt-front { display: block; width: 240px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; }
+.tt-front:hover svg { filter: brightness(1.12); }
+.tt-front:focus-visible { outline-offset: -3px; }
+/* 트레이: 짙은 펠트(3px 디더) + 월넛 옆벽 6px, 위쪽 그림자 */
+.tt-tray {
+  height: var(--tray);
+  display: grid;
+  grid-template-columns: repeat(4, 48px);
+  align-content: start;
+  gap: 8px;
+  padding: 12px 12px 0;
+  background:
+    repeating-conic-gradient(rgba(255, 255, 255, 0.025) 0 25%, transparent 0 50%) 0 0 / 6px 6px,
+    #1a1311;
+  box-shadow:
+    inset 3px 0 0 #2a170b, inset -3px 0 0 #2a170b,
+    inset 6px 0 0 #5c3720, inset -6px 0 0 #5c3720,
+    inset 0 9px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* 슬리브: 각진 도트 커버(3px 베벨·하단 디더·하드 그림자) + 아래 제목 */
+.sleeve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  touch-action: none;
+  cursor: grab;
+  transition: transform 160ms var(--ease-out);
+}
+.sleeve:hover { transform: translateY(-3px); }
+.sleeve:active { cursor: grabbing; }
+.sleeve-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  background: color-mix(in oklab, var(--c) 88%, black);
+  box-shadow:
+    inset 3px 3px 0 rgba(255, 255, 255, 0.24),
+    inset -3px -3px 0 rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 3px 0 rgba(0, 0, 0, 0.4);
+}
+.sleeve-cover::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: 6px;
+  background: repeating-conic-gradient(rgba(0, 0, 0, 0.22) 0 25%, transparent 0 50%) 0 0 / 6px 6px;
+}
+.sleeve-cover .tile { border-radius: 0; background: none; box-shadow: none; filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.4)); }
+.sleeve-title { max-width: 54px; color: #eadfcd; font-size: 10.5px; font-weight: 650; line-height: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* LP 세트 = 계단처럼 겹친 슬리브 */
+.sleeve[data-set='true'] .sleeve-cover {
+  box-shadow:
+    inset 3px 3px 0 rgba(255, 255, 255, 0.24),
+    inset -3px -3px 0 rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    3px -3px 0 color-mix(in oklab, var(--c) 62%, black),
+    6px -6px 0 color-mix(in oklab, var(--c) 40%, black),
+    0 3px 0 rgba(0, 0, 0, 0.4);
+}
+.sleeve[data-active='true'] .sleeve-cover { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* 데크 240×246 = 80×82 도트. 플래터 중심 (35,35)도트=(105,105)px, 톤암 피벗 (69,13)도트=(207,39)px */
+.deck { position: relative; width: 240px; height: 246px; justify-self: center; }
+.plinth { position: absolute; inset: 0; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.3)) drop-shadow(0 14px 16px rgba(0, 0, 0, 0.3)); }
+.deck svg, .ghost-disc svg { display: block; }
+.disc { position: absolute; left: 21px; top: 21px; width: 168px; height: 168px; }
+.ghost-disc { position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; border-radius: 50%; box-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.65); }
+.sheen { position: absolute; left: 21px; top: 21px; pointer-events: none; }
+/* 라벨 = 앱 아이콘 (독 타일 글리프, 커버색 라벨 위) */
+.disc-label { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.disc-label .tile { background: none; box-shadow: none; color: var(--ink); }
+.disc-label .tile svg { stroke-width: 2.3; }
+.spindle { position: absolute; left: 102px; top: 102px; width: 6px; height: 6px; background: #eef1f4; box-shadow: inset -3px -3px 0 #8b929c, 0 0 0 1px #0b0b0d; }
+/* 앰버 LED: 재생 중 켜짐 (opacity 만) */
+.tt-led {
+  position: absolute;
+  left: 180px;
+  top: 213px;
+  width: 9px;
+  height: 6px;
+  background: #ffc861;
+  box-shadow: inset -3px -3px 0 #f59e0b, 0 0 0 3px rgba(255, 180, 60, 0.28), 0 0 14px 2px rgba(255, 170, 40, 0.55);
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+  pointer-events: none;
+}
+.turntable[data-playing='true'] .tt-led { opacity: 1; }
+.arm {
+  position: absolute;
+  left: 189px;
+  top: 9px;
+  width: 36px;
+  height: 180px;
+  transform-origin: 18px 30px;
+  transform: rotate(3deg);
+  transition: transform 640ms var(--spring-smooth);
+  pointer-events: none;
+  z-index: 2;
+}
+.turntable[data-playing='true'] .arm { transform: rotate(22deg); }
+
+/* 이동 줄이기: 서랍은 슬라이드 대신 트레이 페이드 */
+@media (prefers-reduced-motion: reduce) {
+  .arm, .tt-drawer { transition: none; }
+  .tt-tray { transition: opacity 180ms; }
+  .turntable[data-open='false'] .tt-tray { opacity: 0; }
+}

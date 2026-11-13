@@ -1,0 +1,29 @@
+/* 이징·지속시간 토큰. 애니메이션은 transform / opacity / clip-path 만. */
+:root {
+  /* k=260 c=20 감쇠 스프링 샘플 — 살짝 튕김 (island, dock 펼침, LP 스냅) */
+  --spring-bouncy: linear(0, 0.05, 0.164, 0.313, 0.471, 0.622, 0.755, 0.864, 0.949, 1.01, 1.049, 1.072, 1.08, 1.079,
+    1.071, 1.06, 1.048, 1.035, 1.024, 1.014, 1.006, 1.001, 0.997, 0.995, 0.994, 0.994, 0.995, 0.996, 0.998, 1);
+  /* k=300 c=34 임계 근처 — 튕김 없음 (panel, palette) */
+  --spring-smooth: linear(0, 0.053, 0.162, 0.29, 0.416, 0.53, 0.628, 0.709, 0.775, 0.828, 0.869, 0.901, 0.926, 0.944,
+    0.959, 0.969, 0.977, 0.983, 0.988, 0.991, 0.993, 0.995, 0.997, 0.998, 0.999, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-bouncy: 600ms;
+  --dur-smooth: 480ms;
+  --dur-fast: 160ms;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 이동 줄이기: 스프링·이동 대신 짧은 페이드. 컴포넌트별 정지 위치는 glass.css 끝에서 override. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --spring-bouncy: linear;
+    --spring-smooth: linear;
+    --ease-out: linear;
+    --dur-bouncy: 1ms;
+    --dur-smooth: 180ms;
+    --dur-fast: 120ms;
+  }
+}
