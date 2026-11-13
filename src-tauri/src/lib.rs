@@ -1,9 +1,12 @@
+mod icons;
+mod launch;
 mod watch;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_store::StoreExt;
 
 // 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
 const DOCK: (f64, f64) = (960.0, 178.0);
@@ -62,11 +65,21 @@ fn toggle(app: &AppHandle, tab: &str) -> tauri::Result<()> {
     if app.get_webview_window("panel").is_some() {
         return app.emit_to("panel", "panel-close", ());
     }
-    let mut b = builder(app, "panel", format!("index.html?surface=panel&tab={tab}"), PANEL).shadow(true); // Win11: 라운드 코너 + 그림자
+    let mut b = builder(app, "panel", format!("index.html?surface=panel&tab={tab}"), PANEL)
+        .shadow(true) // Win11: 라운드 코너 + 그림자
+        .disable_drag_drop_handler(); // B0-4: panel 은 HTML5 드롭(URL)
     if let Some(dock) = app.get_webview_window("dock") {
         b = b.parent(&dock)?; // 소유 창(owner = TOOLWINDOW 독) → Alt+Tab 에서 제외
     }
     let win = b.build()?;
+    // 독의 '패널 열림' 점: 생성/파괴를 이벤트로 (localStorage 공유 대체)
+    let h = app.clone();
+    win.on_window_event(move |e| {
+        if let WindowEvent::Destroyed = e {
+            let _ = h.emit("panel-state", false);
+        }
+    });
+    app.emit("panel-state", true)?;
     // B0-2: panel 만 OS 백드롭
     let _ = window_vibrancy::apply_acrylic(&win, None);
     place(app);
@@ -104,6 +117,36 @@ fn wallpaper_style() -> (String, String) {
     watch::wallpaper_style()
 }
 
+#[tauri::command]
+async fn launch(target: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || launch::launch(&target)).await.map_err(|e| e.to_string())?
+}
+
+/// 아이콘 PNG 의 절대 경로 (JS 가 convertFileSrc → asset protocol, scope = $APPDATA/icons/**)
+#[tauri::command]
+async fn icon(app: AppHandle, target: String) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("icons");
+    tauri::async_runtime::spawn_blocking(move || icons::icon(&dir, &target).map(|p| p.display().to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn start_apps() -> Result<Vec<(String, String)>, String> {
+    tauri::async_runtime::spawn_blocking(launch::start_apps).await.map_err(|e| e.to_string())?
+}
+
+/// 마지막 포그라운드 앱 + 실행 집합 (창이 늦게 떠도 즉시 표시)
+#[tauri::command]
+fn watch_state() -> (Option<watch::Fg>, Vec<String>) {
+    watch::STATE.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn panel_open(app: AppHandle) -> bool {
+    app.get_webview_window("panel").is_some()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -112,8 +155,24 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style])
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, start_apps, watch_state, panel_open
+        ])
         .setup(|app| {
+            // 첫 실행 시드 (Rust 에서 1회 — 여러 창이 동시에 시드하는 경쟁 없음)
+            let s = app.store("hera.json")?;
+            if !s.has("seeded") {
+                for (id, title, target, cover, glyph) in [
+                    ("calc", "계산기", r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", "#334155", "calc"),
+                    ("notepad", "메모장", r"shell:AppsFolder\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App", "#0EA5E9", "notepad"),
+                    ("github", "GitHub", "https://github.com", "#1F2937", "text"),
+                ] {
+                    s.set(format!("record:{id}"), serde_json::json!({ "id": id, "title": title, "target": target, "kind": "single", "cover": cover, "glyph": glyph }));
+                }
+                s.set("dock.pinned", serde_json::json!(["calc", "notepad", "github"]));
+                s.set("seeded", true);
+            }
             let h = app.handle();
             let dock = overlay(h, "dock", DOCK)?;
             let island = overlay(h, "island", ISLAND)?;

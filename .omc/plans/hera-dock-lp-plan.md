@@ -173,7 +173,7 @@ D:\AI\hera\
 3. 창 스타일/클릭 통과/포커스: tao 가 show/hide·`set_ignore_cursor_events` 때 GWL_EXSTYLE 을 자기 플래그로 통째 재기록 → TOOLWINDOW 삭제·APPWINDOW 부활. 그래서 **watch 루프가 매 틱 원하는 ex-style(TOOLWINDOW|NOACTIVATE, ±TRANSPARENT|LAYERED, −APPWINDOW)을 계산해 다를 때만 `SetWindowLongPtrW`** — `set_ignore_cursor_events` 는 쓰지 않음(같은 비트). NOACTIVATE 는 `focusable(false)` 로 tao 플래그에도 둠. panel 은 dock 소유 창(`parent`) → Alt+Tab 제외. 검증: 커서 위치별 TRANSPARENT 비트 7지점 모두 기대값(점 위만 dock 불투과, 섬 위만 island 불투과). WindowFromPoint 는 LockApp 이 최상위라 잠금 중 측정 불가 → `.omc/verify/clickthru.ps1` 로 잠금 해제 후 재확인.
 4. 드래그 역할: 미착수(B2). 외부 드래그 진입 시 클릭 통과 해제 로직만 구현(실제 탐색기 드롭 미검증).
 5. 메모리(릴리스, 창 2개 dock+island, 패널 없음, 독 접힘, idle 2.5분): **64.8MB** Private WS 합(hera 10.8 + WebView2 browser 13.9 + crashpad 10.5 + gpu 4.5 + utility 3.4/1.1 + renderer 10.8/9.8, 8프로세스) ≤150MB 통과. 시작 10초 시점 172.5MB(gpu 49.6, browser 44.8) → idle 후 트림. `MemoryUsageTargetLevel=Low` 는 `with_webview` → `ICoreWebView2_19` 로 dock/island 에 상시 적용(접힘 여부 무관). ⚠ 세션 잠금(창 가려짐) 중 측정이라 언락 상태 수치는 더 높을 수 있음 — Low 효과와 가림 트림 분리 못 함. 결정 규칙: 발동 안 함(panel 지연 생성+파괴는 기본값으로 구현).
-6. 스토어 이벤트: 미착수 — store 플러그인은 B2(실제 데이터 연결)에서 추가하며 판정.
+6. 스토어 이벤트: **플러그인 이벤트 채택, 커스텀 `data-changed` 없음** (B2에서 판정, 2026-11-13). tauri-plugin-store 2.5.1은 스토어를 앱 단위 `resources_table`에 둔다(같은 경로 = 같은 rid, 모든 창이 공유). 쓰기마다 `app.emit("store://change", {resourceId,key,value})`를 보내고, 다른 창의 `store.onChange`가 그것을 받는다. 실측: panel 창에서 `record:e2e`를 set하자 dock 창의 독에 즉시 표시됐다.
 - 스크린샷: `.omc/mockup-shots/30-real-composite-dock-open.png`, `30-real-composite-dot.png` — **합성본**: 실제 배경화면(맞춤·EXIF 회전) 위에 실제 실행 중인 앱 창 렌더(CDP 캡처, 알파 유지)를 실제 창 위치(dock 480,854 / island 740,0)에 얹음. 화면이 잠겨 CopyFromScreen 은 잠금 화면만 찍힘. 언락 후 실캡처 필요.
 - idle CPU(hera.exe, 60초): 0.16% of 1코어(20 논리코어 기준 0.008%).
 
@@ -210,7 +210,7 @@ D:\AI\hera\
 - 트레이: 패널 열기 / 로그인 시 자동 시작(체크, **기본 꺼짐**, 사용자가 켤 때만 레지스트리 등록) / 종료. single-instance 재실행 시 패널 열기.
 - dev: `beforeDevCommand: npm run dev:tauri` — :5173 에 이미 서버가 있으면 즉시 종료(0), 없으면 vite 기동. devUrl http://localhost:5173.
 - 검증: `cargo build` OK, `cargo test` 3/3(hit_test, ex_style, fullscreen_states), `cargo clippy -- -D warnings` 0, `npx tsc --noEmit` OK, `npm run tauri build -- --no-bundle` OK(hera.exe 3.4MB).
-- 재검증 스크립트: `.omc/verify/{inspect,styles-at,clickthru,mem}.ps1`.
+- 재검증 스크립트: `.omc/verify/{inspect,styles-at,clickthru,mem}.ps1`. B2/B3 수동 확인은 `.omc/verify/b2b3-manual.ps1` — 잠금 해제 후 실행하는 8단계 체크리스트(확대 아이콘 윗부분 클릭, 실행 앱 전면 표시, Now Playing, 드롭, 패널 점, 오류 alert, DPI 변경).
 
 ### B2. 실행 + 아이콘 + 레코드 라이브러리
 - 파일: `src-tauri/src/launch.rs`, `src-tauri/src/icons.rs`, `src/data/api.ts`(Tauri 분기), `src/surfaces/Dock.tsx`, `src/surfaces/Panel.tsx`
@@ -221,12 +221,72 @@ D:\AI\hera\
 - 저장: `tauri-plugin-store` `hera.json`, 항목당 키(`record:<id>`, `dock.pinned`). 다른 창 갱신은 B0-6 결정안(플러그인 이벤트 우선).
 - **수락**: 탐색기에서 **독으로** .exe/.lnk 드래그 등록(클릭 통과 폴러가 드래그 중 해제), 시작 메뉴 앱 목록에서 UWP 추가, 브라우저 URL 을 패널로 드래그 등록(또는 붙여넣기); 재시작 후 유지; 아이콘 가장자리에 검은/흰 테두리 없음(알파 정상); 계산기 클릭→실행 요청 p95 < 300ms, 실행된 앱이 전면에 뜸(§7 측정법).
 
+#### B2 결과 (2026-11-13, 세션 잠금 상태 — 클릭·육안 확인은 `.omc/verify/b2b3-manual.ps1`로 미룸)
+- 구성: `launch.rs`(launch, target 분류 `#[test]`, `start_apps`, 지연 벤치 `#[ignore]`), `icons.rs`(추출, un-premultiply `#[test]`, 샘플 `#[ignore]`). Rust 모듈은 lib/launch/icons/watch 4개. 추가한 의존성: tauri-plugin-store, serde(+json), png, tauri `protocol-asset`. png는 image crate 대신 단독으로 썼다(더 작음).
+- 실행: `AllowSetForegroundWindow(ASFW_ANY)` 후 `ShellExecuteExW`(`SEE_MASK_FLAG_NO_UI|NOASYNC`)를 호출한다. **편차**: 계획의 `ShellExecuteW` 대신 Ex 버전을 썼다. 오버레이에서 모달 오류 창이 뜨지 않게 하기 위해서다(오류는 문자열로 돌려 Island alert로 보여준다). spawn_blocking 스레드에서 STA로 실행한다.
+- 분류: `shell:AppsFolder\…`와 맨 AUMID → AUMID. `scheme:`(scheme 2글자 이상) → URL(https, mailto, ms-settings 등). 그 외 → 경로이며, 파일이 없으면 "파일이 없어요"를 반환한다.
+- 실행 지연(릴리스 빌드, `cargo test --release launch_latency -- --ignored`, 함수 호출부터 반환까지, 대상별 20회, 매회 창 종료):
+
+  | 대상 | p50 | p95 | 판정(<300ms) |
+  |---|---|---|---|
+  | 계산기(AUMID) | 77.7ms | 93.6ms | 통과 |
+  | charmap.exe | 29.6ms | 66.3ms | 통과 |
+  | URL `ms-calculator:` | 346.9ms | 376.3ms | **실패** |
+
+  - NOASYNC를 빼도 URL p95는 425ms로 나아지지 않았다. 지연은 패키지 앱 프로토콜 활성화 자체에서 생긴다.
+  - 실제 IPC 경로(릴리스 앱 dock 웹뷰에서 `invoke('launch')`, 계산기 5회): 224ms(콜드)/49/56/46/46ms.
+  - **측정 못 한 것(편차)**: 메모장은 사용자 메모장이 열려 있어 제외했다. 새로 실행하면 사용자 창에 탭이 추가된다(계산기와 같은 AUMID 경로라 그 수치로 갈음). https URL도 제외했다. 기본 브라우저(Chrome)가 사용자 세션으로 떠 있어 탭이 남기 때문이다. 대신 `ms-calculator:`로 URL 프로토콜 경로를 쟀다. https는 chrome.exe 실행이라 .exe 수치에 가까울 것으로 추정하지만 검증하지 않았다.
+- 아이콘: 워커 스레드(spawn_blocking)에서 `CoInitializeEx(STA)` → `SHCreateItemFromParsingName` → `IShellItemImageFactory::GetImage(256, SIIGBF_ICONONLY)` → `GetDIBits`(top-down 32bpp) → un-premultiply → `appData/icons/<hash>.png`(tmp에 쓴 뒤 rename) 순서로 처리한다.
+  - un-premultiply는 모든 픽셀이 c≤a일 때만 한다. 알파가 전부 0이면 불투명으로 본다.
+  - 표시는 `convertFileSrc` + asset protocol이며 scope는 `$APPDATA/icons/**`뿐이다. URL 레코드는 `origin/favicon.ico`를 쓰고, 실패하면 커버 컬러 이니셜이나 글리프로 돌아간다.
+  - 샘플: 계산기·메모장(AUMID), Code.exe, notepad++.exe, Beyond Compare 5.lnk, Ahk2Exe.lnk. 추출에 76~488ms가 걸렸다(첫 COM 초기화 포함).
+  - 알파 검사: 밝은 불투명 이웃을 둔 반투명 가장자리 픽셀 1,367개 중 RGB 평균이 40 미만인 것은 1개(Ahk2Exe, 소형 아이콘)였다. 검은 테두리는 없다. 연락처 시트: `.omc/mockup-shots/40-icons-contact-sheet.png`(흰/검/파랑 배경).
+  - 릴리스 앱 실측: 독의 계산기·메모장은 256px PNG(`asset.localhost`), GitHub는 32px favicon으로 표시된다.
+- 앱 목록: `Get-StartApps | ConvertTo-Json`을 한 번 실행해 306개를 받는다(Rust `OnceLock` 캐시, CREATE_NO_WINDOW).
+  - `{KNOWNFOLDER}\x.exe` 형태 AppID는 실제 exe 경로로 바꾼다(예: Notepad++ → `C:\Program Files\Notepad++\notepad++.exe`). 그래야 아이콘과 실행 인디케이터가 exe로 매칭된다. 나머지는 `shell:AppsFolder\<AppID>`로 둔다.
+  - UI: 패널 라이브러리 탭의 "시작 메뉴에서 앱 추가…"를 누르면 검색 목록(상위 30개)이 열린다.
+- 드롭: dock은 `getCurrentWebview().onDragDropEvent` drop에서 .exe/.lnk만 받아 레코드를 만들고 독에 고정한다. panel은 `disable_drag_drop_handler()` + HTML5 `text/uri-list`(http/https)로 받는다. 붙여넣기 폼(이름은 선택 입력)도 유지했다. 실제 탐색기/브라우저 드롭은 잠금 때문에 검증하지 못했다.
+- 저장: `hera.json`에 `record:<id>`, `todo:<id>`, `event:<id>`, `dock.pinned`(독 순서), `seeded` 키를 둔다.
+  - 첫 실행 시드는 **Rust setup에서 한 번** 한다. 창들이 동시에 시드하는 경쟁을 없애기 위해서다. 시드 내용: 계산기·메모장(AUMID), GitHub(URL). 할 일/일정 시드는 없다.
+  - `useItems(prefix)`는 이전 배열과 다음 배열을 비교해 바뀐 키만 set/delete한다(배열 통째 쓰기 없음).
+  - 라이브러리 행의 ★ 버튼이 독 고정을 켜고 끈다.
+  - 시안(브라우저)은 localStorage를 그대로 쓴다. `?surface=all`은 정상이다(레코드 7개, 피커 숨김, 콘솔 오류 0).
+- 이전 단계 위험 처리:
+  1. 펼친 독의 히트 rect = 바 폭 + 120px(확대 시 좌우로 늘어나는 최대치) × 높이 112px(바 72 + 확대 아이콘 52×1.8). 실측: hit top 58px가 확대 아이콘 top 66px보다 위에 있다.
+  2. api.ts가 마지막 rect(CSS px)를 기억해 두고, `matchMedia('(resolution: Ndppx)')` change가 오면 새 DPR로 다시 보낸다. 처리는 이 한 곳에서 한다.
+  3. localStorage 공유를 없애고 스토어로 바꿨다. panel 창을 생성/파괴할 때 Rust가 `panel-state`(bool)를 emit하고, 늦게 뜬 창은 `panel_open`으로 조회한다. 실측: 패널을 열면 독의 패널 점이 true, 닫으면(창 파괴) false가 된다.
+- 실행 오류는 `emit('hera-alert')`로 island 창의 alert에 띄운다. 실측: island mode=alert에 제목이 표시됐다. 없는 경로를 launch하면 "파일이 없어요: C:\nope\x.exe"를 반환한다.
+
 ### B3. 실행 상태 + Now Playing
 - 파일: `src-tauri/src/watch.rs`, `src/surfaces/Island.tsx`, `src/surfaces/Dock.tsx`
 - 포그라운드: B1 루프의 30Hz `GetForegroundWindow` 변화 → `{hwnd, pid, exePath, title}` emit. UWP 는 `ApplicationFrameHost.exe` 이므로 창의 AUMID(`SHGetPropertyStoreForWindow` PKEY_AppUserModel_ID)로 해석.
 - 실행 인디케이터: 루프 2s `EnumWindows`(보이는 최상위 창) → 실행 중 exe/AUMID 집합 emit. `ponytail:` 폴링 2s, 지연이 거슬리면 주기 단축.
 - Now Playing: 포그라운드 앱 = 곡명, 경과 = 현재 앱이 포그라운드가 된 연속 시간(정의는 Open Question 1), 레코드면 커버/아이콘 표시. 미니 LP 회전 정책은 A5 결정(Open Question 5, 기본 10초 무변화 시 정지).
 - **수락**: 앱 전환 후 ≤ 200ms 안에 Island 곡명 변경, 독 인디케이터가 실행/종료를 ≤ 2.5s 안에 반영, idle CPU 기준(§7) 충족.
+
+#### B3 결과 (2026-11-13)
+- 포그라운드: 30Hz 루프에서 포그라운드 창이 바뀌면 `foreground` `{hwnd,pid,exePath,title,aumid}`를 emit한다. 자기 창과 **제목 없는 창**(작업표시줄 등 일시 포커스)은 제외한다.
+  - AUMID: 먼저 창의 `SHGetPropertyStoreForWindow` → `PKEY_AppUserModel_ID`를 보고, 없으면 프로세스의 `GetApplicationUserModelId`를 쓴다(패키지 앱). Win11 메모장은 ApplicationFrameHost가 아니라 Notepad.exe라서 두 번째 경로로 풀린다.
+  - watch 스레드는 `COINIT_MULTITHREADED`로 초기화한다.
+- 실행 집합: 2초마다 `EnumWindows`를 돈다. 대상 창 조건: 보임, 클로킹 아님, 소유자 없음, TOOLWINDOW 아님, 제목 있음, 자기 프로세스 아님. 여기서 exe 경로와 `shell:appsfolder\<aumid>`(소문자)를 모아 집합이 바뀔 때만 `running`을 emit한다. 레코드는 `target.toLowerCase()`가 일치하면 실행 중으로 본다. `ponytail:` 2s 폴링.
+- 늦게 뜬 창(패널 등)은 `watch_state` 커맨드로 마지막 포그라운드와 실행 집합을 바로 가져간다.
+- Now Playing:
+  - 곡명: 레코드 제목 → 창 제목의 마지막 " - " 조각(대부분 앱 이름) → exe 이름 순서로 고른다.
+  - 경과 시간: 같은 앱(aumid 또는 exePath)이 연속으로 포그라운드에 있던 시간이다. 같은 앱 안에서 창만 바뀌면 이어서 센다(Open Question 1 기본안).
+  - 아이콘: 레코드 아이콘, 없으면 exe/AUMID에서 추출한 아이콘.
+  - 미니 LP: 곡이 바뀐 뒤 10초 회전하고 멈춘다. effect 의존성을 `[startedAt,title]`로 둬서 렌더마다 다시 돌지 않게 했다.
+- 검증(`cargo test running_and_aumid -- --ignored`: 계산기 실행 → 3초 대기 → 종료):
+  - 실행 집합에 `shell:appsfolder\microsoft.windowscalculator_8wekyb3d8bbwe!app`과 `…windowsnotepad…!app`(사용자 메모장)이 들어 있다 — 통과.
+  - 계산기 ApplicationFrameHost 창의 `info()` 결과가 `aumid: Microsoft.WindowsCalculator_8wekyb3d8bbwe!App, title: 계산기`다 — 통과.
+  - 릴리스 앱: 계산기를 실행하면 독 점이 true, taskkill 후 3초 안에 false가 된다 — 통과.
+  - 메모장은 사용자 것이 이미 떠 있어서 새로 실행하지 않았다.
+  - 실제 포그라운드 전환(200ms 안에 Island 갱신)은 검증하지 못했다. 잠금 상태에서는 GetForegroundWindow가 잠금 화면을 돌려주기 때문이다(`b2b3-manual.ps1` 3번).
+- 메모리(릴리스, dock+island, 패널 닫힘, 독 접힘, idle 160초): Private WS 합 **67.3MB** ≤150MB — 통과.
+  - 내역: hera 11.2, browser 13.2, crashpad 10.5, gpu 4.3, utility 3.6/1.1, renderer 12.3/11.1 MB.
+  - B0의 64.8MB보다 2.5MB 늘었다.
+  - idle CPU(hera.exe, 30초 평균): 1코어 기준 0.16% — 통과.
+  - ⚠ 잠금 세션에서 잰 수치다.
+- 빌드/검사: `cargo build`, `cargo test`(6개 통과, 수동 `#[ignore]` 3개), `cargo clippy -- -D warnings`(경고 0), `npx tsc --noEmit`, `npm run build`, `npm run tauri build -- --no-bundle`(hera.exe 3.8MB) 모두 통과했다.
 
 ### B4. 할일/달력/알림
 - 파일: `src/surfaces/Panel.tsx`, `src/surfaces/Island.tsx`, `src-tauri/src/watch.rs`

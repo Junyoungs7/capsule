@@ -1,10 +1,18 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { useEffect, useState, type SetStateAction } from 'react'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { emit, listen } from '@tauri-apps/api/event'
+import { load as loadStore, type Store } from '@tauri-apps/plugin-store'
 
-// 단일 모듈: Tauri 가 있으면 invoke/이벤트, 없으면 mock + localStorage.
+// 단일 모듈: Tauri 가 있으면 invoke/스토어/이벤트, 없으면(시안) mock + localStorage.
 export const isTauri = '__TAURI_INTERNALS__' in window
 
-export function load<T>(key: string, fallback: T): T {
+/* ── 저장: Tauri = tauri-plugin-store `hera.json` 항목당 키(record:<id>, todo:<id>, event:<id>, dock.pinned).
+   B0-6: 스토어는 앱 단위 리소스(같은 rid)이고 쓰기마다 app.emit('store://change') → 다른 창의 onChange 로 전달된다.
+   그래서 커스텀 data-changed 이벤트 없음. 시안 = localStorage(배열 통째). */
+let st: Promise<Store> | undefined
+const store = () => (st ??= loadStore('hera.json'))
+
+function local<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem('hera.' + key)
     return raw ? (JSON.parse(raw) as T) : fallback
@@ -12,8 +20,7 @@ export function load<T>(key: string, fallback: T): T {
     return fallback
   }
 }
-
-export function save(key: string, value: unknown) {
+function saveLocal(key: string, value: unknown) {
   try {
     localStorage.setItem('hera.' + key, JSON.stringify(value))
   } catch {
@@ -21,23 +28,131 @@ export function save(key: string, value: unknown) {
   }
 }
 
-export function launch(target: string) {
-  if (isTauri) {
-    // B2: return invoke('launch', { target })
-  }
+function onStore(cb: (key: string, value: unknown) => void) {
+  const off = store().then((s) => s.onChange(cb))
+  return () => void off.then((f) => f())
+}
+
+const apply = <T,>(f: SetStateAction<T>, prev: T) => (typeof f === 'function' ? (f as (p: T) => T)(prev) : f)
+
+/** 컬렉션(항목당 키 `<prefix>:<id>`). setter 는 이전/다음 배열을 비교해 바뀐 키만 쓰고 지운다. */
+export function useItems<T extends { id: string }>(prefix: string, seed: T[]) {
+  const [items, setItems] = useState<T[]>(() => (isTauri ? [] : local(prefix, seed)))
+  useEffect(() => {
+    if (!isTauri) return
+    const p = prefix + ':'
+    store()
+      .then((s) => s.entries<T>())
+      .then((es) => setItems(es.filter(([k]) => k.startsWith(p)).map(([, v]) => v)))
+    return onStore((k, v) => {
+      if (!k.startsWith(p)) return
+      const id = k.slice(p.length)
+      setItems((all) => (v === undefined ? all.filter((x) => x.id !== id) : all.some((x) => x.id === id) ? all.map((x) => (x.id === id ? (v as T) : x)) : [...all, v as T]))
+    })
+  }, [])
+  const update = (f: SetStateAction<T[]>) =>
+    setItems((prev) => {
+      const next = apply(f, prev)
+      if (!isTauri) saveLocal(prefix, next)
+      else
+        void store().then((s) => {
+          for (const x of next) if (prev.find((o) => o.id === x.id) !== x) void s.set(`${prefix}:${x.id}`, x)
+          for (const o of prev) if (!next.some((x) => x.id === o.id)) void s.delete(`${prefix}:${o.id}`)
+        })
+      return next
+    })
+  return [items, update] as const
+}
+
+/** 단일 키 값 (dock.pinned 등) */
+export function useValue<T>(key: string, fallback: T) {
+  const [v, setV] = useState<T>(() => (isTauri ? fallback : local(key, fallback)))
+  useEffect(() => {
+    if (!isTauri) return
+    store()
+      .then((s) => s.get<T>(key))
+      .then((x) => x !== undefined && setV(x))
+    return onStore((k, x) => k === key && setV((x ?? fallback) as T))
+  }, [])
+  const update = (f: SetStateAction<T>) =>
+    setV((prev) => {
+      const next = apply(f, prev)
+      if (isTauri) void store().then((s) => s.set(key, next))
+      else saveLocal(key, next)
+      return next
+    })
+  return [v, update] as const
+}
+
+/* ── 실행·아이콘 ── */
+export async function launch(target: string) {
+  if (isTauri) return invoke<void>('launch', { target })
   console.info('[hera] launch', target)
 }
 
-// B0-3: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 시안에서는 no-op.
-export function reportHitRects(_surface: string, rects: DOMRect[]) {
-  if (!isTauri) return
-  const k = devicePixelRatio
-  invoke('report_hit_rects', { rects: rects.map((r) => [r.x * k, r.y * k, r.width * k, r.height * k]) })
+const isUrl = (t: string) => /^[a-z][a-z0-9+.-]+:/i.test(t) && !/^shell:/i.test(t)
+const iconCache = new Map<string, Promise<{ src: string; kind: 'app' | 'fav' } | null>>()
+
+/** 레코드 아이콘: 앱 = Rust 추출 PNG(asset protocol), http(s) URL = favicon. 실패/시안 = null(커버 컬러 이니셜·글리프). */
+export function iconFor(target: string) {
+  if (!isTauri || !target) return null
+  let p = iconCache.get(target)
+  if (!p) {
+    p = isUrl(target)
+      ? Promise.resolve(/^https?:/i.test(target) ? { src: new URL(target).origin + '/favicon.ico', kind: 'fav' as const } : null)
+      : invoke<string>('icon', { target }).then((path) => ({ src: convertFileSrc(path), kind: 'app' as const }), () => null)
+    iconCache.set(target, p)
+  }
+  return p
 }
 
-// 패널 창: 없으면 지연 생성, 있으면 'panel-close' → 닫힘 애니메이션 → closePanelWindow() 로 파괴
+/** 대상 → 기본 제목 (URL = 호스트, 경로 = 파일 이름) */
+export function titleOf(target: string) {
+  if (/^https?:/i.test(target)) return new URL(target).hostname.replace(/^www\./, '')
+  return target.split(/[\\/]/).pop()!.replace(/\.(exe|lnk)$/i, '')
+}
+
+export const startApps = () => invoke<[string, string][]>('start_apps')
+
+/* ── B3: 포그라운드 앱(Now Playing) · 실행 집합 ── */
+export type Fg = { hwnd: number; pid: number; exePath: string; title: string; aumid: string }
+export const watchState = () => invoke<[Fg | null, string[]]>('watch_state')
+
+/* ── 창 간 알림 (실행 오류 → Island alert) ── */
+export type AlertMsg = { title: string; body: string }
+export const sendAlert = (a: AlertMsg) => emit('hera-alert', a)
+
+/* ── 클릭 통과 히트 rect ──
+   B0-3: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 시안에서는 no-op.
+   마지막 rect(CSS px)를 기억해 두고 배율(DPI)이 바뀌면 새 devicePixelRatio 로 다시 보낸다. */
+const lastRects = new Map<string, DOMRect[]>()
+const sendRects = (rects: DOMRect[]) => {
+  const k = devicePixelRatio
+  void invoke('report_hit_rects', { rects: rects.map((r) => [r.x * k, r.y * k, r.width * k, r.height * k]) })
+}
+function watchDpr() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
+    'change',
+    () => {
+      for (const r of lastRects.values()) sendRects(r)
+      watchDpr()
+    },
+    { once: true },
+  )
+}
+if (isTauri) watchDpr()
+
+export function reportHitRects(surface: string, rects: DOMRect[]) {
+  if (!isTauri) return
+  lastRects.set(surface, rects)
+  sendRects(rects)
+}
+
+// 패널 창: 없으면 지연 생성, 있으면 'panel-close' → 닫힘 애니메이션 → closePanelWindow() 로 파괴.
+// 열림/닫힘은 Rust 가 'panel-state'(bool) 로 알린다.
 export const togglePanel = (tab: string) => invoke('toggle_panel', { tab })
 export const closePanelWindow = () => invoke('close_panel')
+export const panelOpen = () => invoke<boolean>('panel_open')
 
 // B0-1 ② 배경화면 페이크용 원본 바이트. 단색/없음 → null (틴트 폴백)
 export const wallpaper = () =>
@@ -46,7 +161,7 @@ export const wallpaper = () =>
     invoke<[string, string]>('wallpaper_style'), // [WallpaperStyle, 여백 색 "r g b"]
   ])
 
-export function onEvent(name: string, cb: () => void) {
-  const off = listen(name, cb)
+export function onEvent<T = unknown>(name: string, cb: (payload: T) => void) {
+  const off = listen<T>(name, (e) => cb(e.payload))
   return () => void off.then((f) => f())
 }

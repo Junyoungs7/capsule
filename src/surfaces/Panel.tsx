@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import type { CalendarEvent, LpRecord, Todo } from '../data/types'
-import { COVERS } from '../data/mock'
+import { isTauri, startApps } from '../data/api'
 import { Tile } from './Dock'
 import { fmtWhen } from './Island'
 
@@ -19,7 +19,10 @@ type Props = {
   events: CalendarEvent[]
   setEvents: Dispatch<SetStateAction<CalendarEvent[]>>
   records: LpRecord[]
-  setRecords: Dispatch<SetStateAction<LpRecord[]>>
+  pinned: string[]
+  onAddRecord: (target: string, title?: string) => void
+  onRemoveRecord: (id: string) => void
+  onTogglePin: (id: string) => void
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -174,35 +177,71 @@ function CalendarTab({ events, setEvents, onAdded }: Props) {
   )
 }
 
-function LibraryTab({ records, setRecords }: Props) {
+function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin }: Props) {
   const [title, setTitle] = useState('')
   const [target, setTarget] = useState('')
   const add = (e: FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || !target.trim()) return
-    setRecords((r) => [...r, { id: id(), title: title.trim(), target: target.trim(), kind: 'single', cover: COVERS[r.length % COVERS.length], glyph: 'text' }])
+    if (!target.trim()) return
+    onAddRecord(target.trim(), title.trim() || undefined)
     setTitle('')
     setTarget('')
   }
+  // B0-4: 패널 = HTML5 드롭 (브라우저 주소창/링크 → text/uri-list). 붙여넣기 폼은 폴백.
+  const drop = (e: DragEvent) => {
+    e.preventDefault()
+    const url = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')).split(/\r?\n/).find((l) => /^https?:\/\//i.test(l))
+    if (url) onAddRecord(url.trim())
+  }
   return (
-    <>
+    <div onDragOver={(e) => e.preventDefault()} onDrop={drop}>
       <form className="add" onSubmit={add}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="이름" aria-label="레코드 이름" />
-        <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="URL 또는 .exe 경로" aria-label="대상" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="이름 (선택)" aria-label="레코드 이름" />
+        <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="URL 또는 .exe 경로 (URL 을 끌어다 놓아도 돼요)" aria-label="대상" />
         <button className="primary">추가</button>
       </form>
+      {isTauri && <AppPicker onPick={onAddRecord} />}
       <ul className="list">
-        {records.map((r) => (
+        {[...records].sort((a, b) => a.title.localeCompare(b.title)).map((r) => (
           <li key={r.id}>
             <Tile rec={r} size={34} />
             <span className="grow">
               <b>{r.title}</b>
               <small>{r.kind === 'set' ? `LP 세트 · ${r.targets?.length ?? 0}개 앱` : r.target}</small>
             </span>
-            <button className="icon-btn del" onClick={() => setRecords((all) => all.filter((x) => x.id !== r.id))} aria-label={`${r.title} 삭제`}>×</button>
+            <button className="icon-btn" onClick={() => onTogglePin(r.id)} aria-pressed={pinned.includes(r.id)} aria-label={`${r.title} 독에 고정`} title="독에 고정">
+              {pinned.includes(r.id) ? '★' : '☆'}
+            </button>
+            <button className="icon-btn del" onClick={() => onRemoveRecord(r.id)} aria-label={`${r.title} 삭제`}>×</button>
           </li>
         ))}
       </ul>
-    </>
+    </div>
+  )
+}
+
+// 시작 메뉴 앱 목록 (Get-StartApps — Rust 가 1회 실행 후 캐시). 검색해서 추가.
+function AppPicker({ onPick }: { onPick: (target: string, title: string) => void }) {
+  const [apps, setApps] = useState<[string, string][] | null>(null)
+  const [q, setQ] = useState('')
+  if (!apps)
+    return (
+      <button className="picker-open" onClick={() => void startApps().then(setApps, () => setApps([]))}>
+        시작 메뉴에서 앱 추가…
+      </button>
+    )
+  const hits = apps.filter(([n]) => n.toLowerCase().includes(q.toLowerCase())).slice(0, 30)
+  return (
+    <div className="picker">
+      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`앱 검색 (${apps.length}개)`} aria-label="앱 검색" />
+      <ul className="list">
+        {hits.map(([name, target]) => (
+          <li key={target}>
+            <span className="grow"><b>{name}</b></span>
+            <button className="icon-btn" onClick={() => onPick(target, name)} aria-label={`${name} 추가`}>＋</button>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

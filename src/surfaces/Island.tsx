@@ -59,7 +59,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     setSpinning(true)
     const t = setTimeout(() => setSpinning(false), 10_000)
     return () => clearTimeout(t)
-  }, [playing])
+  }, [playing?.startedAt, playing?.title])
 
   // 경과 시간은 분 단위 — nowPlaying 표시 중에만 1분 타이머
   const [, tick] = useState(0)

@@ -1,29 +1,69 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
-import { closePanelWindow, isTauri, launch, load, onEvent, save, togglePanel } from '../data/api'
-import { seedEvents, seedRecords, seedTodos } from '../data/mock'
+import {
+  closePanelWindow, isTauri, launch, onEvent, panelOpen, sendAlert, titleOf, togglePanel, useItems, useValue, watchState,
+  type AlertMsg, type Fg,
+} from '../data/api'
+import { COVERS, seedEvents, seedRecords, seedTodos } from '../data/mock'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 
+// 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
+const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
+const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has(r.target.toLowerCase())
+const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
+
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
 export function Desktop({ only }: { only?: string }) {
   const show = (s: string) => !only || only === s
   const [theme, setTheme] = useState(document.documentElement.dataset.theme)
-  const [records, setRecords] = useState(() => load('records', seedRecords))
-  const [todos, setTodos] = useState(() => load('todos', seedTodos))
-  const [events, setEvents] = useState(() => load('events', seedEvents))
-  useEffect(() => save('records', records), [records])
-  useEffect(() => save('todos', todos), [todos])
-  useEffect(() => save('events', events), [events])
+  const [records, setRecords] = useItems<LpRecord>('record', seedRecords)
+  const [pinned, setPinned] = useValue<string[]>('dock.pinned', seedRecords.map((r) => r.id))
+  const [todos, setTodos] = useItems('todo', seedTodos)
+  const [events, setEvents] = useItems('event', seedEvents)
+  const dockRecords = pinned.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r)
+
+  const addRecord = (target: string, title = titleOf(target)) => {
+    const id = crypto.randomUUID()
+    setRecords((rs) => [...rs, { id, title, target, kind: 'single', cover: COVERS[rs.length % COVERS.length], glyph: 'text' }])
+    setPinned((p) => [...p, id])
+  }
+  const removeRecord = (id: string) => {
+    setRecords((rs) => rs.filter((r) => r.id !== id))
+    setPinned((p) => p.filter((x) => x !== id))
+  }
+  const togglePin = (id: string) => setPinned((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
 
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [playing, setPlaying] = useState<RunningSession | null>(null)
   const [alert, setAlert] = useState<Notification | null>(null)
   const [peek, setPeek] = useState(false)
   const peekTimer = useRef(0)
+  const showAlert = (a: AlertMsg) => (isTauri ? void sendAlert(a) : setAlert({ id: crypto.randomUUID(), ...a }))
+
+  // B3 (Tauri): 실행 집합(2s) · 포그라운드(30Hz 변화 시) — watch 루프 이벤트. 늦게 뜬 창은 watch_state 로 즉시 동기화.
+  const [runKeys, setRunKeys] = useState<Set<string>>(() => new Set())
+  const [fg, setFg] = useState<{ key: string; f: Fg; since: number } | null>(null)
+  const [remoteOpen, setRemoteOpen] = useState(false)
+  useEffect(() => {
+    if (!isTauri) return
+    const onFg = (f: Fg) => setFg((cur) => (cur?.key === (f.aumid || f.exePath) ? cur : { key: f.aumid || f.exePath, f, since: Date.now() }))
+    const onRun = (keys: string[]) => setRunKeys(new Set(keys))
+    void watchState().then(([f, keys]) => (f && onFg(f), onRun(keys)))
+    void panelOpen().then(setRemoteOpen)
+    const offs = [
+      onEvent('foreground', onFg),
+      onEvent('running', onRun),
+      onEvent<boolean>('panel-state', setRemoteOpen),
+      onEvent<AlertMsg>('hera-alert', (a) => setAlert({ id: crypto.randomUUID(), ...a })),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
+  const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
+
   const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(only === 'panel' ? { open: true, tab: (new URLSearchParams(location.search).get('tab') as Tab) ?? 'todo' } : null)
   const [palette, setPalette] = useState(only === 'palette')
 
@@ -47,7 +87,11 @@ export function Desktop({ only }: { only?: string }) {
   const ids = (r: LpRecord) => (r.kind === 'set' ? r.targets ?? [] : [r.id])
 
   const run = (r: LpRecord) => {
-    for (const id of ids(r)) launch(records.find((x) => x.id === id)?.target ?? id)
+    for (const id of ids(r)) {
+      const t = records.find((x) => x.id === id)?.target ?? id
+      launch(t).catch((e) => showAlert({ title: `${r.title} 실행 실패`, body: String(e) }))
+    }
+    if (isTauri) return // 실행 상태·Now Playing 은 watch 루프가 알려준다
     setRunning((s) => new Set([...s, ...ids(r)]))
     setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() })
   }
@@ -128,15 +172,28 @@ export function Desktop({ only }: { only?: string }) {
         <Island
           alert={alert}
           next={next}
-          playing={playing}
-          playingRec={records.find((r) => r.id === playing?.recordId)}
+          playing={isTauri ? fg && { recordId: fgRec?.id ?? '', title: fgRec?.title ?? appName(fg.f), startedAt: fg.since } : playing}
+          playingRec={
+            isTauri
+              ? fg ? fgRec ?? { id: 'fg', title: appName(fg.f), target: fg.f.aumid ? `shell:AppsFolder\\${fg.f.aumid}` : fg.f.exePath, kind: 'single', cover: '#64748B', glyph: 'text' } : undefined
+              : records.find((r) => r.id === playing?.recordId)
+          }
           peek={peek}
           onDone={done}
           onSnooze={snooze}
           onOpen={() => openPanel('todo')}
         />
       )}
-      {show('dock') && <Dock records={records} running={running} panelOpen={!!panel?.open} onLaunch={run} onPanel={() => (panel?.open ? closePanel() : openPanel('library'))} />}
+      {show('dock') && (
+        <Dock
+          records={dockRecords}
+          running={isTauri ? new Set(records.filter((r) => matches(r, runKeys)).map((r) => r.id)) : running}
+          panelOpen={remotePanel ? remoteOpen : !!panel?.open}
+          onLaunch={run}
+          onPanel={() => (remotePanel || panel?.open ? closePanel() : openPanel('library'))}
+          onDropFiles={(paths) => paths.forEach((p) => addRecord(p))}
+        />
+      )}
       {panel && show('panel') && (
         <Panel
           open={panel.open}
@@ -150,7 +207,10 @@ export function Desktop({ only }: { only?: string }) {
           events={events}
           setEvents={setEvents}
           records={records}
-          setRecords={setRecords}
+          pinned={pinned}
+          onAddRecord={addRecord}
+          onRemoveRecord={removeRecord}
+          onTogglePin={togglePin}
         />
       )}
       {palette && show('palette') && (

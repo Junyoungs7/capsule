@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import type { LpRecord } from '../data/types'
-import { isTauri, onEvent, reportHitRects, wallpaper } from '../data/api'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { iconFor, isTauri, onEvent, reportHitRects, wallpaper } from '../data/api'
 import { Shelf } from './Shelf'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
@@ -22,9 +23,19 @@ export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)'
 /* ── 레코드 타일 (독·크레이트·라이브러리·팔레트 공용) ── */
 export function Tile({ rec, size }: { rec: LpRecord; size?: number }) {
   const g = rec.glyph
+  // 실제 앱: 추출 아이콘(app) / favicon(fav). 실패하면 아래 글리프·이니셜로 폴백.
+  const [img, setImg] = useState<{ src: string; kind: string } | null>(null)
+  useEffect(() => {
+    let live = true
+    setImg(null)
+    void iconFor(rec.kind === 'single' ? rec.target : '')?.then((i) => live && setImg(i))
+    return () => void (live = false)
+  }, [rec.target])
   return (
-    <span className="tile" style={{ '--c': rec.cover, width: size, height: size, fontSize: size } as CSSProperties} aria-hidden>
-      {g === 'text' ? (
+    <span className="tile" data-img={img?.kind} style={{ '--c': rec.cover, width: size, height: size, fontSize: size } as CSSProperties} aria-hidden>
+      {img ? (
+        <img src={img.src} alt="" draggable={false} onError={() => setImg(null)} />
+      ) : g === 'text' ? (
         <b>{rec.title.slice(0, 1)}</b>
       ) : (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -43,6 +54,7 @@ const MAX = 1.8 // 최대 배율
 const R = 170 // 코사인 감쇠 반경(px)
 const BOX = 84 // 바 레이어 높이 (스프링 오버슈트 여유 포함)
 const BAR_H = 72
+const SPREAD = 120 // 확대 시 바가 좌우로 넓어지는 최대 폭(≈ 52px 아이콘 5개 × 코사인 가중 × 0.8) — 펼침 히트 rect 여유
 
 type Item = { el: HTMLElement; mag: HTMLElement | null; c: number; w: number }
 
@@ -52,9 +64,10 @@ type Props = {
   panelOpen: boolean
   onLaunch: (r: LpRecord) => void
   onPanel: () => void
+  onDropFiles: (paths: string[]) => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles }: Props) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const row = useRef<HTMLDivElement>(null)
@@ -82,11 +95,25 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel }: Props) 
   useLayoutEffect(() => {
     m.current = null
     paint(0, false)
-    hit.current!.style.width = open ? row.current!.offsetWidth + 20 + 'px' : ''
+    // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
+    hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
     reportHitRects('dock', [hit.current!.getBoundingClientRect()])
   }, [open, records.length])
 
   useEffect(() => () => (clearTimeout(closeTimer.current), cancelAnimationFrame(frame.current)), [])
+
+  // B0-4: 독 = 네이티브 드롭(탐색기 .exe/.lnk). 클릭 통과 폴러가 외부 드래그 진입 시 통과를 해제한다.
+  const drop = useRef(onDropFiles)
+  drop.current = onDropFiles
+  useEffect(() => {
+    if (!isTauri) return
+    const off = getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type !== 'drop') return
+      const paths = e.payload.paths.filter((p) => /\.(exe|lnk)$/i.test(p))
+      if (paths.length) drop.current(paths)
+    })
+    return () => void off.then((f) => f())
+  }, [])
 
   // B0-1 ②: 실제 앱에서는 배경화면을 정적 캔버스로 1회 그린다 (변경 시 watch 루프가 'wallpaper' emit)
   const wall = useRef<HTMLCanvasElement>(null)
