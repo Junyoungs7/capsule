@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
-import type { LpRecord } from '../data/types'
+import type { LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { iconFor, isTauri, onEvent, reportHitRects, wallpaper } from '../data/api'
+import { iconFor, isTauri, onEvent, power, reportHitRects, wallpaper } from '../data/api'
 import { Shelf } from './Shelf'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
@@ -64,10 +64,14 @@ type Props = {
   panelOpen: boolean
   onLaunch: (r: LpRecord) => void
   onPanel: () => void
-  onDropFiles: (paths: string[]) => void
+  onDropFiles: (paths: string[], toShelf: boolean) => void
+  onCue: (r: LpRecord) => void // 우클릭 = 턴테이블에 올리기
+  shelf: ShelfFile[]
+  onShelfOpen: (f: ShelfFile) => void
+  onShelfRemove: (f: ShelfFile) => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove }: Props) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const row = useRef<HTMLDivElement>(null)
@@ -98,19 +102,25 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
     hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
     reportHitRects('dock', [hit.current!.getBoundingClientRect()])
-  }, [open, records.length])
+  }, [open, records.length, shelf.length])
 
   useEffect(() => () => (clearTimeout(closeTimer.current), cancelAnimationFrame(frame.current)), [])
 
-  // B0-4: 독 = 네이티브 드롭(탐색기 .exe/.lnk). 클릭 통과 폴러가 외부 드래그 진입 시 통과를 해제한다.
+  // B0-4: 독 = 네이티브 드롭(탐색기 파일). 클릭 통과 폴러가 외부 드래그 진입 시 통과를 해제한다.
+  // C4: 끌고 들어오면 독을 펼쳐 선반을 보여 주고, 선반 위에 놓으면 선반으로(그 외 .exe/.lnk = 레코드, 나머지 = 선반).
   const drop = useRef(onDropFiles)
   drop.current = onDropFiles
   useEffect(() => {
     if (!isTauri) return
     const off = getCurrentWebview().onDragDropEvent((e) => {
-      if (e.payload.type !== 'drop') return
-      const paths = e.payload.paths.filter((p) => /\.(exe|lnk)$/i.test(p))
-      if (paths.length) drop.current(paths)
+      const p = e.payload
+      clearTimeout(closeTimer.current)
+      if (p.type === 'enter' || p.type === 'over') return setOpen(true)
+      closeTimer.current = window.setTimeout(() => setOpen(false), 400)
+      if (p.type !== 'drop') return
+      const s = root.current!.querySelector('.shelf')!.getBoundingClientRect()
+      const x = p.position.x / devicePixelRatio, y = p.position.y / devicePixelRatio
+      drop.current(p.paths, x >= s.left && x < s.right && y >= s.top && y < s.bottom)
     })
     return () => void off.then((f) => f())
   }, [])
@@ -211,7 +221,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
       <div ref={hit} className="dock-hit" />
       <div ref={row} className="dock-row" role="toolbar" aria-label="독">
         {records.map((r) => (
-          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} onClick={(e) => launch(r, e)} aria-label={`${r.title} 실행`}>
+          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: 턴테이블에 올리기)`}>
             <span className="icon-mag">
               <span className="icon-bounce"><Tile rec={r} /></span>
             </span>
@@ -233,8 +243,8 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
         </button>
         <span className="dock-sep" />
         <Clock />
-        <Battery level={82} />
-        <Shelf />
+        <Battery />
+        <Shelf files={shelf} onOpen={onShelfOpen} onRemove={onShelfRemove} onDrop={(paths) => onDropFiles(paths, true)} />
       </div>
     </div>
   )
@@ -282,10 +292,18 @@ function Clock() {
   )
 }
 
-// 시안: 고정값 (C4 에서 GetSystemPowerStatus)
-function Battery({ level }: { level: number }) {
+// C4: GetSystemPowerStatus 1회 + watch 루프가 바뀔 때만 'power' 이벤트 (JS 타이머 없음). 배터리 없으면 숨김. 시안 = 82%.
+function Battery() {
+  const [p, setP] = useState<[number, boolean] | null>(isTauri ? null : [82, false])
+  useEffect(() => {
+    if (!isTauri) return
+    void power().then(setP)
+    return onEvent('power', setP)
+  }, [])
+  if (!p) return null
+  const [level, charging] = p
   return (
-    <div className="dock-slot widget battery" aria-label={`배터리 ${level}%`}>
+    <div className="dock-slot widget battery" data-charging={charging} aria-label={`배터리 ${level}%${charging ? ', 충전 중' : ''}`}>
       <svg viewBox="0 0 36 36" aria-hidden>
         <circle cx="18" cy="18" r="14" className="track" />
         <circle cx="18" cy="18" r="14" className="val" pathLength={100} strokeDasharray={`${level} 100`} />

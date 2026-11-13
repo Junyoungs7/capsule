@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import type { LpRecord } from '../data/types'
+import { reportHitRects } from '../data/api'
 import { reducedMotion, Tile } from './Dock'
 
 /* ── 픽셀 아트 스프라이트 ─────────────────────────────────────────────────
@@ -206,9 +207,16 @@ type Props = {
   records: LpRecord[]
   onPlay: (r: LpRecord) => void
   onStop: (r: LpRecord) => void
+  // 실제 앱: 살아 있는 레코드 id(실행 집합 기준, 세트는 멤버 중 하나라도). 없으면(시안) 정지 버튼으로만 멈춘다.
+  alive?: Set<string>
+  cue?: { rec: LpRecord; n: number } | null // 독 우클릭 '턴테이블에 올리기' (n 이 바뀔 때마다 재생)
+  onActivate?: (r: LpRecord) => void // 플래터 클릭 → 앱 창 전면
+  onHide?: () => void
 }
 
-export function Turntable({ records, onPlay, onStop }: Props) {
+const GRACE = 15_000 // 실행 후 이 시간 안에 앱 창이 안 나타나면(URL 레코드 등) 정지
+
+export function Turntable({ records, onPlay, onStop, alive, cue, onActivate, onHide }: Props) {
   const [loaded, setLoaded] = useState<LpRecord | null>(null)
   const [playing, setPlaying] = useState(false)
   const [dragging, setDragging] = useState<LpRecord | null>(null)
@@ -222,6 +230,7 @@ export function Turntable({ records, onPlay, onStop }: Props) {
   const ramp = useRef(0)
   const armTimer = useRef(0)
   const [open, setOpen] = useState(false) // LP 서랍
+  const seen = useRef(false) // 재생 중 앱이 한 번이라도 살아 있었나
 
   useEffect(() => () => (cancelAnimationFrame(frame.current), cancelAnimationFrame(ramp.current), clearTimeout(armTimer.current)), [])
 
@@ -232,6 +241,27 @@ export function Turntable({ records, onPlay, onStop }: Props) {
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [open])
+
+  // C1: 앱 생존 = 회전. 살아 있다가 사라지면 톤암 복귀·감속. 끝내 안 나타나면 GRACE 후 정지.
+  useEffect(() => {
+    if (!alive || !playing || !loaded) return
+    if (alive.has(loaded.id)) return void (seen.current = true)
+    if (seen.current) return stop()
+    const t = setTimeout(stop, GRACE)
+    return () => clearTimeout(t)
+  }, [alive, playing, loaded])
+
+  useEffect(() => {
+    if (cue) play(cue.rec)
+  }, [cue?.n, !!cue])
+
+  // 클릭 통과: 카드 + 서랍(닫힘 = 앞판만). LP 를 끄는 동안은 창 전체.
+  useLayoutEffect(() => {
+    const el = root.current!
+    const card = el.querySelector('.tt-card')!.getBoundingClientRect()
+    const d = el.querySelector('.tt-drawer-clip')!.getBoundingClientRect()
+    reportHitRects('turntable', dragging ? [new DOMRect(0, 0, innerWidth, innerHeight)] : [card, open ? d : new DOMRect(d.x, d.y, d.width, 24)])
+  }, [open, !!dragging])
 
   const ghostAt = (x: number, y: number, s: number) => `translate(${x - pt.current.ox - D / 2}px, ${y - pt.current.oy - D / 2}px) scale(${s})`
 
@@ -267,6 +297,7 @@ export function Turntable({ records, onPlay, onStop }: Props) {
   const play = (r: LpRecord) => {
     if (loaded && playing) onStop(loaded)
     setLoaded(r)
+    seen.current = false
     setPlaying(true) // 톤암 하강 (CSS transition)
     clearTimeout(armTimer.current)
     armTimer.current = window.setTimeout(() => spin(1), reducedMotion() ? 0 : 620)
@@ -325,7 +356,8 @@ export function Turntable({ records, onPlay, onStop }: Props) {
   return (
     <div ref={root} className="turntable" data-playing={playing} data-open={open}>
       <div className="tt-card glass-card">
-        <header className="tt-head">
+        {/* 머리 = 창 끌기 영역 (Tauri drag region, 글자는 pointer-events 없음) */}
+        <header className="tt-head" data-tauri-drag-region>
           <span>
             <b>턴테이블</b>
             <small>{playing ? `재생 중 · ${label}` : loaded ? '정지됨' : '서랍에서 LP 를 고르세요'}</small>
@@ -334,12 +366,17 @@ export function Turntable({ records, onPlay, onStop }: Props) {
             <svg viewBox="0 0 24 24" shapeRendering="crispEdges"><rect x="7" y="7" width="10" height="10" fill="currentColor" /></svg>
             정지
           </button>
+          {onHide && (
+            <button className="tt-hide" onClick={onHide} aria-label="턴테이블 숨기기" title="숨기기 (트레이에서 다시 열기)">
+              <svg viewBox="0 0 24 24" shapeRendering="crispEdges"><path d="M7 11h10v2H7z" fill="currentColor" /></svg>
+            </button>
+          )}
         </header>
 
         <div className="deck">
           <Sprite art={PLINTH} className="plinth" />
           <i className="tt-led" />
-          <div ref={disc} className="disc" style={loaded ? labelVars(loaded.cover) : undefined}>
+          <div ref={disc} className="disc" style={loaded ? labelVars(loaded.cover) : undefined} onClick={() => loaded && playing && onActivate?.(loaded)} title={playing && onActivate ? '클릭: 앱 창으로 전환' : undefined}>
             {loaded && <Vinyl rec={loaded} />}
           </div>
           {loaded ? <Sprite art={SHEEN} className="sheen" /> : <span className="spindle" />}

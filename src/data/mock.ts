@@ -1,4 +1,9 @@
-import type { CalendarEvent, LpRecord, Todo } from './types'
+import type { CalendarEvent, LpRecord, ShelfFile, Todo } from './types'
+
+export const seedShelf: ShelfFile[] = [
+  { id: 's1', path: String.raw`C:\Users\me\Documents\기획서_v3.pdf`, at: 1 },
+  { id: 's2', path: String.raw`C:\Users\me\Pictures\배너_시안.png`, at: 2 },
+]
 
 export const COVERS = ['#2F80ED', '#14B8A6', '#F59E0B', '#EF4444', '#0EA5E9', '#22C55E', '#F97316', '#64748B']
 

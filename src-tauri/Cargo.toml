@@ -22,6 +22,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
   "Win32_System_Threading",
+  "Win32_System_Power",
   "Win32_System_Registry",
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
@@ -38,6 +39,7 @@ tauri-plugin-store = "2.5.1"
 serde_json = "1.0.154"
 png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
+tauri-plugin-global-shortcut = "2"
 
 [profile.release]
 opt-level = "s"

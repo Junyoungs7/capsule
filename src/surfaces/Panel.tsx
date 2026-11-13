@@ -23,6 +23,7 @@ type Props = {
   onAddRecord: (target: string, title?: string) => void
   onRemoveRecord: (id: string) => void
   onTogglePin: (id: string) => void
+  onAddSet: (title: string, ids: string[]) => void
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -177,9 +178,19 @@ function CalendarTab({ events, setEvents, onAdded }: Props) {
   )
 }
 
-function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin }: Props) {
+function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin, onAddSet }: Props) {
   const [title, setTitle] = useState('')
   const [target, setTarget] = useState('')
+  // C2: 세트 만들기 = 단일 레코드를 고른 순서대로 묶기 (그 순서로 실행)
+  const [pick, setPick] = useState<string[] | null>(null)
+  const [setName, setSetName] = useState('')
+  const makeSet = (e: FormEvent) => {
+    e.preventDefault()
+    if (!pick || pick.length < 2) return
+    onAddSet(setName.trim() || 'LP 세트', pick)
+    setPick(null)
+    setSetName('')
+  }
   const add = (e: FormEvent) => {
     e.preventDefault()
     if (!target.trim()) return
@@ -200,19 +211,35 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin 
         <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="URL 또는 .exe 경로 (URL 을 끌어다 놓아도 돼요)" aria-label="대상" />
         <button className="primary">추가</button>
       </form>
-      {isTauri && <AppPicker onPick={onAddRecord} />}
+      {isTauri && !pick && <AppPicker onPick={onAddRecord} />}
+      {pick ? (
+        <form className="add" onSubmit={makeSet}>
+          <input autoFocus value={setName} onChange={(e) => setSetName(e.target.value)} placeholder={`세트 이름 · ${pick.length}개 선택 (2개 이상)`} aria-label="세트 이름" />
+          <button type="button" className="picker-open" onClick={() => setPick(null)}>취소</button>
+          <button className="primary" disabled={pick.length < 2}>만들기</button>
+        </form>
+      ) : (
+        <button className="picker-open" onClick={() => setPick([])}>LP 세트 만들기…</button>
+      )}
       <ul className="list">
-        {[...records].sort((a, b) => a.title.localeCompare(b.title)).map((r) => (
+        {[...records].sort((a, b) => a.title.localeCompare(b.title)).filter((r) => !pick || r.kind === 'single').map((r) => (
           <li key={r.id}>
             <Tile rec={r} size={34} />
             <span className="grow">
               <b>{r.title}</b>
-              <small>{r.kind === 'set' ? `LP 세트 · ${r.targets?.length ?? 0}개 앱` : r.target}</small>
+              <small>{r.kind === 'set' ? `LP 세트 · ${r.targets?.map((id) => records.find((x) => x.id === id)?.title).filter(Boolean).join(' · ')}` : r.target}</small>
             </span>
+            {pick ? (
+              <label className="check">
+                <input type="checkbox" checked={pick.includes(r.id)} onChange={() => setPick((p) => (p!.includes(r.id) ? p!.filter((x) => x !== r.id) : [...p!, r.id]))} aria-label={`${r.title} 세트에 넣기`} />
+                <span />
+              </label>
+            ) : (<>
             <button className="icon-btn" onClick={() => onTogglePin(r.id)} aria-pressed={pinned.includes(r.id)} aria-label={`${r.title} 독에 고정`} title="독에 고정">
               {pinned.includes(r.id) ? '★' : '☆'}
             </button>
             <button className="icon-btn del" onClick={() => onRemoveRecord(r.id)} aria-label={`${r.title} 삭제`}>×</button>
+            </>)}
           </li>
         ))}
       </ul>

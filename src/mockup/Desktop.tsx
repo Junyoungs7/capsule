@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import type { LpRecord, Notification, RunningSession } from '../data/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  closePanelWindow, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, panelOpen, sendAlert, titleOf, togglePanel, useItems, useValue, watchState,
-  type AlertMsg, type Fg,
+  activate, closePalette, closePanelWindow, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, panelOpen, sendAlert, setTurntable, startApps, titleOf, togglePanel,
+  useItems, useValue, watchState, type AlertMsg, type Fg,
 } from '../data/api'
-import { COVERS, seedEvents, seedRecords, seedTodos } from '../data/mock'
+import { COVERS, seedEvents, seedRecords, seedShelf, seedTodos } from '../data/mock'
+import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
@@ -15,6 +16,7 @@ import { Palette } from '../surfaces/Palette'
 const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
 const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has((r.exe ?? r.target).toLowerCase())
 const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+const key = (r: LpRecord) => (r.exe ?? r.target).toLowerCase()
 const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
@@ -39,6 +41,20 @@ export function Desktop({ only }: { only?: string }) {
     setPinned((p) => p.filter((x) => x !== id))
   }
   const togglePin = (id: string) => setPinned((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+  // C2: 세트 = 기존 단일 레코드 묶음 (독에는 고정하지 않음 — 턴테이블 서랍·팔레트에서 쓴다)
+  const addSet = (title: string, targets: string[]) =>
+    setRecords((rs) => [...rs, { id: crypto.randomUUID(), title, target: '', kind: 'set', targets, cover: COVERS[rs.length % COVERS.length], glyph: 'set' }])
+
+  // C4 파일 선반 (shelf:<id>)
+  const [shelf, setShelf] = useItems<ShelfFile>('shelf', seedShelf)
+  const shelve = (paths: string[]) =>
+    setShelf((fs) => [...fs.filter((f) => !paths.includes(f.path)), ...paths.map((path, i) => ({ id: crypto.randomUUID(), path, at: Date.now() + i }))].sort((a, b) => a.at - b.at).slice(-SHELF_MAX))
+  const dropFiles = (paths: string[], toShelf: boolean) => {
+    const apps = toShelf ? [] : paths.filter((p) => /\.(exe|lnk)$/i.test(p))
+    apps.forEach((p) => addRecord(p))
+    const rest = paths.filter((p) => !apps.includes(p))
+    if (rest.length) shelve(rest)
+  }
 
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [playing, setPlaying] = useState<RunningSession | null>(null)
@@ -78,11 +94,41 @@ export function Desktop({ only }: { only?: string }) {
     return () => offs.forEach((off) => off())
   }, [])
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
+  // 살아 있는 레코드 id: 단일 = 실행 집합에 대상이 있음, 세트 = 멤버 중 하나라도 (독 실행 점·턴테이블 회전 공용)
+  const aliveIds = useMemo(() => {
+    const ids = new Set(records.filter((r) => matches(r, runKeys)).map((r) => r.id))
+    for (const r of records) if (r.kind === 'set' && r.targets?.some((id) => ids.has(id))) ids.add(r.id)
+    return ids
+  }, [records, runKeys])
+  const members = (r: LpRecord) => (r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r])
+
+  // C1: 독 우클릭 → 턴테이블에 올리기. 턴테이블 창은 URL ?play= 또는 'tt-play' 이벤트로 받는다.
+  const [cue, setCue] = useState(() => {
+    const id = new URLSearchParams(location.search).get('play')
+    return id ? { id, n: 1 } : null
+  })
+  useEffect(() => (isTauri && only === 'turntable' ? onEvent<string>('tt-play', (id) => setCue((c) => ({ id, n: (c?.n ?? 0) + 1 }))) : undefined), [])
+  const cueRec = cue && records.find((r) => r.id === cue.id)
+  const onCue = (r: LpRecord) => (isTauri ? void setTurntable(true, r.id) : setCue((c) => ({ id: r.id, n: (c?.n ?? 0) + 1 })))
+
+  // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
+  // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
+  const [apps, setApps] = useState<[string, string][]>([])
+  const [palN, setPalN] = useState(0)
+  useEffect(() => {
+    if (!isTauri || only !== 'palette') return
+    let loaded = false
+    return onEvent('palette-open', () => {
+      document.querySelector<HTMLInputElement>('.palette-input input')?.focus()
+      if (!loaded) (loaded = true), void startApps().then(setApps, () => {})
+    })
+  }, [])
 
   const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(only === 'panel' ? { open: true, tab: (new URLSearchParams(location.search).get('tab') as Tab) ?? 'todo' } : null)
   const [palette, setPalette] = useState(only === 'palette')
 
   useEffect(() => {
+    if (isTauri) return // 실제 앱은 전역 단축키(Ctrl+Alt+K, Rust)
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -101,14 +147,13 @@ export function Desktop({ only }: { only?: string }) {
 
   const ids = (r: LpRecord) => (r.kind === 'set' ? r.targets ?? [] : [r.id])
 
-  const run = (r: LpRecord) => {
-    for (const id of ids(r)) {
-      const t = records.find((x) => x.id === id)?.target ?? id
-      launch(t).catch((e) => showAlert({ title: `${r.title} 실행 실패`, body: String(e) }))
+  // C2: 세트는 순서대로 실행 (앞 앱의 실행 요청이 끝난 뒤 다음)
+  const run = async (r: LpRecord) => {
+    if (!isTauri) {
+      setRunning((s) => new Set([...s, ...ids(r)]))
+      setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() })
     }
-    if (isTauri) return // 실행 상태·Now Playing 은 watch 루프가 알려준다
-    setRunning((s) => new Set([...s, ...ids(r)]))
-    setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() })
+    for (const m of members(r)) await launch(m.target).catch((e) => showAlert({ title: `${m.title} 실행 실패`, body: String(e) }))
   }
   const stop = (r: LpRecord) => setRunning((s) => new Set([...s].filter((id) => !ids(r).includes(id))))
 
@@ -182,7 +227,17 @@ export function Desktop({ only }: { only?: string }) {
         </>
       )}
 
-      {show('turntable') && <Turntable records={records} onPlay={run} onStop={stop} />}
+      {show('turntable') && (
+        <Turntable
+          records={records}
+          onPlay={run}
+          onStop={stop}
+          cue={cueRec ? { rec: cueRec, n: cue!.n } : null}
+          alive={isTauri ? aliveIds : undefined}
+          onActivate={isTauri ? (r) => void activate(members(r).map(key)).catch(() => {}) : undefined}
+          onHide={isTauri ? () => void setTurntable(false) : undefined}
+        />
+      )}
       {show('island') && (
         <Island
           alert={alert}
@@ -202,11 +257,15 @@ export function Desktop({ only }: { only?: string }) {
       {show('dock') && (
         <Dock
           records={dockRecords}
-          running={isTauri ? new Set(records.filter((r) => matches(r, runKeys)).map((r) => r.id)) : running}
+          running={isTauri ? aliveIds : running}
           panelOpen={remotePanel ? remoteOpen : !!panel?.open}
           onLaunch={run}
           onPanel={() => (remotePanel || panel?.open ? closePanel() : openPanel('library'))}
-          onDropFiles={(paths) => paths.forEach((p) => addRecord(p))}
+          onDropFiles={dropFiles}
+          onCue={onCue}
+          shelf={shelf}
+          onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
+          onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
         />
       )}
       {panel && show('panel') && (
@@ -226,10 +285,20 @@ export function Desktop({ only }: { only?: string }) {
           onAddRecord={addRecord}
           onRemoveRecord={removeRecord}
           onTogglePin={togglePin}
+          onAddSet={addSet}
         />
       )}
       {palette && show('palette') && (
-        <Palette records={records} todos={todos} onRun={run} onOpenTodo={() => openPanel('todo')} onClose={() => setPalette(false)} />
+        <Palette
+          key={palN}
+          records={records}
+          todos={todos}
+          apps={apps}
+          onRun={run}
+          onLaunch={(t) => void launch(t).catch((e) => showAlert({ title: '실행 실패', body: String(e) }))}
+          onOpenTodo={() => (isTauri ? void panelOpen().then((o) => o || togglePanel('todo')) : openPanel('todo'))}
+          onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
+        />
       )}
     </div>
   )

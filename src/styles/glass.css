@@ -98,6 +98,8 @@ kbd {
   box-shadow: inset 0 0 0 1px var(--edge), inset 0 1px 0 var(--edge-top), var(--shadow);
   color: var(--text);
 }
+/* 실제 앱(투명 창): 창 밖은 블러할 수 없으니 backdrop-filter 를 끈다 (합성 비용 0, 틴트만) */
+.desktop:not([data-only='all']) .glass-card { backdrop-filter: none; }
 
 .primary {
   border: 0;
@@ -377,23 +379,26 @@ kbd {
 .battery b { font: 650 11px/1 var(--font-display); }
 .shelf { width: 116px; gap: 9px; padding: 0 10px; outline: 1px dashed var(--line-strong); outline-offset: -5px; }
 .shelf[data-over='true'] { outline: 1.5px dashed var(--accent); background: var(--accent-soft); }
-.shelf-stack { position: relative; width: 26px; height: 32px; flex: none; }
-.shelf-stack i {
-  position: absolute;
-  inset: 0;
+.shelf:has(.shelf-file) { gap: 4px; }
+/* 선반 칸: 파일 1개 = 종이 모양 칩(확장자), 클릭 = 열기 */
+.shelf-file {
   display: grid;
   align-items: end;
   justify-items: center;
-  padding-bottom: 3px;
+  width: 21px;
+  height: 30px;
+  flex: none;
+  padding: 0 0 3px;
+  border: 0;
   border-radius: 4px;
   font: 700 7px/1 var(--font);
-  font-style: normal;
   text-transform: uppercase;
   color: var(--text-2);
   background: var(--seg);
   box-shadow: inset 0 0 0 0.5px var(--line-strong), 0 2px 4px rgba(0, 0, 0, 0.15);
-  transform: rotate(calc((var(--i) - 1) * 9deg)) translateX(calc((var(--i) - 1) * 3px));
+  transition: transform 140ms var(--ease-out);
 }
+.shelf-file:hover { transform: translateY(-2px); color: var(--text); }
 .shelf-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .shelf-text b { font-size: 12px; }
 .shelf-text small { font-size: 10.5px; color: var(--text-2); white-space: nowrap; }
@@ -635,6 +640,9 @@ kbd {
   animation: pop var(--dur-smooth) var(--spring-smooth);
 }
 .desktop[data-only='palette'] .palette { top: 8px; }
+/* 팔레트 창: 창 크기 = 카드 영역뿐이라 화면 어둡게 하기(scrim) 없음 */
+.desktop[data-only='palette'] .palette-scrim { background: none; animation: none; }
+.app-ico { border-radius: 8px; }
 @keyframes pop { from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.97); } }
 @keyframes fade { from { opacity: 0; } }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; box-shadow: inset 0 -1px 0 var(--line); }

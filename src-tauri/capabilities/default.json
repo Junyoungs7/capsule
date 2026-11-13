@@ -4,10 +4,13 @@
   "windows": [
     "dock",
     "island",
-    "panel"
+    "panel",
+    "turntable",
+    "palette"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "store:default"
   ]
 }

@@ -27,6 +27,19 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 /// 창별 히트 rect: (라벨, [x, y, w, h] 클라이언트 기준 물리 px). JS `reportHitRects` 가 갱신.
 static HITS: Mutex<Vec<(String, Vec<[f64; 4]>)>> = Mutex::new(Vec::new());
 
+/// 클릭 통과·전체화면 숨김 대상 오버레이 창 (라벨, HWND as isize). dock/island 는 상시, turntable 은 보일 때만.
+/// 루프가 매 틱 읽는다(창 핸들 조회를 메인 스레드에 보내지 않도록 생성 시 등록).
+static OVERLAYS: Mutex<Vec<(&'static str, isize)>> = Mutex::new(Vec::new());
+
+pub fn add_overlay(label: &'static str, hwnd: isize) {
+    OVERLAYS.lock().unwrap().push((label, hwnd));
+}
+
+pub fn remove_overlay(label: &str) {
+    OVERLAYS.lock().unwrap().retain(|(l, _)| *l != label);
+    HITS.lock().unwrap().retain(|(l, _)| l != label);
+}
+
 pub fn set_rects(label: &str, rects: Vec<[f64; 4]>) {
     let mut h = HITS.lock().unwrap();
     match h.iter_mut().find(|(l, _)| l == label) {
@@ -83,15 +96,15 @@ pub unsafe fn info(hwnd: HWND) -> Fg {
     Fg { hwnd: hwnd.0 as isize, pid, exe_path, title: wstr(&buf[..n]), aumid }
 }
 
-/// 실행 집합: 보이는 최상위 앱 창(소유자 없음, 툴윈도우·클로킹 제외)의 exe 경로·`shell:appsfolder\<aumid>` (소문자)
-pub unsafe fn running(me: u32) -> Vec<String> {
+/// 보이는 최상위 앱 창(소유자 없음, 툴윈도우·클로킹 제외, 자기 프로세스 제외) → (창, 키들). 키 = exe 경로·`shell:appsfolder\<aumid>` (소문자). z-순서(위→아래).
+unsafe fn app_windows(me: u32) -> Vec<(HWND, Vec<String>)> {
     unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> BOOL {
         (*(l.0 as *mut Vec<HWND>)).push(h);
         true.into()
     }
     let mut all: Vec<HWND> = vec![];
     let _ = EnumWindows(Some(collect), LPARAM(&mut all as *mut _ as isize));
-    let mut keys = vec![];
+    let mut out = vec![];
     for h in all {
         let mut cloaked = 0u32;
         let _ = DwmGetWindowAttribute(h, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4);
@@ -107,16 +120,53 @@ pub unsafe fn running(me: u32) -> Vec<String> {
         if i.pid == me {
             continue;
         }
+        let mut keys = vec![];
         if !i.aumid.is_empty() {
             keys.push(format!(r"shell:appsfolder\{}", i.aumid).to_lowercase());
         }
         if !i.exe_path.is_empty() {
             keys.push(i.exe_path.to_lowercase());
         }
+        out.push((h, keys));
     }
+    out
+}
+
+/// 실행 집합: 앱 창 키들의 합집합
+pub unsafe fn running(me: u32) -> Vec<String> {
+    let mut keys: Vec<String> = app_windows(me).into_iter().flat_map(|(_, k)| k).collect();
     keys.sort();
     keys.dedup();
     keys
+}
+
+/// C1 플래터 클릭: 키가 맞는 가장 위의 앱 창을 전면으로 (최소화면 복원). 사용자 클릭 직후라 SetForegroundWindow 가 허용된다.
+pub fn activate(keys: &[String]) -> Result<(), String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let Some((h, _)) = app_windows(GetCurrentProcessId()).into_iter().find(|(_, ks)| ks.iter().any(|k| keys.contains(k))) else {
+            return Err("실행 중인 창이 없어요".into());
+        };
+        if IsIconic(h).as_bool() {
+            let _ = ShowWindow(h, SW_RESTORE);
+        }
+        if !SetForegroundWindow(h).as_bool() {
+            // 포그라운드 잠금에 걸리면 Alt 키 트릭(입력 큐에 키 이벤트가 있으면 허용) 후 1회 재시도
+            use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_MENU};
+            let key = |f| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_MENU, dwFlags: f, ..Default::default() } } };
+            SendInput(&[key(Default::default()), key(KEYEVENTF_KEYUP)], size_of::<INPUT>() as i32);
+            let _ = SetForegroundWindow(h);
+        }
+        Ok(())
+    }
+}
+
+/// C4 배터리: (잔량 %, 충전 중). 배터리 없는 데스크톱·알 수 없음 → None (위젯 숨김)
+pub fn power() -> Option<(u8, bool)> {
+    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+    let mut s = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut s) }.ok()?;
+    (s.BatteryFlag & 128 == 0 && s.BatteryFlag != 255 && s.BatteryLifePercent <= 100).then_some((s.BatteryLifePercent, s.ACLineStatus == 1))
 }
 
 /// 커서(클라이언트 기준 물리 px)가 모양 rect 중 하나 안에 있는가.
@@ -235,8 +285,7 @@ fn check_alarms(app: &AppHandle) {
     }
 }
 
-/// overlays: (라벨, HWND as isize) — dock, island. HWND 는 Send 가 아니라 isize 로 넘긴다.
-pub fn start(app: AppHandle, overlays: Vec<(&'static str, isize)>) {
+pub fn start(app: AppHandle) {
     std::thread::spawn(move || unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED); // SHGetPropertyStoreForWindow
         let me = GetCurrentProcessId();
@@ -248,12 +297,14 @@ pub fn start(app: AppHandle, overlays: Vec<(&'static str, isize)>) {
         let mut wall = (wallpaper_path(), wallpaper_style());
         let mut wa = work_area();
         let mut slow = Instant::now();
+        let mut pow = power();
 
         loop {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             let lb = GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0;
+            let overlays = OVERLAYS.lock().unwrap().clone();
             let rects: Vec<RECT> = overlays
                 .iter()
                 .map(|&(_, h)| {
@@ -328,6 +379,12 @@ pub fn start(app: AppHandle, overlays: Vec<(&'static str, isize)>) {
                     let _ = app.emit("running", r);
                 }
                 drop(st);
+                // C4: 전원 상태는 바뀔 때만 emit (JS 폴링 없음)
+                let p = power();
+                if p != pow {
+                    pow = p;
+                    let _ = app.emit("power", p);
+                }
                 let w = (wallpaper_path(), wallpaper_style());
                 if w != wall {
                     wall = w;

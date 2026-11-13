@@ -128,6 +128,16 @@ export function onAlarm(cb: (a: Alarm) => void) {
 
 export const lnkTarget = (path: string) => invoke<string>('lnk_target', { path })
 
+/* ── Stage C ── */
+// 턴테이블 창: 보이기(+ 레코드 올리기) / 숨기기 = 창 파괴
+export const setTurntable = (show: boolean, play?: string) => invoke('turntable', { show, play })
+// 플래터 클릭 → 레코드 앱 창 전면 (keys = 실행 집합 키)
+export const activate = (keys: string[]) => invoke('activate', { keys })
+// 팔레트 창 닫기(파괴). restore = 이전 앱으로 포커스 반환
+export const closePalette = (restore: boolean) => invoke('close_palette', { restore })
+// 배터리 [잔량 %, 충전 중] — 배터리 없으면 null
+export const power = () => invoke<[number, boolean] | null>('power')
+
 /* ── 창 간 알림 (실행 오류 → Island alert) ── */
 export type AlertMsg = { title: string; body: string }
 export const sendAlert = (a: AlertMsg) => emit('hera-alert', a)

@@ -21,4 +21,7 @@ export type CalendarEvent = { id: string; title: string; start: string; end: str
 
 export type Notification = { id: string; title: string; body: string; key?: string } // key = store 키 (todo:<id> / event:<id>)
 
+// C4 파일 선반: 키 shelf:<id>, at = 넣은 시각(정렬용)
+export type ShelfFile = { id: string; path: string; at: number }
+
 export type RunningSession = { recordId: string; title: string; startedAt: number }
