@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
 import { reportHitRects } from '../data/api'
 import { Tile } from './Dock'
@@ -70,14 +70,18 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
   }, [mode])
   const mins = playing ? Math.floor((Date.now() - playing.startedAt) / 60_000) : 0
 
+  // 히트 rect = 목표 프리셋 크기 (전환 중간값이 아니라), 컨테이너 상단 중앙 기준
+  const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    reportHitRects('island', [new DOMRect(-w / 2, 0, w, h)]) // 창 중심 기준 rect
+    const b = root.current!.getBoundingClientRect()
+    reportHitRects('island', [new DOMRect(b.left + (b.width - w) / 2, b.top, w, h)])
   }, [w, h])
 
   const today = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })
 
   return (
     <div
+      ref={root}
       className="island"
       data-mode={mode}
       data-spin={spinning && mode === 'nowPlaying'}

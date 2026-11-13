@@ -1,4 +1,4 @@
-Status: Stage A(A1~A4) 실행 승인 (2026-11-13) — B0 이후는 pending approval
+Status: 실행 승인 — Stage A 완료(2026-11-13), 사용자 지시로 B0→B(P1)→C(P2) 자율 진행 (월요일 결과 확인). A5 게이트는 사용자 사전 승인으로 대체, 게이트 시트는 기록용으로 작성.
 
 ## 사용자 추가 요구 (2026-11-13, 승인 시점) — 아래 본문보다 우선
 1. **점(dot) 독**: 평소엔 화면 하단 가장자리의 작은 점/핸들(약 40×6px)만 보인다. 마우스를 올리면 독이 스프링으로 펼쳐지고, 벗어나면 ~400ms 후 다시 점으로 접힌다. 창은 여전히 최대 크기 고정 — 접힘 상태의 히트 rect 는 점 영역만 보고하므로 나머지는 전부 클릭 통과. **필수 애니메이션 5종**: (0) 점→독 펼침/접힘 추가.
@@ -167,6 +167,16 @@ D:\AI\hera\
 - **B0 → 시안 반영**: 채택된 dock/island/panel 글라스 기법으로 `glass.css` 와 `Desktop.tsx` 바탕을 바꿔, 시안이 실제 출시 외형을 보여주게 한다(배경화면 페이크 채택 시 시안도 같은 `filter: blur()` 정적 레이어).
 - **수락**: 6항목 각각 채택안 1줄 기록, 실제 사용자 데스크톱 위 글라스 독 스크린샷 1장, 메모리 수치 + 결정 규칙 적용 결과 기록.
 
+#### B0 결과 (2026-11-13, 자율 진행 — 세션이 잠금 상태라 화면 캡처·실제 클릭·전체화면은 미검증, 아래 표시)
+1. dock 글라스: **② 배경화면 페이크 채택.** ① `apply_blur` 는 창 rect 전체(960×178)를 블러 — DWM accent 블러에 영역 지정이 없고, `SetWindowRgn` 은 AA 없는 하드 클립 + 스프링 매 프레임 재설정이 필요해 기각(이론 판정 + 실행 확인, 잠금 화면 때문에 육안 비교는 못 함). ②는 `SPI_GETDESKWALLPAPER` 바이트를 JS 가 1/4 해상도 캔버스에 블러·채도를 **구워** 1회 그림(CSS filter/backdrop-filter 0, 상시 비용 0). 채우기·맞춤·늘이기 + EXIF 회전 + 여백 바탕색 처리, watch 2s 가 경로/배치 변경 시 `wallpaper` emit. 실패/단색 → ③ 틴트. island 는 짙은 판 그대로(블러 없음).
+2. panel 글라스: `window_vibrancy::apply_acrylic` + `shadow(true)`(Win11 라운드 코너·그림자) + CSS 옅은 틴트. 알려진 차이: 패널 열기 애니메이션 중 Acrylic 백드롭은 창 전체에 즉시 보임(A5 확인 필요). 육안 확인 미완(잠금).
+3. 창 스타일/클릭 통과/포커스: tao 가 show/hide·`set_ignore_cursor_events` 때 GWL_EXSTYLE 을 자기 플래그로 통째 재기록 → TOOLWINDOW 삭제·APPWINDOW 부활. 그래서 **watch 루프가 매 틱 원하는 ex-style(TOOLWINDOW|NOACTIVATE, ±TRANSPARENT|LAYERED, −APPWINDOW)을 계산해 다를 때만 `SetWindowLongPtrW`** — `set_ignore_cursor_events` 는 쓰지 않음(같은 비트). NOACTIVATE 는 `focusable(false)` 로 tao 플래그에도 둠. panel 은 dock 소유 창(`parent`) → Alt+Tab 제외. 검증: 커서 위치별 TRANSPARENT 비트 7지점 모두 기대값(점 위만 dock 불투과, 섬 위만 island 불투과). WindowFromPoint 는 LockApp 이 최상위라 잠금 중 측정 불가 → `.omc/verify/clickthru.ps1` 로 잠금 해제 후 재확인.
+4. 드래그 역할: 미착수(B2). 외부 드래그 진입 시 클릭 통과 해제 로직만 구현(실제 탐색기 드롭 미검증).
+5. 메모리(릴리스, 창 2개 dock+island, 패널 없음, 독 접힘, idle 2.5분): **64.8MB** Private WS 합(hera 10.8 + WebView2 browser 13.9 + crashpad 10.5 + gpu 4.5 + utility 3.4/1.1 + renderer 10.8/9.8, 8프로세스) ≤150MB 통과. 시작 10초 시점 172.5MB(gpu 49.6, browser 44.8) → idle 후 트림. `MemoryUsageTargetLevel=Low` 는 `with_webview` → `ICoreWebView2_19` 로 dock/island 에 상시 적용(접힘 여부 무관). ⚠ 세션 잠금(창 가려짐) 중 측정이라 언락 상태 수치는 더 높을 수 있음 — Low 효과와 가림 트림 분리 못 함. 결정 규칙: 발동 안 함(panel 지연 생성+파괴는 기본값으로 구현).
+6. 스토어 이벤트: 미착수 — store 플러그인은 B2(실제 데이터 연결)에서 추가하며 판정.
+- 스크린샷: `.omc/mockup-shots/30-real-composite-dock-open.png`, `30-real-composite-dot.png` — **합성본**: 실제 배경화면(맞춤·EXIF 회전) 위에 실제 실행 중인 앱 창 렌더(CDP 캡처, 알파 유지)를 실제 창 위치(dock 480,854 / island 740,0)에 얹음. 화면이 잠겨 CopyFromScreen 은 잠금 화면만 찍힘. 언락 후 실캡처 필요.
+- idle CPU(hera.exe, 60초): 0.16% of 1코어(20 논리코어 기준 0.008%).
+
 ### A5. 승인 게이트 (게이트 시트 1장)
 게이트 시트 `.omc/plans/hera-a5-gate.md` (한 화면 분량)를 만들어 사용자에게 시안 URL/실행 방법과 함께 제시:
 - 7개 구성요소 체크리스트 + 4종 애니메이션 측정치(§7 기준: 16.7ms 이하 프레임 %, long task 수)
@@ -189,6 +199,18 @@ D:\AI\hera\
   - **2s**: `EnumWindows` 실행 집합, 전체화면 판정, 알림 due-check(B4), 배경화면 재확인(B0-1 ②채택 시).
 - 전체화면: `SHQueryUserNotificationState` 만 사용 — `QUNS_BUSY`, `QUNS_RUNNING_D3D_FULL_SCREEN`, `QUNS_PRESENTATION_MODE` 이면 dock/island 숨김. 창 rect 비교 안 함(Progman/WorkerW 바탕화면 창이 오탐).
 - **수락**: `npm run tauri dev` 시 3개 창이 올바른 위치, 독 클릭이 포커스를 빼앗지 않음, **독 투명 여유 영역 클릭이 아래 바탕화면 아이콘에 도달**, **Alt+Tab 에 Hera 없음**, 영상 전체화면 시 숨김·종료 시 복귀, 재부팅 후 자동 시작, 트레이로 종료 가능.
+
+#### B1 결과 (2026-11-13)
+- 구성: `src-tauri/` (tauri 2.12, single-instance, autostart, window-vibrancy 0.8, webview2-com 0.39, windows 0.62 최소 feature). Rust 모듈 lib.rs + watch.rs. 창은 conf 가 아닌 Rust 에서 생성(work area 계산), URL `index.html?surface=…`. store/opener 는 미사용이라 미추가(B2).
+- 배치(1920×1080, 100%, work area 하단 1032): dock (480,854) 960×178, island (740,0) 440×144, panel (작업 영역 우하단) 384×540 + DWM 그림자 테두리. 작업 영역 변경은 watch 2s, DPI 변경은 `ScaleFactorChanged` 로 `place()`.
+- panel: 첫 열기에 생성, 다시 토글하면 `panel-close` → JS 닫힘 애니메이션 → `close_panel` 로 destroy. 창 수 2→3→2 확인.
+- Alt+Tab: Hera 창 0개(ex-style 필터: dock/island TOOLWINDOW|NOACTIVATE, APPWINDOW 없음; panel 은 소유 창).
+- 전체화면: `SHQueryUserNotificationState` BUSY/D3D/PRESENTATION → `ShowWindowAsync` 숨김/표시. 판정 함수 `#[test]` 만, 실제 전체화면 테스트는 잠금 때문에 미실시.
+- 포그라운드: 자기 프로세스 창 무시, dock/island(루트 기준)가 포그라운드가 되면 직전 외부 창으로 `SetForegroundWindow`. 실제 동작 미검증(잠금).
+- 트레이: 패널 열기 / 로그인 시 자동 시작(체크, **기본 꺼짐**, 사용자가 켤 때만 레지스트리 등록) / 종료. single-instance 재실행 시 패널 열기.
+- dev: `beforeDevCommand: npm run dev:tauri` — :5173 에 이미 서버가 있으면 즉시 종료(0), 없으면 vite 기동. devUrl http://localhost:5173.
+- 검증: `cargo build` OK, `cargo test` 3/3(hit_test, ex_style, fullscreen_states), `cargo clippy -- -D warnings` 0, `npx tsc --noEmit` OK, `npm run tauri build -- --no-bundle` OK(hera.exe 3.4MB).
+- 재검증 스크립트: `.omc/verify/{inspect,styles-at,clickthru,mem}.ps1`.
 
 ### B2. 실행 + 아이콘 + 레코드 라이브러리
 - 파일: `src-tauri/src/launch.rs`, `src-tauri/src/icons.rs`, `src/data/api.ts`(Tauri 분기), `src/surfaces/Dock.tsx`, `src/surfaces/Panel.tsx`

@@ -1,6 +1,8 @@
 /* Hera 글라스 토큰 + 표면 스타일.
    규칙: backdrop-filter 는 정적 레이어에만, 블러 반경은 애니메이션하지 않는다.
-   dock/island 글라스는 최대 크기 고정 레이어 + clip-path 로 모양만 바꾼다 (B0 에서 실제 기법으로 교체). */
+   dock/island 글라스는 최대 크기 고정 레이어 + clip-path 로 모양만 바꾼다.
+   B0 채택안: dock = 배경화면 페이크(블러를 구운 정적 캔버스 .dock-wall + 틴트), island = 짙은 판(블러 없음),
+   panel = OS Acrylic 백드롭 + 옅은 틴트. 시안(surface=all)에서는 같은 외형을 가짜 바탕화면 위 backdrop-filter 로 낸다. */
 
 :root {
   color-scheme: light;
@@ -240,6 +242,11 @@ kbd {
 }
 .dock-glass { background: var(--glass-sheen), var(--glass); backdrop-filter: var(--blur); }
 .dock-ring { background: var(--rim); }
+/* 실제 앱(단일 표면 창): 창 뒤를 블러할 수 없으니 backdrop-filter 를 끄고, 배경화면 캔버스 위에 틴트(::before) */
+.desktop:not([data-only='all']) .dock-glass { backdrop-filter: none; }
+.dock-wall { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
+.dock[data-wall='true'] .dock-glass { background: none; }
+.dock[data-wall='true'] .dock-glass::before { content: ''; position: absolute; inset: 0; background: var(--glass-sheen), var(--glass); }
 /* 접힌 점: 같은 레이어 위 불투명 덮개를 opacity 로만 */
 .dock-glass::after {
   content: '';
@@ -522,7 +529,8 @@ kbd {
   transform: none;
   transition: opacity 220ms var(--ease-out), transform var(--dur-smooth) var(--spring-smooth);
 }
-.desktop[data-only='panel'] .panel { inset: 8px; width: auto; height: auto; }
+/* 패널 창: 창 = 카드. 모서리·그림자는 DWM(Win11), 블러는 OS Acrylic → CSS 는 옅은 틴트만 */
+.desktop[data-only='panel'] .panel { inset: 0; width: auto; height: auto; border-radius: 0; box-shadow: none; backdrop-filter: none; background: var(--glass-sheen), var(--glass); }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
 .tabs {
   position: relative;

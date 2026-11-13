@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
-import { launch, load, save } from '../data/api'
+import { closePanelWindow, isTauri, launch, load, onEvent, save, togglePanel } from '../data/api'
 import { seedEvents, seedRecords, seedTodos } from '../data/mock'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem } from '../surfaces/Island'
@@ -24,7 +24,7 @@ export function Desktop({ only }: { only?: string }) {
   const [alert, setAlert] = useState<Notification | null>(null)
   const [peek, setPeek] = useState(false)
   const peekTimer = useRef(0)
-  const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(only === 'panel' ? { open: true, tab: 'todo' } : null)
+  const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(only === 'panel' ? { open: true, tab: (new URLSearchParams(location.search).get('tab') as Tab) ?? 'todo' } : null)
   const [palette, setPalette] = useState(only === 'palette')
 
   useEffect(() => {
@@ -53,8 +53,12 @@ export function Desktop({ only }: { only?: string }) {
   }
   const stop = (r: LpRecord) => setRunning((s) => new Set([...s].filter((id) => !ids(r).includes(id))))
 
-  const openPanel = (tab: Tab) => setPanel({ open: true, tab })
-  const closePanel = () => setPanel((p) => p && { ...p, open: false })
+  // Tauri: 패널은 별도 창 (dock/island 에서 열면 Rust 가 지연 생성/닫기 요청)
+  const remotePanel = isTauri && only !== 'panel'
+  const openPanel = (tab: Tab) => (remotePanel ? void togglePanel(tab) : setPanel({ open: true, tab }))
+  const closePanel = () => (remotePanel ? void togglePanel('todo') : setPanel((p) => p && { ...p, open: false }))
+  const panelClosed = () => (isTauri && only === 'panel' ? void closePanelWindow() : setPanel(null))
+  useEffect(() => (isTauri && only === 'panel' ? onEvent('panel-close', closePanel) : undefined), [])
 
   const peekIsland = () => {
     setPeek(true)
@@ -139,7 +143,7 @@ export function Desktop({ only }: { only?: string }) {
           tab={panel.tab}
           onTab={(tab) => setPanel({ open: true, tab })}
           onClose={closePanel}
-          onClosed={() => setPanel(null)}
+          onClosed={panelClosed}
           onAdded={peekIsland}
           todos={todos}
           setTodos={setTodos}

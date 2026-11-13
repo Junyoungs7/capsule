@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import type { LpRecord } from '../data/types'
-import { reportHitRects } from '../data/api'
+import { isTauri, onEvent, reportHitRects, wallpaper } from '../data/api'
 import { Shelf } from './Shelf'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
@@ -88,6 +88,16 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel }: Props) 
 
   useEffect(() => () => (clearTimeout(closeTimer.current), cancelAnimationFrame(frame.current)), [])
 
+  // B0-1 ②: 실제 앱에서는 배경화면을 정적 캔버스로 1회 그린다 (변경 시 watch 루프가 'wallpaper' emit)
+  const wall = useRef<HTMLCanvasElement>(null)
+  const [hasWall, setHasWall] = useState(false)
+  useEffect(() => {
+    if (!isTauri) return
+    const draw = () => paintWall(wall.current!).then(setHasWall)
+    draw()
+    return onEvent('wallpaper', draw)
+  }, [])
+
   const measure = () => {
     const r = root.current!, rw = row.current!
     const items = [...rw.children].map((n) => {
@@ -168,8 +178,8 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel }: Props) 
   }
 
   return (
-    <div ref={root} className="dock" data-open={open} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
-      <div ref={glass} className="dock-glass" />
+    <div ref={root} className="dock" data-open={open} data-wall={hasWall} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
+      <div ref={glass} className="dock-glass">{isTauri && <canvas ref={wall} className="dock-wall" />}</div>
       <div ref={ring} className="dock-ring" />
       <div ref={hit} className="dock-hit" />
       <div ref={row} className="dock-row" role="toolbar" aria-label="독">
@@ -201,6 +211,33 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel }: Props) 
       </div>
     </div>
   )
+}
+
+/* 배경화면 페이크: 바탕화면에서 캔버스 위치에 해당하는 부분만 1/4 해상도로 그려 블러·채도를 구워 넣는다
+   (CSS filter/backdrop-filter 없음 → 상시 비용 0). 창 뒤의 앱은 보이지 않는다.
+   배치: 채우기(10)·맞춤(6)·늘이기(2), 그 외는 채우기로 취급. 맞춤의 여백은 바탕색. */
+async function paintWall(c: HTMLCanvasElement) {
+  const [blob, [style, bg]] = await wallpaper()
+  const img = blob && (await createImageBitmap(blob).catch(() => null))
+  if (!img) return false
+  const r = c.getBoundingClientRect()
+  const k = 4 // 축소 배율 (블러가 어차피 디테일을 지운다)
+  const W = screen.width, H = screen.height
+  const fit = style === '6' ? Math.min : Math.max
+  const sw = style === '2' ? W / img.width : fit(W / img.width, H / img.height)
+  const sh = style === '2' ? H / img.height : sw
+  // 화면 좌표계의 배경화면 rect → 캔버스 좌표계(1/k)
+  const x = ((W - img.width * sw) / 2 - screenX - r.left) / k
+  const y = ((H - img.height * sh) / 2 - screenY - r.top) / k
+  c.width = Math.ceil(r.width / k)
+  c.height = Math.ceil(r.height / k)
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = `rgb(${bg.split(' ').join(',') || '0,0,0'})`
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.filter = `blur(${28 / k}px) saturate(1.85)`
+  ctx.drawImage(img, x, y, (img.width * sw) / k, (img.height * sh) / k)
+  img.close()
+  return true
 }
 
 function Clock() {
