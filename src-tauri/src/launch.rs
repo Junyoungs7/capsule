@@ -1,10 +1,53 @@
 // launch(target): AllowSetForegroundWindow(ASFW_ANY) → ShellExecuteExW. NOACTIVATE 독에서 실행해도 새 앱이 전면에 뜨게.
+use std::sync::mpsc::{channel, sync_channel, Sender};
+use std::sync::OnceLock;
+
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::core::Interface;
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, STGM_READ};
 use windows::Win32::System::Registry::{RegCloseKey, RegOpenKeyExW, HKEY, HKEY_CLASSES_ROOT, KEY_READ};
+use windows::Win32::System::Threading::{CreateEventW, SetEvent, INFINITE};
 use windows::Win32::UI::Shell::{IShellItem, IShellLinkW, SHCreateItemFromParsingName, ShellExecuteExW, ShellLink, SEE_MASK_ASYNCOK, SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW};
-use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY, SW_SHOWNORMAL};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AllowSetForegroundWindow, DispatchMessageW, MsgWaitForMultipleObjects, PeekMessageW, TranslateMessage, ASFW_ANY, MSG, PM_REMOVE, QS_ALLINPUT, SW_SHOWNORMAL,
+};
+
+type Job = Box<dyn FnOnce() + Send>;
+
+/// 셸/COM 작업 전용 STA 스레드 1개 (launch·lnk_target·아이콘 추출·activate). 프로세스 수명 동안 살아 있고 메시지를 펌프한다
+/// → 아파트 혼용(RPC_E_CHANGED_MODE) 없음, SEE_MASK_ASYNCOK 의 "호출 스레드가 살아서 메시지 루프를 돌 것" 충족.
+/// 호출자는 결과가 나올 때까지 블록(spawn_blocking 안에서 부를 것). 작업 안에서 다시 `sta` 를 부르면 교착.
+/// ponytail: 작업은 직렬 — 느린 셸 확장(아이콘)이 실행을 잠깐 막을 수 있음. 문제되면 아이콘용 STA 를 하나 더.
+pub fn sta<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+    static W: OnceLock<(Sender<Job>, isize)> = OnceLock::new();
+    let (tx, ev) = W.get_or_init(|| {
+        let ev = unsafe { CreateEventW(None, false, false, PCWSTR::null()) }.expect("CreateEventW").0 as isize;
+        let (tx, rx) = channel::<Job>();
+        std::thread::spawn(move || unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            let mut msg = MSG::default();
+            loop {
+                MsgWaitForMultipleObjects(Some(&[HANDLE(ev as _)]), false, INFINITE, QS_ALLINPUT);
+                while let Ok(job) = rx.try_recv() {
+                    job();
+                }
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+        });
+        (tx, ev)
+    });
+    let (rtx, rrx) = sync_channel(1);
+    tx.send(Box::new(move || {
+        let _ = rtx.send(f());
+    }))
+    .expect("sta worker");
+    let _ = unsafe { SetEvent(HANDLE(*ev as _)) };
+    rrx.recv().expect("sta job")
+}
 
 #[derive(Debug, PartialEq)]
 enum Kind {
@@ -42,12 +85,11 @@ fn resolve(t: &str) -> Result<(String, String), String> {
     }
 }
 
+/// `sta` 스레드에서 부를 것 (ASYNCOK 는 호출 스레드가 살아서 메시지를 펌프해야 한다)
 pub fn launch(target: &str) -> Result<(), String> {
     let (file, dir) = resolve(target)?;
     let (file, dir) = (HSTRING::from(file), HSTRING::from(dir));
     unsafe {
-        // 셸 실행은 STA 권장 (워커 스레드마다 1회, 이미 초기화돼 있으면 무시)
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         // B5: ASYNCOK 라 활성화 완료를 기다리지 않으므로 동기 오류는 미리 확인한다(경로 존재는 resolve 에서).
         match kind(target.trim()) {
             Kind::Aumid if SHCreateItemFromParsingName::<_, _, IShellItem>(&file, None).is_err() => return Err(format!("앱을 찾을 수 없어요: {target}")),
@@ -83,10 +125,9 @@ fn scheme_registered(url: &str) -> bool {
     }
 }
 
-/// .lnk → 대상 경로 (IShellLinkW). 대상이 파일이 아니면(가상 폴더 등) 오류.
+/// .lnk → 대상 경로 (IShellLinkW). 대상이 파일이 아니면(가상 폴더 등) 오류. `sta` 스레드에서 부를 것.
 pub fn lnk_target(path: &str) -> Result<String, String> {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).map_err(|e| e.message())?;
         link.cast::<IPersistFile>().and_then(|f| f.Load(&HSTRING::from(path), STGM_READ)).map_err(|e| e.message())?;
         let mut buf = [0u16; 1024];
@@ -96,20 +137,38 @@ pub fn lnk_target(path: &str) -> Result<String, String> {
     }
 }
 
-/// 시작 메뉴 앱 목록 (이름, 대상). PowerShell `Get-StartApps` 1회(~1s) → 프로세스 수명 동안 캐시.
+/// 시작 메뉴 앱 목록 (이름, 대상). PowerShell `Get-StartApps` 1회(~1s) → 프로세스 수명 동안 캐시. 10s 넘으면 죽이고 오류(다음 호출에 재시도).
 /// `{KNOWNFOLDER-GUID}\x.exe` 형태 AppID 는 실제 exe 경로로 바꾼다(아이콘·실행 인디케이터가 exe 경로로 매칭되도록).
 pub fn start_apps() -> Result<Vec<(String, String)>, String> {
+    use std::io::Read;
     use std::os::windows::process::CommandExt;
     static APPS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     if let Some(v) = APPS.get() {
         return Ok(v.clone());
     }
-    let out = std::process::Command::new("powershell")
+    let mut child = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress"])
         .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-        .output()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
         .map_err(|e| e.to_string())?;
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("Get-StartApps: {e}"))?;
+    // stdout 은 별도 스레드가 끝까지 읽는다(파이프가 차서 막히지 않게) → 10s 안에 안 끝나면 kill
+    let mut so = child.stdout.take().ok_or("no stdout")?;
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let mut b = vec![];
+        let _ = so.read_to_end(&mut b);
+        let _ = tx.send(b);
+    });
+    let out = rx.recv_timeout(std::time::Duration::from_secs(10));
+    if out.is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let out = out.map_err(|_| "Get-StartApps: 10초 안에 끝나지 않았어요".to_string())?;
+    let json: serde_json::Value = serde_json::from_slice(&out).map_err(|e| format!("Get-StartApps: {e}"))?;
     let v: Vec<(String, String)> = json
         .as_array()
         .into_iter()
@@ -152,8 +211,8 @@ mod tests {
         assert_eq!(resolve(r"C:\Windows\explorer.exe").unwrap().1, r"C:\Windows");
         assert!(scheme_registered("https://x") && !scheme_registered("nohandler-xyz:1"));
         // ASYNCOK 라도 동기 오류는 미리 잡는다 (창은 뜨지 않음)
-        assert!(launch("nohandler-xyz:1").is_err());
-        assert!(launch(r"shell:AppsFolder\No.Such.App_0000000000000!App").is_err());
+        assert!(sta(|| launch("nohandler-xyz:1")).is_err());
+        assert!(sta(|| launch(r"shell:AppsFolder\No.Such.App_0000000000000!App")).is_err());
     }
 
     /// 수동: cargo test lnk_targets -- --ignored --nocapture (시작 메뉴 .lnk → exe)
@@ -163,7 +222,8 @@ mod tests {
         let dir = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs";
         let mut n = 0;
         for e in std::fs::read_dir(dir).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "lnk")) {
-            let t = lnk_target(&e.path().display().to_string());
+            let p = e.path().display().to_string();
+            let t = sta(move || lnk_target(&p));
             println!("{} -> {t:?}", e.path().display());
             n += t.is_ok_and(|p| p.to_lowercase().ends_with(".exe")) as i32;
         }
@@ -186,7 +246,7 @@ mod tests {
             let mut ms = vec![];
             for _ in 0..n {
                 let s = std::time::Instant::now();
-                launch(&t).unwrap();
+                sta(move || launch(t)).unwrap();
                 ms.push(s.elapsed().as_secs_f64() * 1000.0);
                 std::thread::sleep(std::time::Duration::from_millis(1500));
                 let _ = std::process::Command::new("taskkill").args(["/IM", image, "/F"]).output();

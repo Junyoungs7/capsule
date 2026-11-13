@@ -133,7 +133,7 @@ export const lnkTarget = (path: string) => invoke<string>('lnk_target', { path }
 export const setTurntable = (show: boolean, play?: string) => invoke('turntable', { show, play })
 // 플래터 클릭 → 레코드 앱 창 전면 (keys = 실행 집합 키)
 export const activate = (keys: string[]) => invoke('activate', { keys })
-// 팔레트 창 닫기(파괴). restore = 이전 앱으로 포커스 반환
+// 팔레트 창 숨기기(창은 숨김 상주, 파괴 안 함). restore = 이전 앱으로 포커스 반환
 export const closePalette = (restore: boolean) => invoke('close_palette', { restore })
 // 배터리 [잔량 %, 충전 중] — 배터리 없으면 null
 export const power = () => invoke<[number, boolean] | null>('power')

@@ -120,7 +120,8 @@ export function Desktop({ only }: { only?: string }) {
     let loaded = false
     return onEvent('palette-open', () => {
       document.querySelector<HTMLInputElement>('.palette-input input')?.focus()
-      if (!loaded) (loaded = true), void startApps().then(setApps, () => {})
+      // 실패(타임아웃 등)하면 다음 열기에 다시 시도
+      if (!loaded) (loaded = true), void startApps().then(setApps, (e) => ((loaded = false), console.error('start_apps', e)))
     })
   }, [])
 

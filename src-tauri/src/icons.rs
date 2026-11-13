@@ -5,10 +5,9 @@ use std::path::{Path, PathBuf};
 use windows::core::HSTRING;
 use windows::Win32::Foundation::SIZE;
 use windows::Win32::Graphics::Gdi::{DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ};
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_ICONONLY};
 
-/// 캐시된 PNG 경로를 돌려준다(없으면 추출). 호출자는 워커 스레드(spawn_blocking).
+/// 캐시된 PNG 경로를 돌려준다(없으면 추출 — COM 부분만 `sta` 스레드). 호출자는 워커 스레드(spawn_blocking).
 pub fn icon(dir: &Path, target: &str) -> Result<PathBuf, String> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     target.to_ascii_lowercase().hash(&mut h);
@@ -18,21 +17,33 @@ pub fn icon(dir: &Path, target: &str) -> Result<PathBuf, String> {
         return Ok(out);
     }
     let parse = if !target.contains('\\') && target.contains('!') { format!(r"shell:AppsFolder\{target}") } else { target.to_string() };
-    let (w, hgt, bgra) = unsafe { extract(&parse) }.map_err(|e| format!("아이콘 추출 실패: {target} ({})", e.message()))?;
+    let (w, hgt, bgra) = crate::launch::sta(move || unsafe { extract(&parse) }.map_err(|e| e.message()))
+        .map_err(|e| format!("아이콘 추출 실패: {target} ({e})"))?;
     let rgba = unpremultiply(bgra);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let tmp = out.with_extension("tmp");
-    let f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(f), w, hgt);
-    enc.set_color(png::ColorType::Rgba);
-    enc.set_depth(png::BitDepth::Eight);
-    enc.write_header().and_then(|mut wr| wr.write_image_data(&rgba)).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &out).map_err(|e| e.to_string())?;
+    // 같은 아이콘을 동시에 요청해도 각자 다른 tmp 에 다 쓴 뒤 rename(원자적) → 반쯤 쓴 PNG 가 캐시에 남지 않는다
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let tmp = out.with_extension(format!("{}.{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let written = (|| {
+        let f = std::fs::File::create(&tmp)?;
+        let mut enc = png::Encoder::new(f, w, hgt); // 버퍼 없음: 청크 몇 번 쓰기라 충분, finish() 오류가 그대로 올라온다
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut wr = enc.write_header()?;
+        wr.write_image_data(&rgba)?;
+        wr.finish()?;
+        std::fs::rename(&tmp, &out)
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        if !out.exists() {
+            return Err(e.to_string()); // 다른 요청이 이미 완성본을 올렸으면 그걸 쓴다
+        }
+    }
     Ok(out)
 }
 
 unsafe fn extract(target: &str) -> windows::core::Result<(u32, u32, Vec<u8>)> {
-    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     let f: IShellItemImageFactory = SHCreateItemFromParsingName(&HSTRING::from(target), None)?;
     let hbm = f.GetImage(SIZE { cx: 256, cy: 256 }, SIIGBF_ICONONLY)?;
     let mut bm = BITMAP::default();

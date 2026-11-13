@@ -1,6 +1,8 @@
 // Stage C release-build checks. node .omc/verify/c-perf.mjs [idle-tt|idle-hidden|palette|turntable]...
 // idle-tt     : turntable shown (stopped), palette closed, no CDP — 3 min idle → private WS + 60s CPU
 // idle-hidden : same with the turntable hidden (window destroyed)
+// idle-spin   : turntable SPINNING (charmap LP cued via one CDP invoke, CDP then closed) — 3 min idle → WS + 60s CPU (charmap excluded)
+// alttab      : CDP. palette shown via invoke('palette') (+ panel) → inspect.ps1 Alt+Tab filter, palette focus
 // palette     : CDP. invoke('palette') (= the hotkey handler) → shown frame, ×20 open/close; WS before/after/+60s
 // turntable   : CDP. drawer-open frames, drag charmap LP → platter (drop + spin-up frames), spin on while alive,
 //               taskkill → spin off latency, platter activate, hit rects / window fit
@@ -25,11 +27,11 @@ const memAll = () => execSync(`powershell -NoProfile -File .omc/verify/mem.ps1 -
 const mem = () => Number(/TOTAL.*privateWS=([\d.]+) MB/.exec(memAll())[1])
 const ps = (c) => execSync(`powershell -NoProfile -Command "${c}"`).toString()
 const tree = () => {
-  const all = JSON.parse(ps('Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'))
+  const all = JSON.parse(ps('Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress'))
   const t = [app.pid]
   for (let added = true; added; ) {
     added = false
-    for (const p of all) if (t.includes(p.ParentProcessId) && !t.includes(p.ProcessId)) t.push(p.ProcessId), (added = true)
+    for (const p of all) if (t.includes(p.ParentProcessId) && !t.includes(p.ProcessId) && p.Name !== 'charmap.exe') t.push(p.ProcessId), (added = true)
   }
   return t
 }
@@ -37,15 +39,32 @@ const cpu = (ids) => ps(`(Get-Process -Id ${ids.join(',')} | Measure-Object CPU 
 const pctl = (a, q) => [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.ceil(a.length * q) - 1)]
 const charmapRunning = () => execSync('tasklist /FI "IMAGENAME eq charmap.exe" /NH').toString().includes('charmap.exe')
 
-async function idle(tt) {
-  await start(false, { 'turntable.open': tt })
+const CMAP = { id: 'cmap', title: '문자표', target: CHARMAP, kind: 'single', cover: '#F59E0B', glyph: 'text' }
+const playing = async () => {
+  const tt = await page('turntable')
+  const r = await tt.evaluate(`document.querySelector('.turntable').dataset.playing + ' anim=' + document.querySelector('.disc').getAnimations().map((a) => a.playState + '@' + a.playbackRate.toFixed(2) + ' t=' + Math.round(a.currentTime)).join(',')`)
+  tt.close()
+  return r
+}
+
+async function idle(tt, spin) {
+  if (spin && charmapRunning()) throw new Error('charmap.exe already running (user instance) — not touching it')
+  await start(spin, spin ? { 'turntable.open': false, 'record:cmap': CMAP } : { 'turntable.open': tt })
+  if (spin) {
+    const dock = await page('dock')
+    await dock.evaluate(`window.__TAURI_INTERNALS__.invoke('turntable', { show: true, play: 'cmap' })`)
+    dock.close()
+    await sleep(6000)
+    console.log('spin start: playing =', await playing(), '| charmap running =', charmapRunning())
+  }
   for (let s = 0; s < 3; s++) await sleep(60_000), console.log(`idle ${s + 1}min: ${mem()} MB`)
   const ids = tree()
   const [c0, h0] = [cpu(ids), cpu([app.pid])]
   await sleep(60_000)
   const [c1, h1] = [cpu(ids), cpu([app.pid])]
   console.log(memAll())
-  console.log(`IDLE turntable=${tt ? 'shown' : 'hidden'} 3min privateWS=${mem()} MB; CPU 60s: tree ${(((c1 - c0) / 60) * 100).toFixed(2)}% of 1 core, hera.exe ${(((h1 - h0) / 60) * 100).toFixed(2)}%`)
+  if (spin) console.log('spin end: playing =', await playing(), '| charmap running =', charmapRunning()), execSync('taskkill /IM charmap.exe /F', { stdio: 'ignore' })
+  console.log(`IDLE turntable=${spin ? 'SPINNING' : tt ? 'shown' : 'hidden'} 3min privateWS=${mem()} MB; CPU 60s: tree ${(((c1 - c0) / 60) * 100).toFixed(2)}% of 1 core, hera.exe ${(((h1 - h0) / 60) * 100).toFixed(2)}%`)
   await stop()
 }
 
@@ -65,6 +84,22 @@ const frames = async (p, kick, ms) => {
 const runs = {
   'idle-tt': () => idle(true),
   'idle-hidden': () => idle(false),
+  'idle-spin': () => idle(true, true),
+
+  async alttab() {
+    await start(true, { 'turntable.open': true })
+    const [dock, pal] = [await page('dock'), await page('palette')]
+    await dock.evaluate(`window.__TAURI_INTERNALS__.invoke('palette')`)
+    await sleep(1000)
+    console.log('palette visible =', await dock.evaluate(`window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible', { label: 'palette' })`), '| document.hasFocus =', await pal.evaluate('document.hasFocus()'))
+    console.log(execSync(`powershell -NoProfile -File .omc/verify/inspect.ps1 -procId ${app.pid}`).toString())
+    await dock.evaluate(`window.__TAURI_INTERNALS__.invoke('close_palette', { restore: false })`)
+    await dock.evaluate(`window.__TAURI_INTERNALS__.invoke('toggle_panel', { tab: 'todo' })`)
+    await sleep(1500)
+    console.log('-- panel open --\n' + execSync(`powershell -NoProfile -File .omc/verify/inspect.ps1 -procId ${app.pid}`).toString())
+    dock.close(), pal.close()
+    await stop()
+  },
 
   // palette window is created hidden at startup; invoke('palette') = the Ctrl+Alt+K handler (show + focus + 'palette-open').
   // latency = dock invoke → first rAF in the palette page after it received 'palette-open' (window shown, frame produced).

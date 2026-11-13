@@ -7,6 +7,7 @@ Status: 실행 승인 — Stage A·B(B0~B5)·C(C1~C4) 완료(2026-11-13), 사용
    - panel 은 **기본 지연 생성 + 닫으면 파괴**(hide 유지 아님) — 결정 규칙 ①을 기본값으로 승격.
    - B0 에 WebView2 `MemoryUsageTargetLevel = Low`(접힘/숨김 상태) 검증 추가.
    - 접힘/idle 상태에서 **rAF·무한 애니메이션 0개**(미니 LP 회전 정지 기본안 유지), 이벤트 없으면 렌더 없음.
+     - **정정(리뷰 R)**: 예외 1개 — C1 턴테이블은 사용자 요구대로 **레코드 앱이 살아 있는 동안 계속 돈다**(설계상 상시 애니메이션). 정속 구간은 무한 WAAPI 대신 150ms 타이머 컷(6.7Hz)이고 비용은 §6 'C 결과 → 리뷰 수정 R'에 측정. 턴테이블이 숨김/정지면 0개가 맞다.
    - 시안도 가볍게: 이미지 에셋 최소, `backdrop-filter` 는 정적 레이어에만, 애니메이션 중 블러 반경 변경 금지.
 
 # Hera — Windows 글라스 독 + LP 턴테이블 런처 작업 계획
@@ -205,6 +206,7 @@ D:\AI\hera\
 - 배치(1920×1080, 100%, work area 하단 1032): dock (480,854) 960×178, island (740,0) 440×144, panel (작업 영역 우하단) 384×540 + DWM 그림자 테두리. 작업 영역 변경은 watch 2s, DPI 변경은 `ScaleFactorChanged` 로 `place()`.
 - panel: 첫 열기에 생성, 다시 토글하면 `panel-close` → JS 닫힘 애니메이션 → `close_panel` 로 destroy. 창 수 2→3→2 확인.
 - Alt+Tab: Hera 창 0개(ex-style 필터: dock/island TOOLWINDOW|NOACTIVATE, APPWINDOW 없음; panel 은 소유 창).
+  - **정정(리뷰 R)**: Stage C 의 팔레트 창은 이 판정에 없었고, 실측하니 보이는 동안 `APPWINDOW` 가 붙어 Alt+Tab 에 나왔다(inspect.ps1 altTab=True). 수정 후 팔레트·패널 각각 보인 상태에서 0개 재확인.
 - 전체화면: `SHQueryUserNotificationState` BUSY/D3D/PRESENTATION → `ShowWindowAsync` 숨김/표시. 판정 함수 `#[test]` 만, 실제 전체화면 테스트는 잠금 때문에 미실시.
 - 포그라운드: 자기 프로세스 창 무시, dock/island(루트 기준)가 포그라운드가 되면 직전 외부 창으로 `SetForegroundWindow`. 실제 동작 미검증(잠금).
 - 트레이: 패널 열기 / 로그인 시 자동 시작(체크, **기본 꺼짐**, 사용자가 켤 때만 레지스트리 등록) / 종료. single-instance 재실행 시 패널 열기.
@@ -223,7 +225,7 @@ D:\AI\hera\
 
 #### B2 결과 (2026-11-13, 세션 잠금 상태 — 클릭·육안 확인은 `.omc/verify/b2b3-manual.ps1`로 미룸)
 - 구성: `launch.rs`(launch, target 분류 `#[test]`, `start_apps`, 지연 벤치 `#[ignore]`), `icons.rs`(추출, un-premultiply `#[test]`, 샘플 `#[ignore]`). Rust 모듈은 lib/launch/icons/watch 4개. 추가한 의존성: tauri-plugin-store, serde(+json), png, tauri `protocol-asset`. png는 image crate 대신 단독으로 썼다(더 작음).
-- 실행: `AllowSetForegroundWindow(ASFW_ANY)` 후 `ShellExecuteExW`(`SEE_MASK_FLAG_NO_UI|NOASYNC`)를 호출한다. **편차**: 계획의 `ShellExecuteW` 대신 Ex 버전을 썼다. 오버레이에서 모달 오류 창이 뜨지 않게 하기 위해서다(오류는 문자열로 돌려 Island alert로 보여준다). spawn_blocking 스레드에서 STA로 실행한다.
+- 실행: `AllowSetForegroundWindow(ASFW_ANY)` 후 `ShellExecuteExW`(`SEE_MASK_FLAG_NO_UI|NOASYNC`)를 호출한다. **편차**: 계획의 `ShellExecuteW` 대신 Ex 버전을 썼다. 오버레이에서 모달 오류 창이 뜨지 않게 하기 위해서다(오류는 문자열로 돌려 Island alert로 보여준다). spawn_blocking 스레드에서 STA로 실행한다. **(리뷰 R 에서 변경: 전용 상주 STA 스레드 `launch::sta`)**
 - 분류: `shell:AppsFolder\…`와 맨 AUMID → AUMID. `scheme:`(scheme 2글자 이상) → URL(https, mailto, ms-settings 등). 그 외 → 경로이며, 파일이 없으면 "파일이 없어요"를 반환한다.
 - 실행 지연(릴리스 빌드, `cargo test --release launch_latency -- --ignored`, 함수 호출부터 반환까지, 대상별 20회, 매회 창 종료):
 
@@ -236,7 +238,7 @@ D:\AI\hera\
   - NOASYNC를 빼도 URL p95는 425ms로 나아지지 않았다. 지연은 패키지 앱 프로토콜 활성화 자체에서 생긴다.
   - 실제 IPC 경로(릴리스 앱 dock 웹뷰에서 `invoke('launch')`, 계산기 5회): 224ms(콜드)/49/56/46/46ms.
   - **측정 못 한 것(편차)**: 메모장은 사용자 메모장이 열려 있어 제외했다. 새로 실행하면 사용자 창에 탭이 추가된다(계산기와 같은 AUMID 경로라 그 수치로 갈음). https URL도 제외했다. 기본 브라우저(Chrome)가 사용자 세션으로 떠 있어 탭이 남기 때문이다. 대신 `ms-calculator:`로 URL 프로토콜 경로를 쟀다. https는 chrome.exe 실행이라 .exe 수치에 가까울 것으로 추정하지만 검증하지 않았다.
-- 아이콘: 워커 스레드(spawn_blocking)에서 `CoInitializeEx(STA)` → `SHCreateItemFromParsingName` → `IShellItemImageFactory::GetImage(256, SIIGBF_ICONONLY)` → `GetDIBits`(top-down 32bpp) → un-premultiply → `appData/icons/<hash>.png`(tmp에 쓴 뒤 rename) 순서로 처리한다.
+- 아이콘: 워커 스레드(spawn_blocking)에서 `CoInitializeEx(STA)`(**리뷰 R: COM 부분은 `launch::sta` 스레드, tmp 이름은 pid+카운터로 고유**) → `SHCreateItemFromParsingName` → `IShellItemImageFactory::GetImage(256, SIIGBF_ICONONLY)` → `GetDIBits`(top-down 32bpp) → un-premultiply → `appData/icons/<hash>.png`(tmp에 쓴 뒤 rename) 순서로 처리한다.
   - un-premultiply는 모든 픽셀이 c≤a일 때만 한다. 알파가 전부 0이면 불투명으로 본다.
   - 표시는 `convertFileSrc` + asset protocol이며 scope는 `$APPDATA/icons/**`뿐이다. URL 레코드는 `origin/favicon.ico`를 쓰고, 실패하면 커버 컬러 이니셜이나 글리프로 돌아간다.
   - 샘플: 계산기·메모장(AUMID), Code.exe, notepad++.exe, Beyond Compare 5.lnk, Ahk2Exe.lnk. 추출에 76~488ms가 걸렸다(첫 COM 초기화 포함).
@@ -409,7 +411,7 @@ D:\AI\hera\
   - **글리치 수정**: 카드가 데크 바닥에서 끝난다(`.tt-card` 아래 패딩 0). 서랍 앞판·트레이는 카드 밖으로 내려와 글라스 뒤판 없이 데크의 일부로 보인다(시안 스크린샷 확인: 카드 bottom = 데크 bottom = 542px).
   - 회전 = 생존: 드롭 → `launch` → 실행 집합(2s)에 레코드 키(세트는 멤버 중 하나)가 있으면 회전 유지, 한 번 살아 있다가 사라지면 톤암 복귀·감속. 15s 안에 안 나타나면(URL 레코드 등) 정지. 독 실행 점도 같은 `aliveIds` 를 쓴다.
   - **PID(IApplicationActivationManager) 미채택**: 실행 집합 키(exe 경로 / `shell:appsfolder\aumid`)로 레코드 앱을 이미 식별하고 B3 에서 검증됐다. PID 는 인스턴스 단위 정밀도만 더하고 별도 프로세스 추적이 필요해 뺐다(같은 앱의 다른 창도 '살아 있음'으로 본다).
-  - 플래터 클릭 → `activate(keys)`: 키가 맞는 가장 위 앱 창, 최소화면 `SW_RESTORE`, `SetForegroundWindow`(실패 시 Alt 키 트릭 1회 재시도).
+  - 플래터 클릭 → `activate(keys)`: 키가 맞는 가장 위 앱 창, 최소화면 `SW_RESTORE`, `SetForegroundWindow`(실패 시 ~~Alt 키 트릭~~ → **리뷰 R: `AttachThreadInput`(현재 포그라운드 스레드) + `BringWindowToTop` 후 1회 재시도, 키 주입 없음, 실패면 오류 반환**).
   - 자동 검증 `node .omc/verify/c-perf.mjs turntable`(CDP, charmap.exe 레코드를 서랍→플래터로 마우스 드래그): 드롭 후 playing=true, 3초 뒤 charmap 실행 중·여전히 회전, `activate(charmap)` ok / 없는 키 오류, **taskkill 후 정지까지 1179ms, 689ms(2회)** ≤2.5s 통과, 감속 후 WAAPI paused(프레임 0).
   - 프레임(릴리스 웹뷰 rAF): 서랍 열기 50프레임 **100% ≤17ms**, 최대 16.8ms, long task 0 / 드래그→드롭→스냅→톤암→가속 3s 182프레임 **100% ≤17ms**, 최대 16.8ms, long task 0 (2회 동일).
 - C2 세트: `kind:'set'` + `targets[]`, 실행은 멤버 순서대로 `await launch`(앞 요청이 끝난 뒤 다음). 라이브러리 탭 'LP 세트 만들기…' → 단일 레코드 체크(체크 순서 = 실행 순서, 2개 이상) + 이름 → 생성. 세트는 독에 고정하지 않는다(턴테이블 서랍·팔레트용). 시안에서 생성·서랍 표시·재생 표시 확인.
@@ -422,6 +424,32 @@ D:\AI\hera\
 - 수동(잠금 해제 후): `.omc/verify/c-manual.ps1`(11단계) — 클릭 통과, 창 끌기·위치 복원, 서랍 외형, 실앱 드롭→전면·플래터 클릭 전환, 세트, 실단축키·포커스 복귀, 탐색기→선반 드롭, 배터리(노트북), DevTools 프레임.
 
 ---
+
+#### 리뷰 수정 R (2026-11-13, 독립 리뷰 지적 12건 반영, 릴리스 재빌드·세션 잠금 상태 측정)
+- **COM 아파트 통일 + ASYNCOK 수명**: `launch::sta` = 프로세스 수명 동안 사는 전용 STA 스레드 1개(작업 채널 + 이벤트, `MsgWaitForMultipleObjects`/`PeekMessage` 로 메시지 펌프). `launch`·`lnk_target`·`activate`(창 AUMID 조회)·아이콘 추출(COM 부분)이 모두 여기서 돈다 → spawn_blocking 스레드의 STA/MTA 혼용(RPC_E_CHANGED_MODE) 제거, `SEE_MASK_ASYNCOK` 의 "호출 스레드가 메시지 루프를 갖고 살아 있을 것"(ShellExecuteEx 문서: 아니면 NOASYNC 를 써야 함) 충족. watch 루프는 자기 전용 스레드의 MTA 그대로. 트레이드오프: 작업이 직렬이라 첫 실행 때 아이콘 추출이 실행을 잠깐 기다리게 할 수 있음(`ponytail:` 주석).
+- 실행 지연 재측정(`cargo test --release launch_latency -- --ignored`, 대상별 20회, 매회 창 종료): 계산기 AUMID **p50 49.3 / p95 56.6ms**(max 287 = 첫 콜드), charmap.exe **0.6 / 1.0ms**, `ms-calculator:` **0.6 / 1.3ms** — 모두 <300ms.
+- 아이콘 캐시: tmp 이름 `<hash>.<pid>.<n>.tmp`(동시 요청이 서로 다른 파일), 다 쓰고 `finish()` 후 rename. 실패하면 tmp 삭제, 이미 완성본이 있으면 그것을 쓴다.
+- 드래그 진입: 창 전체가 아니라 **모양 rect + 24px** 안에서만 클릭 통과 해제(`hit(.., DRAG_MARGIN)`, `#[test] hit_test` 에 경계 5건 추가) → 독 아래 띠의 앱으로 가는 탐색기 드롭은 통과.
+- `activate`: Alt 키 주입 제거 → `AttachThreadInput` + `BringWindowToTop` + 재시도, 실패 시 오류 반환.
+- `start_apps`: 10s 타임아웃(넘으면 PowerShell kill, 오류 → 다음 열기에 재시도), 팔레트는 실패 시 `loaded` 리셋 + `console.error`.
+- 시작 안정성: 스토어 플러그인 2.5.1 은 읽기 오류를 **무시하고 빈 스토어로 열어 곧 덮어쓴다**(리뷰의 "setup 중단"이 아니라 조용한 데이터 유실). setup 이 먼저 JSON 을 검사해 깨졌으면 `hera.json.bak-<epoch>` 로 옮긴다 — 실측: `{"broken` → bak 생성, 새 hera.json 시드됨. 팔레트·턴테이블 창 생성 실패는 로그만 남기고 계속.
+- 턴테이블 생성: `Destroyed`(→ OVERLAYS 정리) 핸들러를 위치·show 전에 등록, 실패하면 창 파괴. `low_memory` 실패는 무시(최적화).
+- idle 작업: watch 루프는 전체화면 숨김 동안 2Hz(2s 블록 유지). 시계는 독이 펼쳐진 동안만 분 단위 갱신(펼칠 때 즉시 현재 시각).
+- **팔레트 Alt+Tab**: tao 가 show 때 `APPWINDOW` 를 붙여 **보이는 동안 Alt+Tab 에 나왔다**(수정 전 inspect.ps1: palette ex=0x40198 altTab=True, 1개). show 뒤 메인 스레드에서 `TOOLWINDOW` 추가·`APPWINDOW` 제거(NOACTIVATE 아님 → 포커스 받음). 재검증 `node .omc/verify/c-perf.mjs alttab`: 팔레트 보임 ex=0x198 · `document.hasFocus()=true` · **Alt+Tab Hera 0개**, 패널 열림도 0개.
+- **턴테이블 회전 CPU(신규 측정, `c-perf.mjs idle-spin`: charmap LP 재생 유지, 3분 idle 후 60s, charmap 제외 트리)**:
+
+  | 회전 방식 | 트리 CPU / hera.exe (1코어) | 메모리 3분 |
+  |---|---|---|
+  | 수정 전: 무한 WAAPI `steps(60)` 재생 | **4.66%** / 0.16% | 106.3MB |
+  | 정속 = 멈춘 애니메이션 + 30ms 타이머 컷(60컷/회전) | 3.13% / 0.18% | 115.4MB |
+  | **채택**: 정속 150ms 컷(30°, 6.7Hz), 가속·감속은 기존 60컷 | **1.48%** / 0.10% | 124.1MB |
+  | (참고) 턴테이블 보임·정지·팔레트 숨김 | 0.34% / 0.34% | **98.0MB** (1/2/3분 94.4/97.9/98.0) |
+
+  - 재생 중인 WAAPI 는 컷이 안 바뀌어도 매 vsync 프레임을 만든다 → 정속에서는 애니메이션을 멈추고 컷마다 `currentTime` 을 민다. 도트 스프라이트·`steps` 각도 격자는 그대로, 정속 컷만 6°→30°.
+  - 판정: 계획 §7 Stage C 기준 "회전 중 idle CPU < 2%" **통과**, 정지 기준 <1% 에는 못 미침(1.48%). 컷 빈도 대비 선형 추정 절편이 ~1% 라 빈도만으로는 1% 아래로 내리기 어렵다 — 더 내리려면 회전을 별도 GPU 레이어 밖(예: 네이티브 레이어드 창)으로 빼야 함, 하지 않음.
+  - 메모리: 회전 중 124MB, 보임·정지 98MB — 모두 ≤150MB.
+- 기타: Dock `paintWall` 은 언마운트 후 `wall.current` null 이면 무시, api.ts 의 팔레트 '파괴' 주석 → '숨기기'.
+- 검증: `cargo build`, `cargo test`(8 통과, 수동 4), `cargo clippy --all-targets -- -D warnings`, `npx tsc --noEmit`, `npm run build`, `npm run tauri build -- --no-bundle` 통과.
 
 ## 7. Acceptance Criteria & 측정 방법
 

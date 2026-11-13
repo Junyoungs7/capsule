@@ -141,23 +141,28 @@ pub unsafe fn running(me: u32) -> Vec<String> {
 }
 
 /// C1 플래터 클릭: 키가 맞는 가장 위의 앱 창을 전면으로 (최소화면 복원). 사용자 클릭 직후라 SetForegroundWindow 가 허용된다.
+/// `launch::sta` 스레드에서 부를 것 (창 AUMID 조회 = COM).
 pub fn activate(keys: &[String]) -> Result<(), String> {
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let Some((h, _)) = app_windows(GetCurrentProcessId()).into_iter().find(|(_, ks)| ks.iter().any(|k| keys.contains(k))) else {
             return Err("실행 중인 창이 없어요".into());
         };
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
         }
-        if !SetForegroundWindow(h).as_bool() {
-            // 포그라운드 잠금에 걸리면 Alt 키 트릭(입력 큐에 키 이벤트가 있으면 허용) 후 1회 재시도
-            use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_MENU};
-            let key = |f| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_MENU, dwFlags: f, ..Default::default() } } };
-            SendInput(&[key(Default::default()), key(KEYEVENTF_KEYUP)], size_of::<INPUT>() as i32);
-            let _ = SetForegroundWindow(h);
+        if SetForegroundWindow(h).as_bool() {
+            return Ok(());
         }
-        Ok(())
+        // 포그라운드 잠금: 현재 포그라운드 스레드의 입력 큐에 잠깐 붙어 전환 후 1회 재시도 (키 입력 주입 없음)
+        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+        let (me, fg) = (GetCurrentThreadId(), GetWindowThreadProcessId(GetForegroundWindow(), None));
+        let attached = fg != 0 && fg != me && AttachThreadInput(me, fg, true).as_bool();
+        let _ = BringWindowToTop(h);
+        let ok = SetForegroundWindow(h).as_bool();
+        if attached {
+            let _ = AttachThreadInput(me, fg, false);
+        }
+        if ok { Ok(()) } else { Err("창을 앞으로 가져오지 못했어요".into()) }
     }
 }
 
@@ -169,10 +174,13 @@ pub fn power() -> Option<(u8, bool)> {
     (s.BatteryFlag & 128 == 0 && s.BatteryFlag != 255 && s.BatteryLifePercent <= 100).then_some((s.BatteryLifePercent, s.ACLineStatus == 1))
 }
 
-/// 커서(클라이언트 기준 물리 px)가 모양 rect 중 하나 안에 있는가.
-fn hit(x: f64, y: f64, rects: &[[f64; 4]]) -> bool {
-    rects.iter().any(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3])
+/// 커서(클라이언트 기준 물리 px)가 모양 rect 중 하나를 사방 m px 넓힌 영역 안에 있는가.
+fn hit(x: f64, y: f64, rects: &[[f64; 4]], m: f64) -> bool {
+    rects.iter().any(|r| x >= r[0] - m && x < r[0] + r[2] + m && y >= r[1] - m && y < r[1] + r[3] + m)
 }
+
+/// 바깥에서 끌고 들어오는 드롭은 모양(+여유)에 닿을 때만 받는다 — 투명 여유 영역 아래 앱으로 가는 드롭은 통과.
+const DRAG_MARGIN: f64 = 24.0;
 
 /// 원하는 확장 스타일. tao 는 자기 플래그로 GWL_EXSTYLE 을 통째로 다시 쓰므로(show/hide 등)
 /// TOOLWINDOW 를 지우고 APPWINDOW 를 되살린다 → 매 틱 비교해 다를 때만 쓴다.
@@ -287,7 +295,7 @@ fn check_alarms(app: &AppHandle) {
 
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED); // SHGetPropertyStoreForWindow
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED); // SHGetPropertyStoreForWindow — 이 루프 전용 스레드라 아파트 혼용 없음
         let me = GetCurrentProcessId();
         let mut prev_lb = false;
         let mut drag_out = false; // 창 밖에서 누른 채 들어오는 드래그(탐색기 파일 등)
@@ -325,8 +333,8 @@ pub fn start(app: AppHandle) {
             for (i, &(label, h)) in overlays.iter().enumerate() {
                 let r = &rects[i];
                 let shape = hits.iter().find(|(l, _)| l == label).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
-                let over = hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, shape);
-                let p = !(over || (drag_out && inside(r)));
+                let (x, y) = ((pt.x - r.left) as f64, (pt.y - r.top) as f64);
+                let p = !(hit(x, y, shape, 0.0) || (drag_out && hit(x, y, shape, DRAG_MARGIN)));
                 let hwnd = HWND(h as _);
                 let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 let want = ex_style(cur, p);
@@ -397,7 +405,8 @@ pub fn start(app: AppHandle) {
                 }
             }
 
-            std::thread::sleep(Duration::from_millis(33));
+            // 전체화면으로 숨긴 동안은 2Hz (2s 블록은 그대로)
+            std::thread::sleep(Duration::from_millis(if hidden { 500 } else { 33 }));
         }
     });
 }
@@ -409,10 +418,16 @@ mod tests {
     #[test]
     fn hit_test() {
         let dot = [[396.0, 150.0, 168.0, 30.0]];
-        assert!(hit(480.0, 160.0, &dot));
-        assert!(!hit(100.0, 160.0, &dot)); // 투명 여유 영역
-        assert!(!hit(564.0, 160.0, &dot)); // 오른쪽 경계는 제외
-        assert!(!hit(480.0, 160.0, &[]));
+        assert!(hit(480.0, 160.0, &dot, 0.0));
+        assert!(!hit(100.0, 160.0, &dot, 0.0)); // 투명 여유 영역
+        assert!(!hit(564.0, 160.0, &dot, 0.0)); // 오른쪽 경계는 제외
+        assert!(!hit(480.0, 160.0, &[], 0.0));
+        // 드래그 진입: 모양 +24px 까지만 받고, 그 밖의 투명 영역(아래 앱으로 갈 드롭)은 통과
+        assert!(hit(380.0, 130.0, &dot, DRAG_MARGIN)); // 왼쪽 위 16/20px
+        assert!(hit(587.0, 160.0, &dot, DRAG_MARGIN));
+        assert!(!hit(588.0, 160.0, &dot, DRAG_MARGIN));
+        assert!(!hit(100.0, 160.0, &dot, DRAG_MARGIN));
+        assert!(!hit(480.0, 125.0, &dot, DRAG_MARGIN));
     }
 
     #[test]
@@ -432,7 +447,7 @@ mod tests {
     #[test]
     #[ignore]
     fn running_and_aumid() {
-        std::thread::spawn(|| crate::launch::launch(r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")).join().unwrap().unwrap();
+        crate::launch::sta(|| crate::launch::launch(r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")).unwrap();
         std::thread::sleep(Duration::from_secs(3));
         let calc = r"shell:appsfolder\microsoft.windowscalculator_8wekyb3d8bbwe!app";
         let (keys, frame) = unsafe {

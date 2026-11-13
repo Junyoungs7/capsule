@@ -10,7 +10,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowLongPtrW, IsWindow, SetForegroundWindow, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW};
 
 // 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
 const DOCK: (f64, f64) = (960.0, 178.0);
@@ -39,7 +39,7 @@ fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) 
         .shadow(false)
         .focusable(false) // tao: WS_EX_NOACTIVATE (TOOLWINDOW 은 watch 루프가 유지)
         .build()?;
-    low_memory(&win)?;
+    let _ = low_memory(&win); // 최적화일 뿐 — 실패해도 창은 쓴다
     watch::add_overlay(label, win.hwnd()?.0 as isize); // 클릭 통과·전체화면 숨김 대상
     Ok(win)
 }
@@ -112,6 +112,18 @@ fn set_turntable(app: &AppHandle, show: bool, play: Option<String>) -> tauri::Re
         (true, Some(_)) => play.map_or(Ok(()), |id| app.emit_to("turntable", "tt-play", id)),
         (true, None) => {
             let win = overlay(app, "turntable", &play.map(|id| format!("&play={id}")).unwrap_or_default(), TURNTABLE)?;
+            // Destroyed(→ OVERLAYS 정리)를 먼저 걸고, 이후 단계가 실패하면 창을 파괴한다 (죽은 오버레이 항목이 남지 않게)
+            let h = app.clone();
+            win.on_window_event(move |e| match e {
+                // 드래그 이동(data-tauri-drag-region) → 위치 저장
+                WindowEvent::Moved(p) => {
+                    if let Ok(s) = h.store("hera.json") {
+                        s.set("turntable.pos", serde_json::json!([p.x, p.y]));
+                    }
+                }
+                WindowEvent::Destroyed => watch::remove_overlay("turntable"),
+                _ => {}
+            });
             // 위치: 저장된 물리 px 가 어느 모니터 안이면 그대로, 아니면 주 모니터 작업 영역 왼쪽 가운데
             let on_screen = |&(x, y): &(i32, i32)| {
                 app.available_monitors().unwrap_or_default().iter().any(|m| {
@@ -125,21 +137,11 @@ fn set_turntable(app: &AppHandle, show: bool, play: Option<String>) -> tauri::Re
                 let (s, wa) = (m.scale_factor(), *m.work_area());
                 Some((wa.position.x + (32.0 * s) as i32, wa.position.y + ((wa.size.height as f64 - TURNTABLE.1 * s) / 2.0).max(0.0) as i32))
             });
-            if let Some((x, y)) = pos {
-                win.set_position(PhysicalPosition::new(x, y))?;
+            let r = pos.map_or(Ok(()), |(x, y)| win.set_position(PhysicalPosition::new(x, y))).and_then(|_| win.show());
+            if r.is_err() {
+                let _ = win.destroy();
             }
-            let h = app.clone();
-            win.on_window_event(move |e| match e {
-                // 드래그 이동(data-tauri-drag-region) → 위치 저장
-                WindowEvent::Moved(p) => {
-                    if let Ok(s) = h.store("hera.json") {
-                        s.set("turntable.pos", serde_json::json!([p.x, p.y]));
-                    }
-                }
-                WindowEvent::Destroyed => watch::remove_overlay("turntable"),
-                _ => {}
-            });
-            win.show()
+            r
         }
     }
 }
@@ -174,6 +176,14 @@ fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
         win.set_position(PhysicalPosition::new((x + (w - PALETTE.0 * s) / 2.0).round() as i32, y.round() as i32))?;
     }
     win.show()?;
+    // Alt+Tab 제외 = TOOLWINDOW, APPWINDOW 없음 (포커스는 받음 — NOACTIVATE 아님). tao 가 show 때 GWL_EXSTYLE 을 통째로 다시 쓰므로
+    // 보이기 처리 뒤(메인 스레드 큐에서 show 다음 순서)에 OR 한다.
+    let w = win.clone();
+    app.run_on_main_thread(move || {
+        if let Ok(h) = w.hwnd() {
+            unsafe { SetWindowLongPtrW(h, GWL_EXSTYLE, (GetWindowLongPtrW(h, GWL_EXSTYLE) | WS_EX_TOOLWINDOW.0 as isize) & !(WS_EX_APPWINDOW.0 as isize)) };
+        }
+    })?;
     win.set_focus()?; // 전역 단축키(WM_HOTKEY)를 받은 직후라 전면 전환이 허용된다
     app.emit_to("palette", "palette-open", ())
 }
@@ -203,7 +213,7 @@ async fn close_palette(app: AppHandle, restore: bool) -> Result<(), String> {
 /// C1 플래터 클릭 → 레코드의 앱 창 전면 (keys = exe 경로 / shell:appsfolder\aumid, 소문자)
 #[tauri::command]
 async fn activate(keys: Vec<String>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || watch::activate(&keys)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || launch::sta(move || watch::activate(&keys))).await.map_err(|e| e.to_string())?
 }
 
 /// C4 배터리 (잔량 %, 충전 중) — 없으면 null. 변화는 watch 루프가 'power' 로 알린다.
@@ -244,7 +254,7 @@ fn wallpaper_style() -> (String, String) {
 
 #[tauri::command]
 async fn launch(target: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || launch::launch(&target)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || launch::sta(move || launch::launch(&target))).await.map_err(|e| e.to_string())?
 }
 
 /// 아이콘 PNG 의 절대 경로 (JS 가 convertFileSrc → asset protocol, scope = $APPDATA/icons/**)
@@ -276,7 +286,7 @@ fn alarms_ready() {
 /// B5: .lnk 의 대상 exe (레코드 추가 시 1회 → 실행 점 매칭용)
 #[tauri::command]
 async fn lnk_target(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || launch::lnk_target(&path)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || launch::sta(move || launch::lnk_target(&path))).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -298,6 +308,13 @@ pub fn run() {
             turntable, palette, close_palette, activate, power
         ])
         .setup(|app| {
+            // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
+            let file = app.path().app_data_dir()?.join("hera.json");
+            if std::fs::read(&file).is_ok_and(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).is_err()) {
+                let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                let bak = file.with_file_name(format!("hera.json.bak-{ts}"));
+                eprintln!("hera.json 이 깨져 있어 {} 로 옮기고 새로 만든다: {:?}", bak.display(), std::fs::rename(&file, &bak));
+            }
             // 첫 실행 시드 (Rust 에서 1회 — 여러 창이 동시에 시드하는 경쟁 없음)
             let s = app.store("hera.json")?;
             if !s.has("seeded") {
@@ -325,9 +342,14 @@ pub fn run() {
                 w.show()?;
             }
             watch::start(h.clone());
-            palette_window(h)?;
+            // 팔레트·턴테이블은 부가 기능 — 실패해도 시작은 계속 (팔레트는 첫 단축키 때 다시 만든다)
+            if let Err(e) = palette_window(h) {
+                eprintln!("palette window: {e}");
+            }
             if s.get("turntable.open").and_then(|v| v.as_bool()).unwrap_or(false) {
-                set_turntable(h, true, None)?;
+                if let Err(e) = set_turntable(h, true, None) {
+                    eprintln!("turntable window: {e}");
+                }
             }
 
             // C3: 전역 단축키 → 팔레트 (창 생성은 비동기 스레드에서 — toggle_panel 과 같은 경로)

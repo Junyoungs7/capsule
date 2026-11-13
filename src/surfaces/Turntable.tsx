@@ -200,7 +200,9 @@ const Vinyl = ({ rec }: { rec: LpRecord }) => (
 )
 
 const PERIOD = 1800 // 33⅓rpm = 1.8s/회전
-const STEPS = 60 // 회전당 60컷: 60Hz 에서 정확히 2프레임마다 6° — 도트 애니 느낌 + 고른 박자
+const STEPS = 60 // 회전당 60컷: 60Hz 에서 정확히 2프레임마다 6° — 도트 애니 느낌 + 고른 박자 (가속·감속 구간)
+// 정속(앱이 살아 있는 동안 계속)은 5컷씩 묶어 30°/150ms (6.7Hz) — 갱신 1회마다 웹뷰·GPU 프레임 비용이 들어 idle CPU <1% 를 맞춘다(측정: 계획 C 결과)
+const CRUISE = 5
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || 'ease-out'
 
 type Props = {
@@ -228,11 +230,12 @@ export function Turntable({ records, onPlay, onStop, alive, cue, onActivate, onH
   const spinAnim = useRef<Animation | null>(null)
   const rate = useRef(0)
   const ramp = useRef(0)
+  const tick = useRef(0)
   const armTimer = useRef(0)
   const [open, setOpen] = useState(false) // LP 서랍
   const seen = useRef(false) // 재생 중 앱이 한 번이라도 살아 있었나
 
-  useEffect(() => () => (cancelAnimationFrame(frame.current), cancelAnimationFrame(ramp.current), clearTimeout(armTimer.current)), [])
+  useEffect(() => () => (cancelAnimationFrame(frame.current), cancelAnimationFrame(ramp.current), clearTimeout(armTimer.current), clearInterval(tick.current)), [])
 
   // Esc 로 서랍 닫기 — 열려 있을 때만 리스너
   useEffect(() => {
@@ -270,7 +273,8 @@ export function Turntable({ records, onPlay, onStop, alive, cue, onActivate, onH
     if (dragging) ghost.current!.style.transform = ghostAt(pt.current.x, pt.current.y, 0.42)
   }, [dragging])
 
-  // 회전: steps() WAAPI 무한 회전 1개를 재사용, playbackRate 를 0↔1 로 보간(가속/감속 구간에만 rAF)
+  // 회전: steps() WAAPI 회전 1개를 재사용, playbackRate 를 0↔1 로 보간(가속/감속 구간에만 rAF).
+  // 정속에 닿으면 애니메이션을 멈추고 컷마다 currentTime 을 한 칸씩 민다 — 재생 중인 WAAPI 는 컷이 안 바뀌어도 매 vsync 프레임을 만든다(idle CPU).
   const spin = (to: 0 | 1) => {
     if (reducedMotion()) return
     const a = (spinAnim.current ??= disc.current!.animate([{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], {
@@ -278,10 +282,9 @@ export function Turntable({ records, onPlay, onStop, alive, cue, onActivate, onH
       iterations: Infinity,
       easing: `steps(${STEPS})`,
     }))
-    if (to === 1) {
-      a.playbackRate = rate.current = Math.max(rate.current, 0.001)
-      a.play()
-    }
+    clearInterval(tick.current)
+    if (to === 1) a.playbackRate = rate.current = Math.max(rate.current, 0.001)
+    if (to === 1 || rate.current > 0.001) a.play()
     const from = rate.current, t0 = performance.now(), dur = to ? 1400 : 1700
     cancelAnimationFrame(ramp.current)
     const step = (t: number) => {
@@ -290,6 +293,11 @@ export function Turntable({ records, onPlay, onStop, alive, cue, onActivate, onH
       a.playbackRate = Math.max(rate.current, 0.001)
       if (k < 1) ramp.current = requestAnimationFrame(step)
       else if (to === 0) a.pause() // 정지 각도 유지, 이후 프레임 0
+      else {
+        a.pause()
+        const q = (PERIOD / STEPS) * CRUISE
+        tick.current = window.setInterval(() => (a.currentTime = ((Math.round(Number(a.currentTime) / q) + 1) * q) % PERIOD), q)
+      }
     }
     ramp.current = requestAnimationFrame(step)
   }

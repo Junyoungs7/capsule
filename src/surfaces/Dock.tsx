@@ -130,7 +130,10 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   const [hasWall, setHasWall] = useState(false)
   useEffect(() => {
     if (!isTauri) return
-    const draw = () => paintWall(wall.current!).then(setHasWall)
+    const draw = () => {
+      const c = wall.current // 언마운트 후 늦게 온 'wallpaper' 이벤트 무시
+      if (c) void paintWall(c).then(setHasWall)
+    }
     draw()
     return onEvent('wallpaper', draw)
   }, [])
@@ -242,7 +245,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
           <span className="dock-dot" />
         </button>
         <span className="dock-sep" />
-        <Clock />
+        <Clock open={open} />
         <Battery />
         <Shelf files={shelf} onOpen={onShelfOpen} onRemove={onShelfRemove} onDrop={(paths) => onDropFiles(paths, true)} />
       </div>
@@ -277,13 +280,20 @@ async function paintWall(c: HTMLCanvasElement) {
   return true
 }
 
-function Clock() {
+function Clock({ open }: { open: boolean }) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    // 분이 바뀔 때만 1회 갱신 — 상시 타이머 없음
-    const t = setTimeout(() => setNow(new Date()), 60_000 - (now.getSeconds() * 1000 + now.getMilliseconds()))
+    // 독이 펼쳐져 있을 때만: 펼칠 때 현재 시각, 이후 분이 바뀔 때마다 1회 — 접힌 동안 타이머·렌더 없음
+    if (!open) return
+    let t = 0
+    const tick = () => {
+      const d = new Date()
+      setNow(d)
+      t = window.setTimeout(tick, 60_000 - (d.getSeconds() * 1000 + d.getMilliseconds()))
+    }
+    tick()
     return () => clearTimeout(t)
-  }, [now])
+  }, [open])
   return (
     <div className="dock-slot widget clock" aria-label="시계">
       <b>{now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</b>
