@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
 import {
-  closePanelWindow, isTauri, launch, onEvent, panelOpen, sendAlert, titleOf, togglePanel, useItems, useValue, watchState,
+  closePanelWindow, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, panelOpen, sendAlert, titleOf, togglePanel, useItems, useValue, watchState,
   type AlertMsg, type Fg,
 } from '../data/api'
 import { COVERS, seedEvents, seedRecords, seedTodos } from '../data/mock'
@@ -13,7 +13,8 @@ import { Palette } from '../surfaces/Palette'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
 const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
-const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has(r.target.toLowerCase())
+const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has((r.exe ?? r.target).toLowerCase())
+const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
@@ -26,9 +27,11 @@ export function Desktop({ only }: { only?: string }) {
   const [events, setEvents] = useItems('event', seedEvents)
   const dockRecords = pinned.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r)
 
-  const addRecord = (target: string, title = titleOf(target)) => {
+  const addRecord = async (target: string, title = titleOf(target)) => {
     const id = crypto.randomUUID()
-    setRecords((rs) => [...rs, { id, title, target, kind: 'single', cover: COVERS[rs.length % COVERS.length], glyph: 'text' }])
+    // .lnk 는 대상 exe 를 한 번 풀어 둔다 (실행 집합은 exe 경로라서)
+    const exe = isTauri && /\.lnk$/i.test(target) ? await lnkTarget(target).catch(() => undefined) : undefined
+    setRecords((rs) => [...rs, { id, title, target, exe, kind: 'single', cover: COVERS[rs.length % COVERS.length], glyph: 'text' }])
     setPinned((p) => [...p, id])
   }
   const removeRecord = (id: string) => {
@@ -39,10 +42,13 @@ export function Desktop({ only }: { only?: string }) {
 
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [playing, setPlaying] = useState<RunningSession | null>(null)
-  const [alert, setAlert] = useState<Notification | null>(null)
+  // 알림 큐: 앞에서부터 1개씩 표시 (전체화면 뒤 밀린 알림·여러 건 동시 발화)
+  const [alerts, setAlerts] = useState<Notification[]>([])
+  const alert = alerts[0] ?? null
+  const pushAlert = (a: Omit<Notification, 'id'>) => setAlerts((q) => (a.key && q.some((x) => x.key === a.key) ? q : [...q, { id: crypto.randomUUID(), ...a }]))
   const [peek, setPeek] = useState(false)
   const peekTimer = useRef(0)
-  const showAlert = (a: AlertMsg) => (isTauri ? void sendAlert(a) : setAlert({ id: crypto.randomUUID(), ...a }))
+  const showAlert = (a: AlertMsg) => (isTauri ? void sendAlert(a) : pushAlert(a))
 
   // B3 (Tauri): 실행 집합(2s) · 포그라운드(30Hz 변화 시) — watch 루프 이벤트. 늦게 뜬 창은 watch_state 로 즉시 동기화.
   const [runKeys, setRunKeys] = useState<Set<string>>(() => new Set())
@@ -58,8 +64,17 @@ export function Desktop({ only }: { only?: string }) {
       onEvent('foreground', onFg),
       onEvent('running', onRun),
       onEvent<boolean>('panel-state', setRemoteOpen),
-      onEvent<AlertMsg>('hera-alert', (a) => setAlert({ id: crypto.randomUUID(), ...a })),
+      onEvent<AlertMsg>('hera-alert', pushAlert),
     ]
+    if (only === 'island')
+      offs.push(
+        onAlarm((a) => pushAlert({ key: a.key, title: a.title, body: `${a.key.startsWith('event:') ? '일정 시작' : '마감 시각이 되었어요'} · ${hm(a.at)}` })),
+        // island 창: 다른 창(패널)에서 할 일/일정이 '추가'되면 미리보기를 잠깐 펼친다 (패널의 onAdded 는 패널 창 안에서만 돈다)
+        onStore((k, v) => {
+          const m = /^(todo|event):(.+)$/.exec(k)
+          if (m && v !== undefined && !knownIds.current.has(m[2])) peekIsland()
+        }),
+      )
     return () => offs.forEach((off) => off())
   }, [])
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
@@ -104,6 +119,8 @@ export function Desktop({ only }: { only?: string }) {
   const panelClosed = () => (isTauri && only === 'panel' ? void closePanelWindow() : setPanel(null))
   useEffect(() => (isTauri && only === 'panel' ? onEvent('panel-close', closePanel) : undefined), [])
 
+  const knownIds = useRef(new Set<string>())
+  knownIds.current = new Set([...todos, ...events].map((x) => x.id))
   const peekIsland = () => {
     setPeek(true)
     clearTimeout(peekTimer.current)
@@ -122,11 +139,7 @@ export function Desktop({ only }: { only?: string }) {
   // 데모 컨트롤
   const fireAlert = () => {
     const t = todos.find((x) => !x.done)
-    setAlert(
-      t
-        ? { id: crypto.randomUUID(), title: t.title, body: t.due ? `마감 시각이 되었어요 · ${new Date(t.due).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}` : '할 일을 확인할 시간이에요', todoId: t.id }
-        : { id: crypto.randomUUID(), title: '디자인 리뷰 10분 전', body: '회의실 B · 16:00' },
-    )
+    pushAlert(t ? { title: t.title, body: t.due ? `마감 시각이 되었어요 · ${hm(t.due)}` : '할 일을 확인할 시간이에요', key: `todo:${t.id}` } : { title: '디자인 리뷰 10분 전', body: '회의실 B · 16:00' })
   }
   const switchApp = () => {
     const singles = records.filter((r) => r.kind === 'single')
@@ -135,14 +148,16 @@ export function Desktop({ only }: { only?: string }) {
     if (!r) return
     setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() - (3 + Math.floor(Math.random() * 18)) * 60_000 })
   }
-  const done = () => {
-    if (alert?.todoId) setTodos((all) => all.map((t) => (t.id === alert.todoId ? { ...t, done: true } : t)))
-    setAlert(null)
+  // 완료 = 할 일 done (일정은 닫기만 — 발화 집합이 재발화를 막는다). 다시 알림 = snooze 를 지금 +10분으로.
+  const ack = (patch: (x: { id: string }) => object) => {
+    const [kind, id] = alert?.key?.split(/:(.*)/) ?? []
+    const f = <T extends { id: string }>(all: T[]) => all.map((x) => (x.id === id ? { ...x, ...patch(x) } : x))
+    if (kind === 'todo') setTodos(f)
+    if (kind === 'event') setEvents(f)
+    setAlerts((q) => q.slice(1))
   }
-  const snooze = () => {
-    if (alert?.todoId) setTodos((all) => all.map((t) => (t.id === alert.todoId ? { ...t, due: new Date(Date.now() + 600_000).toISOString() } : t)))
-    setAlert(null)
-  }
+  const done = () => ack((x) => ('done' in x ? { done: true } : {}))
+  const snooze = () => ack(() => ({ snooze: new Date(Date.now() + 600_000).toISOString() }))
 
   return (
     <div className="desktop" data-only={only ?? 'all'}>

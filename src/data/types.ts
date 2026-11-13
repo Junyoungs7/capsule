@@ -9,14 +9,16 @@ export type LpRecord = {
   targets?: string[] // kind:'set' → 묶인 레코드 id
   cover: string // 커버 컬러
   glyph: Glyph
+  exe?: string // .lnk 의 대상 exe (추가 시 해석) — 실행 점·Now Playing 매칭용
 }
 
 export type Source = 'local' | 'google' | 'ms'
 
-export type Todo = { id: string; title: string; due?: string; done: boolean; source: Source; externalId?: string }
+// snooze = '10분 뒤 다시' 로 미룬 알림 시각 (있으면 due/start 대신 이 시각에 알림, Rust watch 루프가 판정)
+export type Todo = { id: string; title: string; due?: string; done: boolean; source: Source; externalId?: string; snooze?: string }
 
-export type CalendarEvent = { id: string; title: string; start: string; end: string; source: Source; externalId?: string }
+export type CalendarEvent = { id: string; title: string; start: string; end: string; source: Source; externalId?: string; snooze?: string }
 
-export type Notification = { id: string; title: string; body: string; todoId?: string }
+export type Notification = { id: string; title: string; body: string; key?: string } // key = store 키 (todo:<id> / event:<id>)
 
 export type RunningSession = { recordId: string; title: string; startedAt: number }

@@ -1,9 +1,12 @@
-// 단일 watch 루프 (스레드 1개): 30Hz 커서 히트테스트·포그라운드 / 2s 실행 집합·전체화면·배경화면·작업 영역.
+// 단일 watch 루프 (스레드 1개): 30Hz 커서 히트테스트·포그라운드 / 2s 실행 집합·전체화면·알림·배경화면·작업 영역.
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_store::StoreExt;
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
@@ -165,6 +168,73 @@ fn work_area() -> [i32; 4] {
     [r.left, r.top, r.right, r.bottom]
 }
 
+/// B4 알림 1건. `at` = 발화 시각(epoch ms) = snooze ?? due(할 일) / start(일정).
+#[derive(Clone, Serialize, PartialEq, Debug)]
+pub struct Alarm {
+    key: String, // store 키 (todo:<id> / event:<id>)
+    title: String,
+    at: i64,
+    done: bool,
+}
+
+impl Alarm {
+    /// 발화 키: 시각이 바뀌면(다시 알림·기한 수정) 새 키 → 다시 발화
+    fn fire_key(&self) -> String {
+        format!("{}@{}", self.key, self.at)
+    }
+}
+
+/// island JS 가 'alarm' 리스너를 건 뒤 true — 그 전에는 발화하지 않는다(시작 직후 이벤트 유실 방지).
+pub static ALARMS_READY: AtomicBool = AtomicBool::new(false);
+
+/// `toISOString()` 형식(YYYY-MM-DDTHH:MM:SS[.sss]Z, UTC)만 → epoch ms. 그 외 형식은 None(알림 없음).
+fn iso_ms(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 20 || !s.ends_with('Z') || b[4] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let ms = if b[19] == b'.' { n(20..23)? } else { 0 };
+    // days_from_civil (Howard Hinnant)
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
+    Some(((days * 24 + n(11..13)?) * 60 + n(14..16)?) * 60_000 + n(17..19)? * 1000 + ms)
+}
+
+/// store 항목 → 알림 후보 (todo:/event: 이고 시각이 있는 것)
+fn alarm_item(key: &str, v: &Value) -> Option<Alarm> {
+    let at = |f: &str| v[f].as_str().and_then(iso_ms);
+    let base = if key.starts_with("todo:") { at("due") } else if key.starts_with("event:") { at("start") } else { None };
+    Some(Alarm { key: key.into(), title: v["title"].as_str().unwrap_or_default().into(), at: at("snooze").or(base)?, done: v["done"].as_bool().unwrap_or(false) })
+}
+
+/// due 도달 + 미완료 + 미발화 → 발화 시각 순. 놓친 알림(절전·앱 종료 중)도 이 규칙으로 1회 나온다.
+fn due_alarms<'a>(now: i64, items: &'a [Alarm], fired: &[String]) -> Vec<&'a Alarm> {
+    let mut v: Vec<_> = items.iter().filter(|a| !a.done && a.at <= now && !fired.contains(&a.fire_key())).collect();
+    v.sort_by_key(|a| a.at);
+    v
+}
+
+/// 2s: 스토어 스캔 → 발화. 발화 집합은 store `alarm.fired` 에 저장(재시작 시 재발화 없음), 사라진 항목의 키는 정리.
+fn check_alarms(app: &AppHandle) {
+    let Ok(s) = app.store("hera.json") else { return };
+    let items: Vec<Alarm> = s.entries().iter().filter_map(|(k, v)| alarm_item(k, v)).collect();
+    let old: Vec<String> = s.get("alarm.fired").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    let mut fired: Vec<String> = old.iter().filter(|k| items.iter().any(|a| &a.fire_key() == *k)).cloned().collect();
+    for a in due_alarms(now, &items, &old) {
+        let _ = app.emit_to("island", "alarm", a);
+        fired.push(a.fire_key());
+    }
+    if fired != old {
+        s.set("alarm.fired", serde_json::json!(fired));
+    }
+}
+
 /// overlays: (라벨, HWND as isize) — dock, island. HWND 는 Send 가 아니라 isize 로 넘긴다.
 pub fn start(app: AppHandle, overlays: Vec<(&'static str, isize)>) {
     std::thread::spawn(move || unsafe {
@@ -246,6 +316,10 @@ pub fn start(app: AppHandle, overlays: Vec<(&'static str, isize)>) {
                         let _ = ShowWindowAsync(HWND(h as _), if full { SW_HIDE } else { SW_SHOWNOACTIVATE });
                     }
                 }
+                // B4: 전체화면 중에는 검사하지 않는다 = 큐 보관. 종료 후 첫 검사에서 밀린 알림이 시각 순으로 나온다.
+                if !hidden && ALARMS_READY.load(Ordering::Relaxed) {
+                    check_alarms(&app);
+                }
                 // B3: 실행 인디케이터. ponytail: 2s 폴링 — 지연이 거슬리면 주기 단축
                 let r = running(me);
                 let mut st = STATE.lock().unwrap();
@@ -321,6 +395,46 @@ mod tests {
         println!("RUNNING {keys:#?}\nFRAME {frame:?}");
         assert!(keys.iter().any(|k| k == calc), "calc not in running set");
         assert!(frame.is_some(), "calc frame AUMID not resolved");
+    }
+
+    fn al(key: &str, at: i64, done: bool) -> Alarm {
+        Alarm { key: key.into(), title: String::new(), at, done }
+    }
+
+    #[test]
+    fn iso_parse() {
+        assert_eq!(iso_ms("1970-01-01T00:00:00.000Z"), Some(0));
+        assert_eq!(iso_ms("2026-11-13T09:30:00.250Z"), Some(1_794_562_200_250));
+        assert_eq!(iso_ms("2024-02-29T00:00:00Z"), Some(1_709_164_800_000));
+        assert_eq!(iso_ms("2026-11-13T09:30"), None); // 로컬 시각(Z 없음)은 무시
+    }
+
+    #[test]
+    fn alarm_items() {
+        let t = serde_json::json!({"title": "a", "due": "1970-01-01T00:00:01.000Z", "done": false});
+        assert_eq!(alarm_item("todo:1", &t).unwrap().at, 1000);
+        let snoozed = serde_json::json!({"title": "a", "due": "1970-01-01T00:00:01.000Z", "snooze": "1970-01-01T00:00:02.000Z"});
+        assert_eq!(alarm_item("todo:1", &snoozed).unwrap().at, 2000); // 다시 알림이 기한보다 우선
+        let ev = serde_json::json!({"title": "e", "start": "1970-01-01T00:00:03.000Z", "end": "1970-01-01T01:00:00.000Z"});
+        assert_eq!(alarm_item("event:1", &ev).unwrap().at, 3000);
+        assert!(alarm_item("todo:2", &serde_json::json!({"title": "기한 없음"})).is_none());
+        assert!(alarm_item("record:x", &t).is_none());
+    }
+
+    #[test]
+    fn due_rules() {
+        let now = 10_000;
+        let items = [al("todo:future", 20_000, false), al("todo:due", 9_000, false), al("event:missed", 1_000, false), al("todo:done", 5_000, true), al("todo:fired", 8_000, false)];
+        let fired = vec!["todo:fired@8000".to_string()];
+        let keys: Vec<_> = due_alarms(now, &items, &fired).iter().map(|a| a.key.as_str()).collect();
+        // 놓친 알림(오래전) 포함, 시각 순 / 미래·완료·이미 발화 제외
+        assert_eq!(keys, ["event:missed", "todo:due"]);
+        // 다시 알림: 시각이 +10분 바뀌면 새 발화 키 → 그 시각 전엔 조용, 도달하면 다시 발화
+        let snoozed = [al("todo:fired", 8_000 + 600_000, false)];
+        assert!(due_alarms(now, &snoozed, &fired).is_empty());
+        assert_eq!(due_alarms(8_000 + 600_000, &snoozed, &fired).len(), 1);
+        // 정각 경계 포함
+        assert_eq!(due_alarms(20_000, &items[..1], &[]).len(), 1);
     }
 
     #[test]

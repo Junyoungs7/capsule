@@ -1,4 +1,4 @@
-Status: 실행 승인 — Stage A 완료(2026-11-13), 사용자 지시로 B0→B(P1)→C(P2) 자율 진행 (월요일 결과 확인). A5 게이트는 사용자 사전 승인으로 대체, 게이트 시트는 기록용으로 작성.
+Status: 실행 승인 — Stage A·B(B0~B5) 완료(2026-11-13), 사용자 지시로 B0→B(P1)→C(P2) 자율 진행 (월요일 결과 확인). A5 게이트는 사용자 사전 승인으로 대체, 게이트 시트는 기록용으로 작성.
 
 ## 사용자 추가 요구 (2026-11-13, 승인 시점) — 아래 본문보다 우선
 1. **점(dot) 독**: 평소엔 화면 하단 가장자리의 작은 점/핸들(약 40×6px)만 보인다. 마우스를 올리면 독이 스프링으로 펼쳐지고, 벗어나면 ~400ms 후 다시 점으로 접힌다. 창은 여전히 최대 크기 고정 — 접힘 상태의 히트 rect 는 점 영역만 보고하므로 나머지는 전부 클릭 통과. **필수 애니메이션 5종**: (0) 점→독 펼침/접힘 추가.
@@ -295,8 +295,75 @@ D:\AI\hera\
 - **전체화면 중 알림**: 기본 = 큐에 보관, 전체화면 종료(QUNS 정상 복귀) 시 순서대로 표시.
 - **수락**: 2분 뒤 할일 생성 → 정시(±3s)에 Island alert 확장, 버튼 2개 동작; panel 이 숨김 상태여도 정시 발화; 전체화면 영상 재생 중 due 된 알림이 전체화면 종료 직후 표시; 앱 재시작 후 데이터·미래 알림 유지; 두 창에서 서로 다른 할일을 연달아 편집해도 유실 없음.
 
+#### B4 결과 (2026-11-13, 세션 잠금 — 육안·전체화면·트레이 클릭은 `.omc/verify/b4b5-manual.ps1`로 미룸)
+- UI: Stage A의 패널(할 일 목록, 달력 월 그리드 + 날짜 클릭 일정 목록, `datetime-local`)을 그대로 쓴다. 저장은 기존 `useItems('todo'|'event')`(항목당 키)다. 새 필드는 `snooze?`(다시 알림 시각) 하나다.
+- 알림(Rust `watch.rs`, 2s 블록):
+  - `check_alarms`가 store의 `todo:*`/`event:*`를 스캔한다. 발화 시각 = `snooze ?? due`(할 일) / `snooze ?? start`(일정). `toISOString()` UTC 형식만 파싱하며 의존성은 없다(days_from_civil).
+  - 순수 함수 `due_alarms(now, items, fired)` = 시각 도달 + 미완료 + 미발화를 시각 순으로 돌려준다. 발화 키는 `<key>@<epoch ms>`다. 다시 알림이나 기한 수정으로 시각이 바뀌면 새 키가 되어 다시 울린다.
+  - 발화 집합은 store `alarm.fired`에 둔다(재시작 시 재발화 없음). 시각이 바뀌거나 삭제된 항목의 키는 매 검사 때 정리해 크기가 항목 수를 넘지 않는다.
+  - 놓친 알림(절전·앱 종료 중)은 같은 규칙으로 1회 나온다. **결정**: 놓친 알림에 기간 제한을 두지 않는다(오래된 미완료 할 일도 1회 알림).
+  - `#[test]` 3개: `iso_parse`, `alarm_items`(snooze 우선, 기한 없음/레코드 제외), `due_rules`(놓친·이미 발화·완료·미래·snooze 전/후·정각 경계).
+  - 전체화면(QUNS) 중에는 검사를 건너뛴다. 이것이 곧 큐다: 종료 후 첫 검사에서 밀린 알림이 시각 순으로 나온다(별도 큐 자료구조 없음).
+  - 시작 직후 이벤트 유실 방지: island JS가 `alarm` 리스너를 건 뒤 `alarms_ready`를 호출해야 검사를 시작한다.
+- Island:
+  - 알림은 큐(`alerts[]`)로 앞에서부터 1개씩 보여 준다. 같은 키는 중복으로 넣지 않는다.
+  - '완료'는 할 일을 done으로 바꾸고, 일정은 닫기만 한다. '10분 뒤 다시'는 `snooze = now+10m`이다. 시안도 같은 경로를 쓴다.
+  - **수정**: '추가' 미리보기가 패널 창 안에서만 돌던 문제를 고쳤다. 이제 island 창이 `store.onChange`로 처음 보는 `todo:`/`event:` id를 감지하면 펼친다. '다음 항목'은 같은 store 이벤트로 다시 렌더된다.
+- 저장 flush: 트레이 '종료'는 `store.save()` 후 `exit`한다(디바운스 100ms 대기분 즉시 기록). 플러그인도 `RunEvent::Exit`에서 저장한다.
+- 자동 검증 `node .omc/verify/b4-alarms.mjs`(릴리스 + CDP, hera.json 백업/복원): **10/10 PASS**.
+  - 종료 중 놓친 알림 1회 표시 → 완료 → store done
+  - 다른 창 쓰기 → island preview
+  - due+1.5s 할 일 → 3.4s 만에 alert(2s 틱)
+  - 다시 알림 → snooze +10분
+  - 일정 시작 알림
+  - 발화 집합 저장(스누즈된 키 정리)
+  - 재시작 후 재발화 없음
+- 미검증(잠금): 정시 ±3s 육안, 실제 전체화면 큐, 트레이 종료 클릭 flush(코드 경로만, 강제 종료 테스트는 디바운스 후 디스크 기록만 확인).
+
 ### B5. 실앱 성능·메모리 검증
 - 릴리스 빌드(`npm run tauri build`)에서 §7 B 기준 측정, 결과를 이 계획에 기록. 메모리 초과 시 B0-5 결정 규칙 적용. 실패 항목만 수정.
+
+#### B5 결과 (2026-11-13, 릴리스 `npm run tauri build -- --no-bundle`, hera.exe 3.8MB, 세션 잠금 상태)
+- 측정 스크립트: `node .omc/verify/b5-perf.mjs frames idle cycles soak`. CDP(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`)로 릴리스 웹뷰를 조작한다. 앱 코드에 디버그 경로를 추가하지 않았다(env를 줄 때만 열림). hera.json은 백업 후 복원한다. 메모리는 `mem.ps1`(Private WS 트리 합)으로 쟀다.
+- **메모리**:
+
+  | 항목 | 수치 | 기준 |
+  |---|---|---|
+  | idle 3분(패널 닫힘·독 접힘, CDP 없음) | **67.6MB** (1/2/3분 63.8/67.8/67.7) | ≤150MB 통과 |
+  | 패널 열림(CDP, 15초 후) | **121.9MB** (기준선 63.0) | 참고치 |
+  | 패널 열고 닫기 20회 직후 / +60초 | **128.7MB → 50.1MB** | 기준선 63.0 이하로 복귀, 누수 없음 |
+
+- **idle CPU(60초, CDP 없음)**: Hera 트리 전체(hera + WebView2 자식) **0.10% / 1코어**, hera.exe 0.10%(20 논리코어). <1% 통과. ⚠ 잠금 세션이라 웹뷰 렌더가 가려진 상태다.
+- **10분 soak**(CDP): 30초마다 알림 1건 발화 후 완료(20/20 표시), store 쓰기 10건, 5회마다 soak 키 일괄 삭제, 패널 열고 닫기를 반복했다.
+  - 30초 표본: 54.7, 105.2, 53.9, 92.4, 58.4, 94.5, 51.0, 91.9, 53.3, 99.9, 106.8, 117.0, 51.6, 98.6, 103.7, 53.0, 98.6, 118.3, 51.4, 102.2MB.
+  - 값은 두 갈래다. 표본 시각이 '패널 파괴 후 렌더러 회수 전'(~92–118)이냐 '회수 후'(~51–58)이냐에 따라 갈린다.
+  - **바닥선 54.7 → 51.4MB(−6%)**, 상단선 105.2 → 102.2MB(최대 118.3MB, +12%)로 둘 다 ≤20% 증가라 통과. 스크립트가 낸 첫 표본 대비 마지막 표본 "86.8%"는 이 두 갈래 표본 때문에 생긴 착시다.
+  - 1시간 안정성은 미실시(이 10분 soak로 대체).
+- **실행 지연**: `cargo test --release launch_latency -- --ignored`, 함수 호출부터 반환까지, 대상별 20회, 매회 창 종료. 변경점: `SEE_MASK_NOASYNC` → `SEE_MASK_ASYNCOK`(활성화를 셸 백그라운드에 넘기고 즉시 반환). 동기 오류는 사전 확인으로 유지한다. 경로는 존재 확인, AUMID는 `SHCreateItemFromParsingName`, URL은 HKCR scheme 등록 여부를 본다. `#[test]`: 없는 scheme/AUMID는 창 없이 오류를 돌려준다.
+
+  | 대상 | p50 | p95 | 이전 p95 | 판정(<300ms) |
+  |---|---|---|---|---|
+  | 계산기(AUMID) | 49.8ms | 56.7ms | 93.6ms | 통과 |
+  | charmap.exe | 0.6ms | 2.7ms | 66.3ms | 통과 |
+  | URL `ms-calculator:` | 0.7ms | 9.2ms | **376.3ms** | **통과** |
+
+  - 실 IPC(릴리스 dock 웹뷰 `invoke('launch')`)로 `ms-calculator:`를 열면 2.8ms에 반환되고 계산기가 실제로 뜬다(확인 후 종료). `nohandler-xyz:1`은 "이 주소를 열 앱이 없어요"를 돌려준다.
+  - 남는 지연 ~50ms는 AUMID 사전 확인 비용이다.
+  - **트레이드오프**: 셸 활성화 단계의 비동기 실패(패키지 손상 등)는 더 이상 Island 오류로 오지 않는다.
+- **프레임**(릴리스 웹뷰 rAF 간격 + longtask 옵저버, CDP 마우스 이벤트):
+
+  | 애니메이션 | 결과 |
+  |---|---|
+  | 점→독 펼침+확대 스윕 | 92프레임, 100% ≤17.5ms, 최대 16.8ms, long task 0 |
+  | 독 접힘 | 73프레임, 100%, 최대 16.8ms, long task 0 |
+  | Island idle→alert ×3 | 182/181/181프레임, 100%, 최대 16.9ms, long task 0 |
+  | Island alert→idle ×3 | 61프레임씩, 100%, 최대 16.8ms, long task 0 |
+
+  - 패널 열기는 창 생성 직후 애니메이션이라 CDP 연결 전에 끝나서 미측정이다.
+  - 잠금 세션이라 DWM 실제 표시와 Layout/Style 프레임 분석(DevTools Performance)은 못 했다. → `b4b5-manual.ps1` 7번.
+- **.lnk 실행 점**: 레코드 추가 시 `.lnk`이면 `lnk_target`(IShellLinkW → `GetPath`)으로 대상 exe를 `exe` 필드에 저장한다. 실행 점과 Now Playing은 `exe ?? target`으로 매칭한다. `cargo test lnk_targets -- --ignored`: 시작 메뉴 .lnk가 exe 경로로 풀린다(Chrome, Edge, Excel, BCompare 등). 기존에 저장된 .lnk 레코드는 다시 추가해야 반영된다.
+- 검증: `cargo build`, `cargo test`(8 통과, 수동 `#[ignore]` 4), `cargo clippy -- -D warnings`, `npx tsc --noEmit`, `npm run build` 모두 통과. 시안 `?surface=all`은 콘솔 오류가 favicon 404 하나뿐이고, 알림 큐·완료(done)·다시 알림(snooze)이 mock(localStorage)에서 동작한다.
+- 수동 확인(잠금 해제 후): `.omc/verify/b4b5-manual.ps1`(8단계). 게이트 시트: `.omc/plans/hera-a5-gate.md`.
 
 ---
 

@@ -142,6 +142,18 @@ fn watch_state() -> (Option<watch::Fg>, Vec<String>) {
     watch::STATE.lock().unwrap().clone()
 }
 
+/// B4: island 의 'alarm' 리스너 준비 완료 → watch 루프가 알림 검사 시작
+#[tauri::command]
+fn alarms_ready() {
+    watch::ALARMS_READY.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// B5: .lnk 의 대상 exe (레코드 추가 시 1회 → 실행 점 매칭용)
+#[tauri::command]
+async fn lnk_target(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || launch::lnk_target(&path)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn panel_open(app: AppHandle) -> bool {
     app.get_webview_window("panel").is_some()
@@ -157,7 +169,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, start_apps, watch_state, panel_open
+            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, start_apps, watch_state, panel_open, alarms_ready, lnk_target
         ])
         .setup(|app| {
             // 첫 실행 시드 (Rust 에서 1회 — 여러 창이 동시에 시드하는 경쟁 없음)
@@ -211,7 +223,13 @@ pub fn run() {
                         let _ = if a.is_enabled().unwrap_or(false) { a.disable() } else { a.enable() };
                         let _ = auto.set_checked(a.is_enabled().unwrap_or(false));
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        // 디바운스(100ms) 대기 중인 쓰기를 즉시 저장 (플러그인도 Exit 에서 저장하지만 순서 보장용)
+                        if let Ok(s) = app.store("hera.json") {
+                            let _ = s.save();
+                        }
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .build(app)?;

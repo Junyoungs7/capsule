@@ -28,7 +28,7 @@ function saveLocal(key: string, value: unknown) {
   }
 }
 
-function onStore(cb: (key: string, value: unknown) => void) {
+export function onStore(cb: (key: string, value: unknown) => void) {
   const off = store().then((s) => s.onChange(cb))
   return () => void off.then((f) => f())
 }
@@ -117,6 +117,16 @@ export const startApps = () => invoke<[string, string][]>('start_apps')
 /* ── B3: 포그라운드 앱(Now Playing) · 실행 집합 ── */
 export type Fg = { hwnd: number; pid: number; exePath: string; title: string; aumid: string }
 export const watchState = () => invoke<[Fg | null, string[]]>('watch_state')
+
+/* ── B4 알림: watch 루프(2s)가 due 판정 → island 창에 'alarm'. 리스너를 건 뒤 alarms_ready 로 발화 시작. ── */
+export type Alarm = { key: string; title: string; at: number }
+export function onAlarm(cb: (a: Alarm) => void) {
+  const off = listen<Alarm>('alarm', (e) => cb(e.payload))
+  void off.then(() => invoke('alarms_ready'))
+  return () => void off.then((f) => f())
+}
+
+export const lnkTarget = (path: string) => invoke<string>('lnk_target', { path })
 
 /* ── 창 간 알림 (실행 오류 → Island alert) ── */
 export type AlertMsg = { title: string; body: string }

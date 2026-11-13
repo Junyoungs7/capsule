@@ -1,7 +1,9 @@
 // launch(target): AllowSetForegroundWindow(ASFW_ANY) → ShellExecuteExW. NOACTIVATE 독에서 실행해도 새 앱이 전면에 뜨게.
 use windows::core::{w, HSTRING, PCWSTR};
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
-use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW};
+use windows::core::Interface;
+use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, STGM_READ};
+use windows::Win32::System::Registry::{RegCloseKey, RegOpenKeyExW, HKEY, HKEY_CLASSES_ROOT, KEY_READ};
+use windows::Win32::UI::Shell::{IShellItem, IShellLinkW, SHCreateItemFromParsingName, ShellExecuteExW, ShellLink, SEE_MASK_ASYNCOK, SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY, SW_SHOWNORMAL};
 
 #[derive(Debug, PartialEq)]
@@ -46,12 +48,18 @@ pub fn launch(target: &str) -> Result<(), String> {
     unsafe {
         // 셸 실행은 STA 권장 (워커 스레드마다 1회, 이미 초기화돼 있으면 무시)
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        // B5: ASYNCOK 라 활성화 완료를 기다리지 않으므로 동기 오류는 미리 확인한다(경로 존재는 resolve 에서).
+        match kind(target.trim()) {
+            Kind::Aumid if SHCreateItemFromParsingName::<_, _, IShellItem>(&file, None).is_err() => return Err(format!("앱을 찾을 수 없어요: {target}")),
+            Kind::Url if !scheme_registered(target.trim()) => return Err(format!("이 주소를 열 앱이 없어요: {target}")),
+            _ => {}
+        }
         let _ = AllowSetForegroundWindow(ASFW_ANY);
         let mut info = SHELLEXECUTEINFOW {
             cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
-            // NO_UI: 오버레이에서 모달 오류 대화상자 금지(오류는 Island 로). NOASYNC: 풀 스레드가 DDE 완료 전에 반환하지 않게.
-            // (NOASYNC 를 빼도 ms-calculator: p95 376→425ms 로 차이 없음 — 지연은 패키지 앱 프로토콜 활성화 자체)
-            fMask: SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC,
+            // NO_UI: 오버레이에서 모달 오류 대화상자 금지(오류는 Island 로).
+            // ASYNCOK: 활성화를 셸 백그라운드에 맡기고 넘기자마자 반환 (URL 프로토콜 p95 376ms = 패키지 앱 활성화 대기였음)
+            fMask: SEE_MASK_FLAG_NO_UI | SEE_MASK_ASYNCOK,
             lpVerb: w!("open"),
             lpFile: PCWSTR(file.as_ptr()),
             lpDirectory: if dir.is_empty() { PCWSTR::null() } else { PCWSTR(dir.as_ptr()) },
@@ -59,6 +67,32 @@ pub fn launch(target: &str) -> Result<(), String> {
             ..Default::default()
         };
         ShellExecuteExW(&mut info).map_err(|e| format!("실행 실패: {target} ({})", e.message()))
+    }
+}
+
+/// URL scheme 이 HKCR 에 등록돼 있는가 (패키지 앱 프로토콜 포함)
+fn scheme_registered(url: &str) -> bool {
+    let Some((scheme, _)) = url.split_once(':') else { return false };
+    let mut k = HKEY::default();
+    unsafe {
+        let ok = RegOpenKeyExW(HKEY_CLASSES_ROOT, &HSTRING::from(scheme), None, KEY_READ, &mut k).is_ok();
+        if ok {
+            let _ = RegCloseKey(k);
+        }
+        ok
+    }
+}
+
+/// .lnk → 대상 경로 (IShellLinkW). 대상이 파일이 아니면(가상 폴더 등) 오류.
+pub fn lnk_target(path: &str) -> Result<String, String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).map_err(|e| e.message())?;
+        link.cast::<IPersistFile>().and_then(|f| f.Load(&HSTRING::from(path), STGM_READ)).map_err(|e| e.message())?;
+        let mut buf = [0u16; 1024];
+        link.GetPath(&mut buf, std::ptr::null_mut(), 0).map_err(|e| e.message())?;
+        let p = String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)]);
+        if p.is_empty() { Err("no target".into()) } else { Ok(p) }
     }
 }
 
@@ -116,6 +150,24 @@ mod tests {
         assert_eq!(resolve("Microsoft.WindowsNotepad_8wekyb3d8bbwe!App").unwrap().0, r"shell:AppsFolder\Microsoft.WindowsNotepad_8wekyb3d8bbwe!App");
         assert!(resolve(r"C:\nope\missing.exe").is_err());
         assert_eq!(resolve(r"C:\Windows\explorer.exe").unwrap().1, r"C:\Windows");
+        assert!(scheme_registered("https://x") && !scheme_registered("nohandler-xyz:1"));
+        // ASYNCOK 라도 동기 오류는 미리 잡는다 (창은 뜨지 않음)
+        assert!(launch("nohandler-xyz:1").is_err());
+        assert!(launch(r"shell:AppsFolder\No.Such.App_0000000000000!App").is_err());
+    }
+
+    /// 수동: cargo test lnk_targets -- --ignored --nocapture (시작 메뉴 .lnk → exe)
+    #[test]
+    #[ignore]
+    fn lnk_targets() {
+        let dir = r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs";
+        let mut n = 0;
+        for e in std::fs::read_dir(dir).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "lnk")) {
+            let t = lnk_target(&e.path().display().to_string());
+            println!("{} -> {t:?}", e.path().display());
+            n += t.is_ok_and(|p| p.to_lowercase().ends_with(".exe")) as i32;
+        }
+        assert!(n > 0);
     }
 
     /// 실행 지연 측정 (수동): cargo test --release launch_latency -- --ignored --nocapture
