@@ -41,6 +41,7 @@ serde_json = "1.0.154"
 png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
 tauri-plugin-global-shortcut = "2"
+drag = "2.1.1"
 
 [profile.release]
 opt-level = "s"

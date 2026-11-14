@@ -266,8 +266,24 @@ async fn icon(app: AppHandle, target: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// 선반 → 밖(탐색기·앱)으로 파일 끌어내기. OLE DoDragDrop 은 UI(메인) 스레드에서만 → run_on_main_thread.
 #[tauri::command]
-async fn start_apps() -> Result<Vec<(String, String)>, String> {
+async fn drag_out(app: AppHandle, win: WebviewWindow, path: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("icons");
+    let p = path.clone();
+    let img = tauri::async_runtime::spawn_blocking(move || icons::icon(&dir, &p)).await.map_err(|e| e.to_string())?;
+    let w = win.clone();
+    win.run_on_main_thread(move || {
+        let image = img.map_or(drag::Image::Raw(vec![]), drag::Image::File);
+        if let Err(e) = drag::start_drag(&w, drag::DragItem::Files(vec![path.into()]), image, |_, _| {}, Default::default()) {
+            eprintln!("drag_out: {e}");
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn start_apps()-> Result<Vec<(String, String)>, String> {
     tauri::async_runtime::spawn_blocking(launch::start_apps).await.map_err(|e| e.to_string())?
 }
 
@@ -304,7 +320,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
+            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             turntable, palette, close_palette, activate, power
         ])
         .setup(|app| {

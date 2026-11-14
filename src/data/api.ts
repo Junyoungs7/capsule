@@ -185,3 +185,6 @@ export function onEvent<T = unknown>(name: string, cb: (payload: T) => void) {
   const off = listen<T>(name, (e) => cb(e.payload))
   return () => void off.then((f) => f())
 }
+
+/** 선반 파일을 밖으로 끌어내기 (네이티브 OLE 드래그 시작) */
+export const dragOut = (path: string) => invoke('drag_out', { path })

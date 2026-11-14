@@ -251,10 +251,12 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
 function AppPicker({ onPick }: { onPick: (target: string, title: string) => void }) {
   const [apps, setApps] = useState<[string, string][] | null>(null)
   const [q, setQ] = useState('')
+  const [failed, setFailed] = useState(false)
   if (!apps)
     return (
-      <button className="picker-open" onClick={() => void startApps().then(setApps, () => setApps([]))}>
-        시작 메뉴에서 앱 추가…
+      // 실패하면 버튼을 그대로 두고 다시 누르면 재시도
+      <button className="picker-open" onClick={() => void startApps().then(setApps, () => setFailed(true))}>
+        {failed ? '불러오지 못했어요 — 다시 시도' : '시작 메뉴에서 앱 추가…'}
       </button>
     )
   const hits = apps.filter(([n]) => n.toLowerCase().includes(q.toLowerCase())).slice(0, 30)
