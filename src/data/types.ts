@@ -25,3 +25,9 @@ export type Notification = { id: string; title: string; body: string; key?: stri
 export type ShelfFile = { id: string; path: string; at: number }
 
 export type RunningSession = { recordId: string; title: string; startedAt: number }
+
+// v2: 앱 묶음(독 폴더) — 키 group:<id>, 독에는 레코드 뒤에 모두 표시
+export type AppGroup = { id: string; title: string; recordIds: string[] }
+
+// v2: 클립보드 기록 — 메모리에만(저장 안 함), 최근 20개
+export type Clip = { id: string; text: string; at: number }

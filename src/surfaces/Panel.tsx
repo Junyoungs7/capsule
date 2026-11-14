@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
-import type { CalendarEvent, LpRecord, Todo } from '../data/types'
+import type { AppGroup, CalendarEvent, LpRecord, Todo } from '../data/types'
 import { isTauri, startApps } from '../data/api'
 import { Tile } from './Dock'
 import { fmtWhen } from './Island'
+import { moonName, moonPhase, type Weather } from './Fx'
 
-export type Tab = 'todo' | 'calendar' | 'library'
-const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리']]
+export type Tab = 'todo' | 'calendar' | 'library' | 'settings'
+const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['settings', '설정']]
 
 type Props = {
   open: boolean
@@ -24,6 +25,17 @@ type Props = {
   onRemoveRecord: (id: string) => void
   onTogglePin: (id: string) => void
   onAddSet: (title: string, ids: string[]) => void
+  groups: AppGroup[]
+  onSaveGroup: (g: AppGroup) => void
+  onRemoveGroup: (id: string) => void
+  fxOn: boolean
+  setFxOn: (on: boolean) => void
+  city: string
+  setCity: (c: string) => void
+  weather: Weather
+  idleMin: number
+  setIdleMin: (m: number) => void
+  onFxNow: () => void
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -58,6 +70,7 @@ export function Panel(p: Props) {
         {p.tab === 'todo' && <TodoTab {...p} />}
         {p.tab === 'calendar' && <CalendarTab {...p} />}
         {p.tab === 'library' && <LibraryTab {...p} />}
+        {p.tab === 'settings' && <SettingsTab {...p} />}
       </div>
     </section>
   )
@@ -178,16 +191,20 @@ function CalendarTab({ events, setEvents, onAdded }: Props) {
   )
 }
 
-function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin, onAddSet }: Props) {
+function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin, onAddSet, groups, onSaveGroup, onRemoveGroup }: Props) {
   const [title, setTitle] = useState('')
   const [target, setTarget] = useState('')
   // C2: 세트 만들기 = 단일 레코드를 고른 순서대로 묶기 (그 순서로 실행)
+  // v2: 같은 고르기 화면으로 앱 묶음(독 폴더) 만들기·편집 (group = 편집 중인 묶음)
   const [pick, setPick] = useState<string[] | null>(null)
+  const [mode, setMode] = useState<{ kind: 'set' | 'group'; group?: AppGroup }>({ kind: 'set' })
   const [setName, setSetName] = useState('')
+  const startPick = (kind: 'set' | 'group', group?: AppGroup) => (setMode({ kind, group }), setSetName(group?.title ?? ''), setPick(group ? [...group.recordIds] : []))
   const makeSet = (e: FormEvent) => {
     e.preventDefault()
     if (!pick || pick.length < 2) return
-    onAddSet(setName.trim() || 'LP 세트', pick)
+    if (mode.kind === 'group') onSaveGroup({ id: mode.group?.id ?? id(), title: setName.trim() || '묶음', recordIds: pick })
+    else onAddSet(setName.trim() || 'LP 세트', pick)
     setPick(null)
     setSetName('')
   }
@@ -214,12 +231,33 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
       {isTauri && !pick && <AppPicker onPick={onAddRecord} />}
       {pick ? (
         <form className="add" onSubmit={makeSet}>
-          <input autoFocus value={setName} onChange={(e) => setSetName(e.target.value)} placeholder={`세트 이름 · ${pick.length}개 선택 (2개 이상)`} aria-label="세트 이름" />
+          <input autoFocus value={setName} onChange={(e) => setSetName(e.target.value)} placeholder={`${mode.kind === 'group' ? '묶음' : '세트'} 이름 · ${pick.length}개 선택 (2개 이상)`} aria-label={mode.kind === 'group' ? '묶음 이름' : '세트 이름'} />
           <button type="button" className="picker-open" onClick={() => setPick(null)}>취소</button>
-          <button className="primary" disabled={pick.length < 2}>만들기</button>
+          <button className="primary" disabled={pick.length < 2}>{mode.group ? '저장' : '만들기'}</button>
         </form>
       ) : (
-        <button className="picker-open" onClick={() => setPick([])}>LP 세트 만들기…</button>
+        <div className="lib-actions">
+          <button className="picker-open" onClick={() => startPick('set')}>LP 세트 만들기…</button>
+          <button className="picker-open" onClick={() => startPick('group')}>앱 묶음 만들기…</button>
+        </div>
+      )}
+      {!pick && groups.length > 0 && (
+        <ul className="list groups">
+          {groups.map((g) => {
+            const recs = g.recordIds.map((x) => records.find((r) => r.id === x)).filter((r): r is LpRecord => !!r)
+            return (
+              <li key={g.id}>
+                <span className="tile folder-tile" style={{ width: 34, height: 34 }} aria-hidden>{recs.slice(0, 4).map((r) => <Tile key={r.id} rec={r} size={13} />)}</span>
+                <span className="grow">
+                  <b>{g.title}</b>
+                  <small>앱 묶음 · {recs.map((r) => r.title).join(' · ')}</small>
+                </span>
+                <button className="icon-btn" onClick={() => startPick('group', g)} aria-label={`${g.title} 묶음 편집`} title="앱 넣고 빼기">✎</button>
+                <button className="icon-btn del" onClick={() => onRemoveGroup(g.id)} aria-label={`${g.title} 묶음 삭제`}>×</button>
+              </li>
+            )
+          })}
+        </ul>
       )}
       <ul className="list">
         {[...records].sort((a, b) => a.title.localeCompare(b.title)).filter((r) => !pick || r.kind === 'single').map((r) => (
@@ -231,7 +269,7 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
             </span>
             {pick ? (
               <label className="check">
-                <input type="checkbox" checked={pick.includes(r.id)} onChange={() => setPick((p) => (p!.includes(r.id) ? p!.filter((x) => x !== r.id) : [...p!, r.id]))} aria-label={`${r.title} 세트에 넣기`} />
+                <input type="checkbox" checked={pick.includes(r.id)} onChange={() => setPick((p) => (p!.includes(r.id) ? p!.filter((x) => x !== r.id) : [...p!, r.id]))} aria-label={`${r.title} ${mode.kind === 'group' ? '묶음' : '세트'}에 넣기`} />
                 <span />
               </label>
             ) : (<>
@@ -243,6 +281,42 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// v2 설정: 효과 이벤트 스위치(트레이에도 같은 스위치 — Rust), 도시(날씨), 지금 보기, 아스키 화면보호기 대기 시간
+function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMin, onFxNow }: Props) {
+  const [draft, setDraft] = useState(city)
+  const f = moonPhase(new Date())
+  const save = () => draft.trim() && setCity(draft.trim())
+  return (
+    <div className="settings">
+      <h3>날씨 · 계절 효과</h3>
+      <label className="row">
+        <span className="grow">
+          <b>효과 이벤트</b>
+          <small>눈·비 시작, 노을, 달 뜰 때 20~30초 동안</small>
+        </span>
+        <input type="checkbox" className="switch" checked={fxOn} onChange={(e) => setFxOn(e.target.checked)} />
+      </label>
+      <form className="row" onSubmit={(e) => (e.preventDefault(), save())}>
+        <span className="grow">
+          <b>도시</b>
+          <small>{city} · {weather.text} {weather.temp}° · 달 {moonName(f)}{isTauri ? '' : ' (시안: 가짜 날씨)'}</small>
+        </span>
+        <input className="city" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="도시 이름" />
+      </form>
+      <button className="primary now" onClick={onFxNow}>지금 보기</button>
+      <h3>아스키 아트</h3>
+      <label className="row">
+        <span className="grow">
+          <b>자리 비움 화면보호기</b>
+          <small>입력이 없으면 장면을 전체화면으로 · 0 = 끄기</small>
+        </span>
+        <input className="mins" type="number" min={0} max={120} value={idleMin} onChange={(e) => setIdleMin(Math.max(0, Number(e.target.value) || 0))} aria-label="대기 시간(분)" />
+        <small>분</small>
+      </label>
     </div>
   )
 }

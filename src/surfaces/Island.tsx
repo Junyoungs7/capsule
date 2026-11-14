@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
 import { reportHitRects } from '../data/api'
 import { Tile } from './Dock'
 import { labelVars } from './Turntable'
 
 export type NextItem = { title: string; at?: string; kind: 'todo' | 'event' }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying'
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop'
 
 // 컨테이너(=창)는 최대 크기 고정, 상태별 모양은 고정 프리셋 → clip-path 스프링
 const SIZES: Record<Mode, [number, number, number]> = {
@@ -13,6 +13,7 @@ const SIZES: Record<Mode, [number, number, number]> = {
   preview: [344, 58, 29],
   nowPlaying: [372, 68, 30],
   alert: [404, 122, 30],
+  drop: [372, 92, 30],
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
 
@@ -45,11 +46,27 @@ type Props = {
   onDone: () => void
   onSnooze: () => void
   onOpen: () => void
+  onDropFiles: (paths: string[]) => void
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles }: Props) {
   const [hover, setHover] = useState(false)
-  const mode: Mode = alert ? 'alert' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
+  // 실제 앱: island 창 네이티브 드롭(onDragDropEvent) + 클릭 통과 폴러가 외부 드래그 중 idle rect 를 받게 (Rust, 시안 승인 후).
+  const [drag, setDrag] = useState(false)
+  const mode: Mode = drag ? 'drop' : alert ? 'alert' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+  const dnd = {
+    onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
+    onDragOver: (e: DragEvent) => files(e) && (e.preventDefault(), (e.dataTransfer.dropEffect = 'copy')),
+    onDragLeave: (e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrag(false),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault()
+      setDrag(false)
+      const names = [...e.dataTransfer.files].map((f) => f.name)
+      if (names.length) onDropFiles(names)
+    },
+  }
   const [w, h, r] = SIZES[mode]
 
   // 미니 LP: 곡(포그라운드 앱)이 바뀌면 10초간 회전 후 정지 (Open Question 5 기본안)
@@ -88,6 +105,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onClick={() => mode === 'preview' && onOpen()}
+      {...dnd}
     >
       {/* 블러 없는 짙은 판 1장 — clip-path(path)+backdrop-filter 재래스터가 버벅임 원인이었음 */}
       <div className="island-shape" style={{ width: w, height: h, borderRadius: r }} />
@@ -120,6 +138,16 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
           <span className="bar"><i style={{ transform: `scaleX(${Math.min(1, mins / CYCLE)})` }} /></span>
         </span>
         <span className="time">{mins}<small>/{CYCLE}분</small></span>
+      </div>
+
+      <div className="island-layer drop" style={{ width: SIZES.drop[0], height: SIZES.drop[1] }} aria-hidden={mode !== 'drop'}>
+        <span className="tray">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v10M8 10l4 4 4-4" /><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" /></svg>
+        </span>
+        <span className="txt">
+          <b>선반에 놓기</b>
+          <small>놓으면 독 선반에 담아 둘게요 · 최대 4개</small>
+        </span>
       </div>
 
       <div className="island-layer alert" style={{ width: SIZES.alert[0], height: SIZES.alert[1] }} aria-hidden={mode !== 'alert'} role="alert">

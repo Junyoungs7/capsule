@@ -1,4 +1,4 @@
-import type { CalendarEvent, LpRecord, ShelfFile, Todo } from './types'
+import type { AppGroup, CalendarEvent, Clip, LpRecord, ShelfFile, Todo } from './types'
 
 export const seedShelf: ShelfFile[] = [
   { id: 's1', path: String.raw`C:\Users\me\Documents\기획서_v3.pdf`, at: 1 },
@@ -34,4 +34,16 @@ export const seedEvents: CalendarEvent[] = [
   { id: 'e1', title: '디자인 리뷰', start: at(0, 16), end: at(0, 17), source: 'local' },
   { id: 'e2', title: '스프린트 회고', start: at(2, 14), end: at(2, 15), source: 'local' },
   { id: 'e3', title: '점심 약속', start: at(5, 12), end: at(5, 13), source: 'local' },
+]
+
+export const seedGroups: AppGroup[] = [{ id: 'g-dev', title: '개발', recordIds: ['vscode', 'github', 'chrome', 'notepad', 'notion'] }]
+
+const ago = (min: number) => Date.now() - min * 60_000
+export const seedClips: Clip[] = [
+  { id: 'c1', text: 'npm run dev -- --host', at: ago(2) },
+  { id: 'c2', text: 'https://github.com/tauri-apps/tauri/discussions', at: ago(9) },
+  { id: 'c3', text: '배너 노출 기간은 시작일 00:00 ~ 종료일 23:59 기준입니다.', at: ago(26) },
+  { id: 'c4', text: 'SELECT * FROM banner WHERE use_yn = "Y" ORDER BY sort_no;', at: ago(48) },
+  { id: 'c5', text: '#2F80ED', at: ago(95) },
+  { id: 'c6', text: '010-1234-5678', at: ago(180) },
 ]

@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
+import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   activate, closePalette, closePanelWindow, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, panelOpen, sendAlert, setTurntable, startApps, titleOf, togglePanel,
   useItems, useValue, watchState, type AlertMsg, type Fg,
 } from '../data/api'
-import { COVERS, seedEvents, seedRecords, seedShelf, seedTodos } from '../data/mock'
+import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
+import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
+import { FX_LABEL, Fx, fakeWeather, pickFx, type FxKind } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
 const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
@@ -55,6 +57,59 @@ export function Desktop({ only }: { only?: string }) {
     const rest = paths.filter((p) => !apps.includes(p))
     if (rest.length) shelve(rest)
   }
+
+  // v2 앱 묶음 (group:<id>) — 독에는 레코드 뒤에 모두 표시
+  const [groups, setGroups] = useItems<AppGroup>('group', seedGroups)
+  const saveGroup = (g: AppGroup) => setGroups((gs) => (gs.some((x) => x.id === g.id) ? gs.map((x) => (x.id === g.id ? g : x)) : [...gs, g]))
+  const dockGroups = groups.map((group) => ({ group, recs: group.recordIds.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r) }))
+
+  // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener 이벤트(폴링 없음)
+  const [clips, setClips] = useState<Clip[]>(seedClips)
+  const copyClip = (c: Clip) => {
+    void navigator.clipboard?.writeText(c.text).catch(() => {})
+    setClips((cs) => [{ ...c, at: Date.now() }, ...cs.filter((x) => x.id !== c.id)].slice(0, 20))
+  }
+
+  // v2 시간·계절 (시안 데모 바에서 바꿔 볼 수 있음) → 아스키 장면·효과 선택
+  const [demoNow, setDemoNow] = useState<Date | null>(null)
+  const clock = demoNow ?? new Date()
+  const scene = pickScene(clock)
+
+  // v2 효과: 스위치·도시는 저장, 날씨는 시안 = 가짜(네트워크 없음)
+  const [fxOn, setFxOn] = useValue('fx.on', true)
+  const [city, setCity] = useValue('fx.city', '서울')
+  const [weatherOverride, setWeatherOverride] = useState<ReturnType<typeof fakeWeather> | null>(null)
+  const weather = weatherOverride ?? fakeWeather(city)
+  const [fx, setFx] = useState<{ kind: FxKind; n: number } | null>(() => {
+    const k = new URLSearchParams(location.search).get('fx') as FxKind | null
+    return only === 'fx' ? { kind: k && k in FX_LABEL ? k : pickFx(new Date(), fakeWeather('서울')), n: 0 } : null
+  })
+  const playFx = (kind: FxKind) => setFx((f) => ({ kind, n: (f?.n ?? 0) + 1 }))
+  // 자동 이벤트(날씨 변화·노을·달 뜸·계절 첫날)는 스위치가 켜져 있을 때만. 시안 = 데모 바에서 바꾸면 발생
+  const event = (kind: FxKind | null) => kind && fxOn && playFx(kind)
+
+  // v2 아스키 전체화면: from = 위젯 rect(확대 출발점), saver = 자리 비움 화면보호기
+  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; saver: boolean }>({ open: only === 'ascii', from: null, saver: false })
+  const [idleMin, setIdleMin] = useValue('ascii.idleMin', 10)
+  const [idleDemo, setIdleDemo] = useState(false) // 시안: 대기 시간을 5초로
+  const idleMs = idleDemo ? 5_000 : idleMin * 60_000
+  const asciiOpen = useRef(false)
+  asciiOpen.current = ascii.open
+  useEffect(() => {
+    // 시안: 마지막 입력 시각만 기록 + 타이머 1개(남은 시간만큼 재무장). 실제 앱 = Rust GetLastInputInfo(watch 루프) + 전체화면 앱이면 안 뜸
+    if (isTauri || !idleMs || (only && only !== 'ascii')) return
+    let last = Date.now(), t = 0
+    const mark = () => void (last = Date.now())
+    const check = () => {
+      const left = idleMs - (Date.now() - last)
+      if (left <= 0 && !asciiOpen.current) setAscii({ open: true, from: null, saver: true })
+      t = window.setTimeout(check, Math.max(left, 1000))
+    }
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel'] as const
+    evs.forEach((e) => addEventListener(e, mark, { passive: true }))
+    t = window.setTimeout(check, idleMs)
+    return () => (clearTimeout(t), evs.forEach((e) => removeEventListener(e, mark)))
+  }, [idleMs])
 
   const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [playing, setPlaying] = useState<RunningSession | null>(null)
@@ -223,6 +278,35 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
             </div>
             <p>하단 가운데 점에 마우스를 올리면 독이 펼쳐져요.</p>
+            <header className="demo-sub">
+              <b>v2</b>
+              <small>{clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} {clock.getHours()}시 · {seasonOf(clock)} · {city} {weather.text}</small>
+            </header>
+            <div className="demo-btns v2">
+              {(Object.keys(FX_LABEL) as FxKind[]).map((k) => (
+                <button key={k} onClick={() => playFx(k)}>{FX_LABEL[k]}</button>
+              ))}
+              <button onClick={() => playFx(pickFx(clock, weather))}>지금 보기</button>
+            </div>
+            <div className="demo-seg" role="group" aria-label="시간대">
+              {([['지금', null], ['아침', 9], ['오후', 15], ['노을', 18], ['밤', 22]] as const).map(([label, h]) => (
+                <button key={label} aria-pressed={h === null ? !demoNow : demoNow?.getHours() === h} onClick={() => (setDemoNow((d) => (h === null ? null : withTime(d ?? new Date(), h))), event(h === 18 ? 'sunset' : h === 22 ? 'moon' : null))}>{label}</button>
+              ))}
+            </div>
+            <div className="demo-seg" role="group" aria-label="계절">
+              {([['봄', 3], ['여름', 6], ['가을', 9], ['겨울', 0], ['12월', 11]] as const).map(([label, m]) => (
+                <button key={label} aria-pressed={clock.getMonth() === m || (m === 9 && seasonOf(clock) === '가을' && clock.getMonth() !== 11)} onClick={() => (setDemoNow((d) => withMonth(d ?? new Date(), m)), event(m === 9 ? 'leaves' : null))}>{label}</button>
+              ))}
+            </div>
+            <div className="demo-seg" role="group" aria-label="날씨">
+              {(['맑음', '비', '눈'] as const).map((w) => (
+                <button key={w} aria-pressed={weather.text === w} onClick={() => (setWeatherOverride({ text: w, temp: w === '눈' ? -2 : 9 }), event(w === '비' ? 'rain' : w === '눈' ? 'snow' : null))}>{w}</button>
+              ))}
+            </div>
+            <div className="demo-btns v2">
+              <button onClick={() => setAscii({ open: true, from: null, saver: false })}>아스키 전체화면</button>
+              <button aria-pressed={idleDemo} onClick={() => setIdleDemo((d) => !d)}>화면보호기 5초 {idleDemo ? '켬' : '끔'}</button>
+            </div>
           </aside>
           <Taskbar />
         </>
@@ -253,6 +337,7 @@ export function Desktop({ only }: { only?: string }) {
           onDone={done}
           onSnooze={snooze}
           onOpen={() => openPanel('todo')}
+          onDropFiles={(paths) => dropFiles(paths, true)}
         />
       )}
       {show('dock') && (
@@ -267,6 +352,9 @@ export function Desktop({ only }: { only?: string }) {
           shelf={shelf}
           onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
+          groups={dockGroups}
+          scene={scene}
+          onAscii={(from) => setAscii({ open: true, from, saver: false })}
         />
       )}
       {panel && show('panel') && (
@@ -287,6 +375,17 @@ export function Desktop({ only }: { only?: string }) {
           onRemoveRecord={removeRecord}
           onTogglePin={togglePin}
           onAddSet={addSet}
+          groups={groups}
+          onSaveGroup={saveGroup}
+          onRemoveGroup={(id) => setGroups((gs) => gs.filter((g) => g.id !== id))}
+          fxOn={fxOn}
+          setFxOn={setFxOn}
+          city={city}
+          setCity={(c) => (setCity(c), setWeatherOverride(null))}
+          weather={weather}
+          idleMin={idleMin}
+          setIdleMin={setIdleMin}
+          onFxNow={() => playFx(pickFx(clock, weather))}
         />
       )}
       {palette && show('palette') && (
@@ -299,10 +398,34 @@ export function Desktop({ only }: { only?: string }) {
           onLaunch={(t) => void launch(t).catch((e) => showAlert({ title: '실행 실패', body: String(e) }))}
           onOpenTodo={() => (isTauri ? void panelOpen().then((o) => o || togglePanel('todo')) : openPanel('todo'))}
           onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
+          clips={clips}
+          onCopy={copyClip}
         />
       )}
+      {show('ascii') && (
+        <AsciiFull
+          open={ascii.open}
+          id={scene}
+          from={ascii.from}
+          saver={ascii.saver}
+          caption={`${clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(clock)}`}
+          onClose={() => setAscii((a) => ({ ...a, open: false }))}
+        />
+      )}
+      {fx && show('fx') && <Fx key={fx.n} kind={fx.kind} onDone={() => setFx(null)} />}
     </div>
   )
+}
+
+const withTime = (d: Date, h: number) => {
+  const x = new Date(d)
+  x.setHours(h, 0, 0, 0)
+  return x
+}
+const withMonth = (d: Date, m: number) => {
+  const x = new Date(d)
+  x.setMonth(m, 14)
+  return x
 }
 
 // Win11 작업표시줄 자리 표시 (독은 작업 영역 = 이 위에 뜬다)

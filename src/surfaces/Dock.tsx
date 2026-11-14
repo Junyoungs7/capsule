@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
-import type { LpRecord, ShelfFile } from '../data/types'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TransitionEvent } from 'react'
+import type { AppGroup, LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { iconFor, isTauri, onEvent, power, reportHitRects, wallpaper } from '../data/api'
 import { Shelf } from './Shelf'
+import { AsciiWidget, type SceneId } from './Ascii'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
    글라스 레이어는 최대 크기로 고정하고 모양만 clip-path 로 바꾼다.
@@ -19,6 +20,22 @@ export function shape(x: number, y: number, w: number, h: number, r: number) {
 }
 
 export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** 열기·닫기 모두 애니메이션 (패널과 같은 방식): 마운트 → reflow → data-show=true.
+    닫기 → data-show=false → opacity transitionend → 언마운트. 숨김 상태 CSS 는 각 표면이 정한다. */
+export function usePresence<T extends HTMLElement>(open: boolean) {
+  const [mounted, setMounted] = useState(open)
+  if (open && !mounted) setMounted(true)
+  const ref = useRef<T>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.getBoundingClientRect()
+    el.dataset.show = String(open)
+  }, [open, mounted])
+  const onTransitionEnd = (e: TransitionEvent) => e.target === e.currentTarget && e.propertyName === 'opacity' && !open && setMounted(false)
+  return { mounted, ref, onTransitionEnd }
+}
 
 /* ── 레코드 타일 (독·크레이트·라이브러리·팔레트 공용) ── */
 export function Tile({ rec, size }: { rec: LpRecord; size?: number }) {
@@ -69,10 +86,14 @@ type Props = {
   shelf: ShelfFile[]
   onShelfOpen: (f: ShelfFile) => void
   onShelfRemove: (f: ShelfFile) => void
+  groups: { group: AppGroup; recs: LpRecord[] }[]
+  scene: SceneId
+  onAscii: (from: DOMRect) => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii }: Props) {
   const [open, setOpen] = useState(false)
+  const [folder, setFolder] = useState<string | null>(null) // 열린 앱 묶음 id
   const root = useRef<HTMLDivElement>(null)
   const row = useRef<HTMLDivElement>(null)
   const glass = useRef<HTMLDivElement>(null)
@@ -102,7 +123,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
     hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
     reportHitRects('dock', [hit.current!.getBoundingClientRect()])
-  }, [open, records.length, shelf.length])
+  }, [open, records.length, shelf.length, groups.length])
 
   useEffect(() => () => (clearTimeout(closeTimer.current), cancelAnimationFrame(frame.current)), [])
 
@@ -187,12 +208,13 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     setOpen(true)
   }
   const leave = () => {
+    if (folder) return // 묶음 팝오버가 열려 있으면 독을 접지 않는다 (바깥 클릭/Esc 로 닫힘)
     reset()
     if (open) paint(0, false)
     closeTimer.current = window.setTimeout(() => setOpen(false), 400)
   }
   const move = (e: PointerEvent) => {
-    if (!open) return
+    if (!open || folder) return
     px.current = e.clientX
     if (!frame.current) frame.current = requestAnimationFrame(apply)
   }
@@ -232,6 +254,18 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
             <span className="dock-dot" />
           </button>
         ))}
+        {groups.map(({ group, recs }) => (
+          <Folder
+            key={group.id}
+            group={group}
+            recs={recs}
+            running={running}
+            open={folder === group.id}
+            onToggle={(o) => (reset(), setFolder(o ? group.id : null))}
+            onClose={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+            onLaunch={onLaunch}
+          />
+        ))}
         <span className="dock-sep" />
         <button className="dock-slot" data-running={panelOpen} onClick={onPanel} aria-label="할 일 · 달력 · 라이브러리 패널">
           <span className="icon-mag">
@@ -246,9 +280,63 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
         </button>
         <span className="dock-sep" />
         <Clock open={open} />
+        <AsciiWidget id={scene} live={open} onOpen={onAscii} />
         <Battery />
         <Shelf files={shelf} onOpen={onShelfOpen} onRemove={onShelfRemove} onDrop={(paths) => onDropFiles(paths, true)} />
       </div>
+    </div>
+  )
+}
+
+/* v2 앱 묶음(독 폴더): 슬롯 = 2×2 미니 격자, 클릭 → 독 위 격자 팝오버 (슬롯에서 스프링으로 커짐/작아짐).
+   실제 앱: 팝오버가 독 창(높이 178) 위로 넘친다 → 독 창 높이를 키우거나 팝오버 창이 필요 (Rust, 시안 승인 후). */
+function Folder({ group, recs, running, open, onToggle, onClose, onLaunch }: {
+  group: AppGroup
+  recs: LpRecord[]
+  running: Set<string>
+  open: boolean
+  onToggle: (open: boolean) => void
+  onClose: (pointerInside: boolean) => void
+  onLaunch: (r: LpRecord) => void
+}) {
+  const p = usePresence<HTMLDivElement>(open)
+  const slot = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    if (!open) return
+    const down = (e: globalThis.PointerEvent) => !slot.current!.contains(e.target as Node) && close.current(!!(e.target as Element).closest?.('.dock-row'))
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && close.current(true)
+    addEventListener('pointerdown', down)
+    addEventListener('keydown', key)
+    return () => (removeEventListener('pointerdown', down), removeEventListener('keydown', key))
+  }, [open])
+  return (
+    <div ref={slot} className="dock-slot folder" data-running={recs.some((r) => running.has(r.id))} data-open={open}>
+      <button className="folder-btn" onClick={() => onToggle(!open)} aria-expanded={open} aria-label={`${group.title} 묶음 · 앱 ${recs.length}개`}>
+        <span className="icon-mag">
+          <span className="icon-bounce">
+            <span className="tile folder-tile">
+              {recs.slice(0, 4).map((r) => <Tile key={r.id} rec={r} size={19} />)}
+            </span>
+          </span>
+        </span>
+      </button>
+      <span className="dock-label">{group.title}</span>
+      <span className="dock-dot" />
+      {p.mounted && (
+        <div ref={p.ref} className="folder-pop glass-card" onTransitionEnd={p.onTransitionEnd} onPointerMove={(e) => e.stopPropagation()} role="dialog" aria-label={`${group.title} 묶음`}>
+          <b>{group.title}</b>
+          <div className="folder-grid">
+            {recs.map((r) => (
+              <button key={r.id} data-running={running.has(r.id)} onClick={() => (onLaunch(r), close.current(true))} aria-label={`${r.title} 실행`}>
+                <Tile rec={r} size={46} />
+                <small>{r.title}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
