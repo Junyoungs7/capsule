@@ -1,21 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { reducedMotion } from './Dock'
-import { isNight, seasonOf } from './Ascii'
+import { isNight, moonPhase, seasonOf } from './Ascii'
 
 /* ── v2 전체화면 효과: 캔버스 2D 1장, 입자 ≤150, 30fps, 25초 뒤 페이드아웃 → 언마운트(onDone).
    실제 앱: 투명·클릭 통과 전체화면 창을 그때만 만들고 끝나면 파괴 (Rust, 시안 승인 후). */
-export type FxKind = 'snow' | 'rain' | 'leaves' | 'sunset' | 'moon'
-export const FX_LABEL: Record<FxKind, string> = { snow: '눈', rain: '비', leaves: '단풍', sunset: '노을', moon: '달·별' }
+export type FxKind = 'snow' | 'rain' | 'leaves' | 'dawn' | 'sunset' | 'moon'
+export const FX_LABEL: Record<FxKind, string> = { snow: '눈', rain: '비', leaves: '단풍', dawn: '새벽', sunset: '노을', moon: '달·별' }
+// 하늘 효과는 바탕화면에 덧칠하지 않고 하늘을 통째로 그린다(불투명도 85%) → 어떤 바탕화면이든 같은 그림. 눈·비·단풍은 투명 오버레이.
+const SKY = new Set<FxKind>(['dawn', 'sunset', 'moon'])
 const DUR = 25_000
 const FADE_OUT = 2_500
-
-/** 달 위상 0..1 (0 = 삭, 0.5 = 보름). 기준 삭: 2000-01-06 18:14 UTC, 삭망월 29.530588853일 */
-export const moonPhase = (d: Date) => {
-  const m = 29.530588853
-  const days = (d.getTime() - Date.UTC(2000, 0, 6, 18, 14)) / 86_400_000
-  return (((days % m) + m) % m) / m
-}
-export const moonName = (f: number) => ['삭', '초승달', '상현달', '차오르는 달', '보름달', '기우는 달', '하현달', '그믐달'][Math.round(f * 8) % 8]
 
 // 시안 = 가짜 날씨 (네트워크 없음). 실제 앱 = Open-Meteo 30분 1회.
 export type Weather = { text: '맑음' | '구름 조금' | '흐림' | '비' | '눈'; temp: number }
@@ -28,6 +22,7 @@ export function pickFx(d: Date, w: Weather): FxKind {
   if (w.text === '비') return 'rain'
   if (w.text === '눈') return 'snow'
   const h = d.getHours()
+  if (h >= 5 && h < 8) return 'dawn'
   if (h >= 17 && h < 19) return 'sunset'
   if (isNight(d)) return 'moon'
   if (seasonOf(d) === '가을') return 'leaves'
@@ -39,22 +34,30 @@ const fadeIn = (p: P, t: number) => (p.b === undefined ? 1 : Math.min(1, (t - p.
 type Frame = (t: number, dt: number, env: number) => void
 type P = { x: number; y: number; v: number; s: number; a: number; r: number; c: number; b?: number }
 
+// 단풍잎 실루엣 (오른쪽 반, 단위 좌표·위 = -y): 가운데 잎·위 옆잎·아래 옆잎 5갈래 + 톱니 + 깊은 결각. 왼쪽은 대칭.
+const MAPLE: [number, number][] = [
+  [0, -1], [0.09, -0.78], [0.2, -0.84], [0.15, -0.58], [0.12, -0.36], [0.36, -0.46], [0.42, -0.63], [0.55, -0.5], [0.92, -0.62],
+  [0.72, -0.36], [0.83, -0.28], [0.55, -0.16], [0.3, -0.02], [0.55, 0.08], [0.82, 0.24], [0.48, 0.24], [0.36, 0.36], [0.08, 0.3], [0, 0.34],
+]
 function maple(color: string) {
   const c = document.createElement('canvas')
-  c.width = c.height = 32
+  c.width = c.height = 40
   const g = c.getContext('2d')!
-  g.translate(16, 17)
+  g.translate(20, 19)
+  g.scale(17, 17)
   g.beginPath()
-  for (let i = 0; i <= 60; i++) {
-    const t = (i / 60) * Math.PI * 2 - Math.PI / 2
-    const r = 14 * (0.32 + 0.68 * Math.abs(Math.cos(2.5 * (t + Math.PI / 2))) ** 2.2) * (0.86 + 0.14 * Math.abs(Math.sin(12.5 * t)))
-    g.lineTo(Math.cos(t) * r, Math.sin(t) * r)
-  }
+  MAPLE.forEach(([x, y]) => g.lineTo(x, y))
+  for (let i = MAPLE.length - 2; i > 0; i--) g.lineTo(-MAPLE[i][0], MAPLE[i][1])
+  g.closePath()
   g.fillStyle = color
   g.fill()
-  g.strokeStyle = 'rgba(80,30,10,0.5)'
+  g.lineWidth = 0.06
+  g.lineCap = 'round'
+  g.strokeStyle = 'rgba(70,25,8,0.55)'
   g.beginPath()
-  g.moveTo(0, 2), g.lineTo(0, 15)
+  for (const [x, y] of [[0, -0.85], [0.75, -0.5], [-0.75, -0.5], [0.68, 0.2], [-0.68, 0.2]]) g.moveTo(0, 0.28), g.lineTo(x * 0.85, y * 0.85) // 잎맥
+  g.moveTo(0, 0.3)
+  g.lineTo(0.05, 1.05) // 잎자루
   g.stroke()
   return c
 }
@@ -121,58 +124,101 @@ function make(kind: FxKind, ctx: CanvasRenderingContext2D, W: number, H: number)
           ctx.translate(p.x, p.y)
           ctx.rotate(p.r)
           ctx.scale(p.s * Math.cos(p.r * 0.7), p.s) // 잎이 뒤집히는 느낌
-          ctx.drawImage(sprites[p.c], -16, -16)
+          ctx.drawImage(sprites[p.c], -20, -20)
           ctx.restore()
         }
       })
   }
-  // 노을·달은 바탕 그림이 정적 → 오프스크린에 1회
+  // 하늘(새벽·노을·밤): 정적 그림은 오프스크린에 1회. 밤만 별 반짝임 루프.
   const bgc = document.createElement('canvas')
   bgc.width = W * K
   bgc.height = H * K
   const b = bgc.getContext('2d')!
   b.scale(K, K)
-  if (kind === 'sunset') {
-    const lg = b.createLinearGradient(0, H, 0, 0)
-    lg.addColorStop(0, 'rgba(255,122,64,0.42)')
-    lg.addColorStop(0.3, 'rgba(255,94,120,0.22)')
-    lg.addColorStop(0.65, 'rgba(140,90,200,0.08)')
-    lg.addColorStop(1, 'rgba(0,0,0,0)')
-    b.fillStyle = lg
-    b.fillRect(0, 0, W, H)
-    const rg = b.createRadialGradient(W * 0.3, H * 1.02, 0, W * 0.3, H * 1.02, H * 0.6)
-    rg.addColorStop(0, 'rgba(255,214,140,0.65)')
-    rg.addColorStop(1, 'rgba(255,170,90,0)')
-    b.fillStyle = rg
-    b.fillRect(0, 0, W, H)
+  paintSky(b, W, H, kind)
+  if (kind !== 'moon') {
     let drawn = false
-    return () => {
-      if (!drawn) ctx.drawImage(bgc, 0, 0, W, H), (drawn = true)
-    }
+    return () => void (drawn || (ctx.drawImage(bgc, 0, 0, W, H), (drawn = true)))
   }
-  // moon: 위쪽 밤빛 + 실제 위상의 달 + 반짝이는 별
-  const lg = b.createLinearGradient(0, 0, 0, H)
-  lg.addColorStop(0, 'rgba(8,14,40,0.5)')
-  lg.addColorStop(0.7, 'rgba(8,14,40,0)')
-  b.fillStyle = lg
-  b.fillRect(0, 0, W, H)
-  const mx = W * 0.8, my = H * 0.2, r = 40
-  const glow = b.createRadialGradient(mx, my, r, mx, my, r * 4)
-  glow.addColorStop(0, 'rgba(245,235,200,0.22)')
-  glow.addColorStop(1, 'rgba(245,235,200,0)')
-  b.fillStyle = glow
-  b.fillRect(0, 0, W, H)
-  drawMoon(b, mx, my, r, moonPhase(new Date()))
-  const stars = Array.from({ length: 110 }, () => ({ x: R() * W, y: R() * H * 0.62, s: 0.6 + R() * 1.3, a: R() * 6, w: 0.6 + R() * 1.6 }))
+  const stars = Array.from({ length: 120 }, () => ({ x: R() * W, y: R() * H * 0.7, s: 0.7 + R() * 1.4, a: R() * 6, w: 0.5 + R() * 1.5 }))
   return (t) => {
     ctx.clearRect(0, 0, W, H)
     ctx.drawImage(bgc, 0, 0, W, H)
+    ctx.fillStyle = '#fff'
     for (const s of stars) {
-      ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(s.a + (t / 1000) * s.w))
-      ctx.fillStyle = '#fff'
+      ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(s.a + (t / 1000) * s.w))
       ctx.fillRect(s.x, s.y, s.s, s.s)
     }
     ctx.globalAlpha = 1
+  }
+}
+
+const grad = (g: CanvasRenderingContext2D, H: number, stops: [number, string][]) => {
+  const lg = g.createLinearGradient(0, 0, 0, H)
+  for (const [o, c] of stops) lg.addColorStop(o, c)
+  return lg
+}
+const glow = (g: CanvasRenderingContext2D, x: number, y: number, r0: number, r1: number, c0: string, c1: string) => {
+  const rg = g.createRadialGradient(x, y, r0, x, y, r1)
+  rg.addColorStop(0, c0)
+  rg.addColorStop(1, c1)
+  g.fillStyle = rg
+  g.fillRect(x - r1, y - r1, r1 * 2, r1 * 2)
+}
+/** 먼 도시 실루엣 (결정적 배치). lit = 창문 불빛 비율 */
+function skyline(g: CanvasRenderingContext2D, W: number, H: number, color: string, lit: number) {
+  let seed = 7
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  g.fillStyle = color
+  const rects: [number, number, number, number][] = []
+  for (let x = -10; x < W; ) {
+    const w = 34 + rnd() * 90, h = H * (0.05 + rnd() * rnd() * 0.17)
+    rects.push([x, H - h, w, h])
+    g.fillRect(x, H - h, w + 1, h)
+    if (rnd() < 0.2) g.fillRect(x + w / 2 - 1, H - h - 18, 2, 18)
+    x += w
+  }
+  if (!lit) return
+  g.fillStyle = 'rgba(255,211,110,0.75)'
+  for (const [x, y, w] of rects)
+    for (let wy = y + 8; wy < H - 6; wy += 9) for (let wx = x + 6; wx < x + w - 6; wx += 8) if (rnd() < lit) g.fillRect(wx, wy, 3, 4)
+}
+function paintSky(g: CanvasRenderingContext2D, W: number, H: number, kind: FxKind) {
+  if (kind === 'sunset') {
+    g.fillStyle = grad(g, H, [[0, '#1b1f4a'], [0.35, '#4a2a6a'], [0.58, '#b2456e'], [0.78, '#f07a4a'], [0.92, '#ffc06a']])
+    g.fillRect(0, 0, W, H)
+    glow(g, W * 0.66, H * 0.86, 0, H * 0.55, 'rgba(255,200,120,0.75)', 'rgba(255,140,90,0)')
+    g.fillStyle = '#ffdc8a'
+    g.beginPath()
+    g.arc(W * 0.66, H * 0.86, H * 0.055, 0, Math.PI * 2)
+    g.fill()
+    g.fillStyle = 'rgba(255,170,150,0.28)' // 노을에 물든 얇은 구름
+    for (const [x, y, w] of [[0.18, 0.56, 0.3], [0.52, 0.63, 0.24], [0.78, 0.5, 0.2], [0.3, 0.7, 0.18]]) {
+      g.beginPath()
+      g.ellipse(W * x, H * y, W * w * 0.5, H * 0.011, 0, 0, Math.PI * 2)
+      g.fill()
+    }
+    skyline(g, W, H, '#1a1023', 0.05)
+  } else if (kind === 'dawn') {
+    g.fillStyle = grad(g, H, [[0, '#0f1838'], [0.3, '#3a3f78'], [0.56, '#a58bc0'], [0.76, '#f2b8a0'], [0.92, '#ffe2a8']])
+    g.fillRect(0, 0, W, H)
+    g.fillStyle = 'rgba(255,255,255,0.5)' // 사라져 가는 별
+    for (let i = 0; i < 40; i++) g.fillRect(R() * W, R() * R() * H * 0.35, 1.4, 1.4)
+    glow(g, W * 0.3, H * 0.82, 0, H * 0.5, 'rgba(255,236,190,0.8)', 'rgba(255,210,170,0)')
+    g.fillStyle = '#fff1c8'
+    g.beginPath()
+    g.arc(W * 0.3, H * 0.82, H * 0.045, 0, Math.PI * 2)
+    g.fill()
+    g.fillStyle = grad(g, H, [[0.74, 'rgba(255,255,255,0)'], [0.84, 'rgba(255,240,235,0.22)'], [0.94, 'rgba(255,255,255,0)']]) // 새벽 안개
+    g.fillRect(0, 0, W, H)
+    skyline(g, W, H, '#2a2748', 0.03)
+  } else {
+    g.fillStyle = grad(g, H, [[0, '#02040c'], [0.5, '#08102a'], [0.86, '#13204a'], [1, '#1e2f5e']])
+    g.fillRect(0, 0, W, H)
+    const mx = W * 0.78, my = H * 0.22, r = H * 0.055
+    glow(g, mx, my, r, r * 5, 'rgba(245,235,200,0.2)', 'rgba(245,235,200,0)')
+    drawMoon(g, mx, my, r, moonPhase(new Date()))
+    skyline(g, W, H, '#04060c', 0.22)
   }
 }
 let K = 1
@@ -220,10 +266,11 @@ export function Fx({ kind, onDone }: { kind: FxKind; onDone: () => void }) {
       frame(t, Math.min(0.05, (now - (last || now)) / 1000), Math.max(0, Math.min(1, t / 4000, (DUR - t) / 6000)))
       last = now
     }
-    if (reducedMotion()) for (let i = 0; i < 120; i++) frame(8000 + i * 50, 0.05, 1) // 움직임 없이: 6초 진행시킨 한 장면만
+    if (kind === 'dawn' || kind === 'sunset') frame(0, 0, 1) // 정적 하늘: 1회 그리고 루프 없음 (페이드는 CSS)
+    else if (reducedMotion()) for (let i = 0; i < 120; i++) frame(8000 + i * 50, 0.05, 1) // 움직임 없이: 6초 진행시킨 한 장면만
     else raf = requestAnimationFrame(loop)
     const out = setTimeout(() => (c.dataset.show = 'false'), DUR - FADE_OUT)
     return () => (cancelAnimationFrame(raf), clearTimeout(out))
   }, [kind])
-  return <canvas ref={ref} className="fx" aria-hidden onTransitionEnd={(e) => e.propertyName === 'opacity' && ref.current?.dataset.show === 'false' && done.current()} />
+  return <canvas ref={ref} className="fx" data-sky={SKY.has(kind)} aria-hidden onTransitionEnd={(e) => e.propertyName === 'opacity' && ref.current?.dataset.show === 'false' && done.current()} />
 }

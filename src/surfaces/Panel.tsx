@@ -3,7 +3,8 @@ import type { AppGroup, CalendarEvent, LpRecord, Todo } from '../data/types'
 import { isTauri, startApps } from '../data/api'
 import { Tile } from './Dock'
 import { fmtWhen } from './Island'
-import { moonName, moonPhase, type Weather } from './Fx'
+import type { Weather } from './Fx'
+import { moonName, moonPhase } from './Ascii'
 
 export type Tab = 'todo' | 'calendar' | 'library' | 'settings'
 const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['settings', '설정']]

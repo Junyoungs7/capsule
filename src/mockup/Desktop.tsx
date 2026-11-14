@@ -290,7 +290,7 @@ export function Desktop({ only }: { only?: string }) {
             </div>
             <div className="demo-seg" role="group" aria-label="시간대">
               {([['지금', null], ['아침', 9], ['오후', 15], ['노을', 18], ['밤', 22]] as const).map(([label, h]) => (
-                <button key={label} aria-pressed={h === null ? !demoNow : demoNow?.getHours() === h} onClick={() => (setDemoNow((d) => (h === null ? null : withTime(d ?? new Date(), h))), event(h === 18 ? 'sunset' : h === 22 ? 'moon' : null))}>{label}</button>
+                <button key={label} aria-pressed={h === null ? !demoNow : demoNow?.getHours() === h} onClick={() => (setDemoNow((d) => (h === null ? null : withTime(d ?? new Date(), h))), event(h === 9 ? 'dawn' : h === 18 ? 'sunset' : h === 22 ? 'moon' : null))}>{label}</button>
               ))}
             </div>
             <div className="demo-seg" role="group" aria-label="계절">
