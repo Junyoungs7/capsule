@@ -1,0 +1,58 @@
+/* AI 연결(MCP): Island 확인 카드 · 칩 · 설정 (Mcp.tsx) */
+.mcp-ask {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  width: 404px;
+  height: 122px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 30px;
+  color: #f4f6fa;
+  background: var(--island-solid);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  animation: mcp-in 320ms var(--ease-out) both;
+}
+.mcp-ask > b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 14px; }
+.mcp-ask .head small { color: rgba(244, 246, 250, 0.7); }
+.mcp-ask .actions { align-items: center; }
+.mcp-always-tick { display: flex; align-items: center; gap: 5px; margin-right: auto; font-size: 12px; color: rgba(244, 246, 250, 0.75); }
+.mcp-timer { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--alert); transform-origin: 0 50%; animation: mcp-timer var(--secs, 20s) linear both; }
+@keyframes mcp-timer { to { transform: scaleX(0); } }
+@keyframes mcp-in { from { opacity: 0; transform: translateX(-50%) scale(0.92); } }
+
+.mcp-chip {
+  position: fixed;
+  top: 50px;
+  left: 50%;
+  padding: 4px 11px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #f4f6fa;
+  background: var(--island-solid);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: mcp-chip 2500ms var(--ease-out) both;
+}
+.mcp-chip[data-ok='false'] { color: #ffb38a; }
+@keyframes mcp-chip {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  12%, 80% { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mcp-ask, .mcp-chip { animation-duration: 1ms; }
+  .mcp-chip { animation: none; }
+}
+
+.settings .mcp-setup code, .settings .mcp-setup pre { display: block; margin: 4px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; user-select: text; }
+.settings .mcp-setup, .settings .mcp-log, .settings .mcp-always { align-items: flex-start; }
+.settings .mcp-log ul { margin: 4px 0 0; padding: 0; list-style: none; font-size: 11.5px; max-height: 160px; overflow-y: auto; }
+.settings .mcp-log li[data-ok='false'] { color: var(--alert); }
+.settings .mcp-log li span { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.mcp-tag { margin: 4px 4px 0 0; padding: 2px 8px; border: 0; border-radius: 99px; font-size: 11px; color: var(--text); background: var(--accent-soft); }

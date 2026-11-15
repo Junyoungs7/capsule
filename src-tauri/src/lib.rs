@@ -18,6 +18,7 @@ use stub::{clip, icons, launch, shell, taskbar, watch};
 mod link;
 mod link_files;
 mod link_layout;
+pub mod mcp; // AI 연결(MCP) — docs/mcp.md
 mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -497,7 +498,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
-            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send
+            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send,
+            mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -541,6 +543,7 @@ pub fn run() {
             // Hera Link: 기본 꺼짐. 켜져 있을 때만 엔진·파일 채널이 뜬다 (꺼져 있으면 스레드 1개가 대기만)
             link::start(h.clone());
             link::files_start(h);
+            mcp::start(h.clone()); // AI 연결(MCP): 파이프 대기 (꺼져 있으면 호출을 거절)
             // 팔레트·턴테이블은 부가 기능 — 실패해도 시작은 계속 (팔레트는 첫 단축키 때 다시 만든다)
             if let Err(e) = palette_window(h) {
                 eprintln!("palette window: {e}");

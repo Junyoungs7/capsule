@@ -155,7 +155,7 @@ function watchDpr() {
   matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
     'change',
     () => {
-      for (const r of lastRects.values()) sendRects(r)
+      sendRects([...lastRects.values()].flat())
       watchDpr()
     },
     { once: true },
@@ -166,7 +166,7 @@ if (isTauri) watchDpr()
 export function reportHitRects(surface: string, rects: DOMRect[]) {
   if (!isTauri) return
   lastRects.set(surface, rects)
-  sendRects(rects)
+  sendRects([...lastRects.values()].flat()) // 한 창 안의 여러 표면(예: island + mcp 확인 카드) rect 합집합
 }
 
 // 패널 창: 없으면 지연 생성, 있으면 'panel-close' → 닫힘 애니메이션 → closePanelWindow() 로 파괴.

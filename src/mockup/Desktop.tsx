@@ -12,6 +12,7 @@ import { Island, type LinkView, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
+import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
@@ -456,6 +457,7 @@ export function Desktop({ only }: { only?: string }) {
           onPair={(ok) => void linkPair(ok)}
         />
       )}
+      {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
       {show('dock') && (
         <Dock
           records={dockRecords}
