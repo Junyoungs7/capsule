@@ -34,18 +34,20 @@ const CH = [
   ['0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0', 0.84],
 ] as const
 
-function Lens({ id, map, scale }: { id: string; map: string; scale: number }) {
+// chroma=false: 변위 1회만 (큰 표면용 테두리 렌즈 — 색수차 3회 대신)
+function Lens({ id, map, scale, chroma = true }: { id: string; map: string; scale: number; chroma?: boolean }) {
   return (
     <filter id={id} x="0" y="0" width="1" height="1" primitiveUnits="objectBoundingBox" colorInterpolationFilters="sRGB">
       <feImage href={map} x="0" y="0" width="1" height="1" preserveAspectRatio="none" result="map" />
-      {CH.map(([m, k], i) => (
+      {!chroma && <feDisplacementMap in="SourceGraphic" in2="map" scale={scale} xChannelSelector="R" yChannelSelector="G" />}
+      {chroma && CH.map(([m, k], i) => (
         <Fragment key={i}>
           <feDisplacementMap in="SourceGraphic" in2="map" scale={scale * k} xChannelSelector="R" yChannelSelector="G" result={`d${i}`} />
           <feColorMatrix in={`d${i}`} values={m} result={`c${i}`} />
         </Fragment>
       ))}
-      <feBlend in="c0" in2="c1" mode="screen" result="rg" />
-      <feBlend in="rg" in2="c2" mode="screen" />
+      {chroma && <feBlend in="c0" in2="c1" mode="screen" result="rg" />}
+      {chroma && <feBlend in="rg" in2="c2" mode="screen" />}
     </filter>
   )
 }
@@ -59,6 +61,12 @@ export function GlassDefs() {
       lens: lensMap(64, 64, 0.18, 0.22),
       // 독: 세로 렌즈만 (바 너비가 바뀌므로). 바 = 레이어 아래 72/84 → 위 14% 는 변위 없음
       dock: lensMap(2, 84, 0, 0.2, 12 / 84),
+      // 글라스 B: 큰 표면의 ~12px 테두리 띠만 굴절 (가운데는 변위 0). 맵은 비율이라 표면 크기별로 하나씩.
+      // ponytail: 크기가 바뀌는 팔레트·메모는 대표 크기 기준 — 띠 폭이 몇 px 달라질 수 있음
+      panel: lensMap(256, 256, 13 / 384, 13 / 540), // 384×540
+      palette: lensMap(256, 256, 13 / 580, 13 / 420), // 580×~420
+      note: lensMap(128, 128, 12 / 230, 12 / 170), // ~230×170
+      dockB: lensMap(2, 84, 0, 0.28, 12 / 84),
     }),
     [],
   )
@@ -105,6 +113,10 @@ export function GlassDefs() {
     <svg width="0" height="0" aria-hidden style={{ position: 'absolute' }}>
       <Lens id="hera-lens" map={maps.lens} scale={0.07} />
       <Lens id="hera-lens-dock" map={maps.dock} scale={0.1} />
+      <Lens id="hera-rim-panel" map={maps.panel} scale={0.034} chroma={false} />
+      <Lens id="hera-rim-palette" map={maps.palette} scale={0.024} chroma={false} />
+      <Lens id="hera-rim-note" map={maps.note} scale={0.06} chroma={false} />
+      <Lens id="hera-lens-dock-b" map={maps.dockB} scale={0.17} />
     </svg>
   )
 }

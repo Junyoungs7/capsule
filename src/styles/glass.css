@@ -53,6 +53,8 @@
   --dot: rgba(30, 41, 59, 0.6);
   --taskbar: rgba(238, 242, 247, 0.8);
   --blur: blur(9px) saturate(180%) brightness(1.04);
+  /* 시안 데모 카드 전용: 뒤의 픽셀 턴테이블이 얕은 블러로 번져 보이지 않게 짙게 */
+  --glass-dense: rgba(244, 247, 252, 0.88);
   /* 작은 요소 전용: 얕은 블러 + 가장자리 굴절 렌즈 (GlassDefs 의 SVG 필터) */
   --blur-lens: blur(3px) url(#hera-lens) saturate(180%) brightness(1.05);
 
@@ -103,6 +105,7 @@
   --dot: rgba(255, 255, 255, 0.82);
   --taskbar: rgba(22, 24, 30, 0.8);
   --island-solid: rgba(6, 8, 12, 0.92);
+  --glass-dense: rgba(16, 19, 26, 0.86);
 }
 
 * { box-sizing: border-box; }
@@ -266,6 +269,7 @@ kbd {
   padding: 14px;
   z-index: 50;
 }
+.demo.glass-card { background: var(--glass-sheen), var(--glass-dense); backdrop-filter: blur(24px) saturate(160%); }
 .demo header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
 .demo header b { font: 700 16px/1 var(--font-display); letter-spacing: -0.01em; }
 .demo header small { color: var(--text-2); font-size: 11.5px; }
@@ -297,7 +301,7 @@ kbd {
   pointer-events: none;
   z-index: 30;
 }
-.desktop[data-only='all'] .dock { bottom: 52px; }
+.desktop[data-only='all'] .dock { bottom: 52px; width: 1290px; } /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
 .dock-glass,
 .dock-ring {
   position: absolute;

@@ -4,6 +4,7 @@ import './styles/glass.css'
 import './styles/turntable.css'
 import './styles/v2.css'
 import './styles/v3.css'
+import './styles/glass-b.css'
 import { Desktop } from './mockup/Desktop'
 
 // ?surface=dock|island|panel|turntable|palette|ascii|fx|all (fx: &fx=snow|rain|leaves|sunset|moon)

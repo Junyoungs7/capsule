@@ -13,10 +13,10 @@ const rr = (x: number, y: number, w: number, h: number, r: number) =>
   `M${x + r},${y}H${x + w - r}A${r},${r} 0 0 1 ${x + w},${y + r}V${y + h - r}A${r},${r} 0 0 1 ${x + w - r},${y + h}` +
   `H${x + r}A${r},${r} 0 0 1 ${x},${y + h - r}V${y + r}A${r},${r} 0 0 1 ${x + r},${y}Z`
 
-export function shape(x: number, y: number, w: number, h: number, r: number) {
+export function shape(x: number, y: number, w: number, h: number, r: number, t = 1) {
   return {
     glass: `path("${rr(x, y, w, h, r)}")`,
-    ring: `path(evenodd, "${rr(x, y, w, h, r)}${rr(x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1))}")`,
+    ring: `path(evenodd, "${rr(x, y, w, h, r)}${rr(x + t, y + t, w - 2 * t, h - 2 * t, Math.max(0, r - t))}")`,
   }
 }
 
@@ -116,9 +116,11 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   // 모양 쓰기: 펼침/접힘은 스프링, 확대 추종은 짧은 ease-out
   const paint = (extra: number, fast: boolean) => {
     const W = root.current!.offsetWidth
-    const barW = row.current!.offsetWidth + 20
+    // 모서리·좌우 여백·림 두께는 CSS 변수 (글라스 B = 떠 있는 알약 독)
+    const cs = getComputedStyle(root.current!), v = (k: string, d: number) => parseFloat(cs.getPropertyValue(k)) || d
+    const barW = row.current!.offsetWidth + v('--dock-pad', 20)
     const s = open
-      ? shape((W - barW - extra) / 2, BOX - BAR_H, barW + extra, BAR_H, 22)
+      ? shape((W - barW - extra) / 2, BOX - BAR_H, barW + extra, BAR_H, v('--dock-r', 22), v('--dock-rim', 1))
       : shape((W - 40) / 2, BOX - 12, 40, 6, 3)
     const t = fast ? 'clip-path 140ms var(--ease-out)' : 'clip-path var(--dur-bouncy) var(--spring-bouncy)'
     glass.current!.style.transition = ring.current!.style.transition = t
