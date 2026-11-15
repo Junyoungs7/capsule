@@ -17,7 +17,9 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$APPDATA/icons/**"
+          "$APPDATA/icons/**",
+          "$APPDATA/chat/**",
+          "$APPDATA/chat-out/**"
         ]
       }
     }

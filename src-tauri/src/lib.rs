@@ -584,6 +584,64 @@ async fn hub_action(app: AppHandle, kind: String) -> Result<(), String> {
     }
 }
 
+/* ── 팀 채팅 (team.rs: 메시지 = chat:<id> 동기화, 파일 = 보낸 사람에게서 직접) ── */
+#[tauri::command]
+async fn chat_send_paths(app: AppHandle, group: String, paths: Vec<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| team::app::chat_send_file(&app, &group, std::path::Path::new(p))).collect())
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// '+' 로 고른 파일 (웹뷰 File = 경로 없음): 바이트를 받아 임시 파일 → 같은 경로
+#[tauri::command]
+async fn chat_attach(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let h = request.headers();
+    let group = h.get("x-group").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let name = h.get("x-name").and_then(|v| v.to_str().ok()).map(percent_decode).unwrap_or_else(|| "file".into());
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("raw body expected".into()) };
+    let dir = std::env::temp_dir().join(format!("hera-chat-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let tmp = link_files::safe_name(&dir, &name);
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        let r = team::app::chat_send_file(&app, &group, &tmp);
+        let _ = std::fs::remove_file(&tmp);
+        r
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    r
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(x) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(x);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 채팅 사진·파일 복사 = 파일을 클립보드에 / 선반에 놓기
+#[tauri::command]
+fn clip_files(paths: Vec<String>) -> Result<(), String> {
+    clip::set_files(&paths)
+}
+
+#[tauri::command]
+fn shelf_add(app: AppHandle, path: String) -> Result<(), String> {
+    app.emit_to("island", "shelf-add", path).map_err(|e| e.to_string())
+}
+
 /// '상단 공간 확보' 스위치 (store `appbar.on` 변경으로도 맞춰진다 — 이 커맨드는 즉시 반영용)
 #[tauri::command]
 fn appbar_set(app: AppHandle, on: bool) {
@@ -703,7 +761,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
-            float::float_open, float::float_close, float::float_pin, hub_action, appbar_set, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            float::float_open, float::float_close, float::float_pin, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {

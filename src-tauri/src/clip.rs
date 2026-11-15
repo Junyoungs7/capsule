@@ -219,6 +219,39 @@ pub fn set(text: &str) -> Result<(), String> {
     }
 }
 
+/// 파일을 클립보드에 (CF_HDROP — 탐색기·메신저에 붙여넣기 = 파일 복사). 채팅 사진·파일 '복사'.
+pub fn set_files(paths: &[String]) -> Result<(), String> {
+    use windows::Win32::UI::Shell::DROPFILES;
+    // DROPFILES 헤더 + "경로 경로  " (UTF-16)
+    let mut list: Vec<u16> = paths.iter().flat_map(|p| p.encode_utf16().chain(std::iter::once(0))).collect();
+    list.push(0);
+    let head = std::mem::size_of::<DROPFILES>();
+    unsafe {
+        if !open() {
+            return Err("클립보드를 열 수 없어요".into());
+        }
+        let r = (|| {
+            EmptyClipboard().map_err(|e| e.to_string())?;
+            let g = GlobalAlloc(GMEM_MOVEABLE, head + list.len() * 2).map_err(|e| e.to_string())?;
+            let p = GlobalLock(g) as *mut u8;
+            if p.is_null() {
+                let _ = GlobalFree(Some(g));
+                return Err("GlobalLock".to_string());
+            }
+            let df = DROPFILES { pFiles: head as u32, fWide: true.into(), ..Default::default() };
+            std::ptr::copy_nonoverlapping(&df as *const DROPFILES as *const u8, p, head);
+            std::ptr::copy_nonoverlapping(list.as_ptr() as *const u8, p.add(head), list.len() * 2);
+            let _ = GlobalUnlock(g);
+            SetClipboardData(15 /* CF_HDROP */, Some(HANDLE(g.0))).map(|_| ()).map_err(|e| {
+                let _ = GlobalFree(Some(g));
+                e.to_string()
+            })
+        })();
+        let _ = CloseClipboard();
+        r
+    }
+}
+
 unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if m == WM_CLIPBOARDUPDATE {
         on_update();

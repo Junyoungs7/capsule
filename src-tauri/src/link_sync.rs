@@ -28,9 +28,14 @@ pub fn scope_of(v: Option<&Value>) -> String {
     v.and_then(|v| v["scope"].as_str()).unwrap_or("personal").to_string()
 }
 
-/// 동기화 대상 키 (Hera Team 은 메모도: note:<id>)
+/// 동기화 대상 키 (Hera Team 은 메모·채팅도: note:<id>, chat:<id>)
 pub fn team_syncable(key: &str) -> bool {
-    syncable(key) || key.starts_with("note:")
+    syncable(key) || key.starts_with("note:") || key.starts_with("chat:")
+}
+
+/// 채팅 보관 기간이 지난 메시지 (보낸 시각 `at` ms 기준). 지난 것은 받지도 보내지도 않고 이 PC 에서만 지운다 (묘비 없음 — 남의 기록을 지우지 않게).
+pub fn expired(key: &str, v: Option<&Value>, now: i64, days: i64) -> bool {
+    key.starts_with("chat:") && v.and_then(|v| v["at"].as_i64()).is_some_and(|at| at < now - days * 86_400_000)
 }
 
 /// 받은 항목 중 적용할 것 (내 것보다 새것 + 허용된 scope). 같은 시각이면 키 값 비교로 결정(양쪽이 같은 답).
@@ -65,6 +70,17 @@ pub fn gc(meta: &mut Meta, now: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_retention() {
+        let now = 100 * 86_400_000;
+        let v = |d: i64| serde_json::json!({ "at": now - d * 86_400_000, "group": "g" });
+        assert!(team_syncable("chat:1"));
+        assert!(!expired("chat:1", Some(&v(29)), now, 30));
+        assert!(expired("chat:1", Some(&v(31)), now, 30));
+        assert!(!expired("note:1", Some(&v(400)), now, 30)); // 메모는 보관 기간 없음
+        assert!(!expired("chat:1", None, now, 30)); // 묘비는 그대로
+    }
     use serde_json::json;
 
     fn it(key: &str, at: i64, v: Option<Value>) -> Item {

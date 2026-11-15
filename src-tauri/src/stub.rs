@@ -86,6 +86,9 @@ pub mod clip {
         Err(super::NA.into())
     }
     pub fn add_remote(_: &str) {}
+    pub fn set_files(_: &[String]) -> Result<(), String> {
+        Err(super::NA.into())
+    }
     pub fn paste(_: &str, _: impl FnOnce()) -> Result<(), String> {
         Err(super::NA.into())
     }

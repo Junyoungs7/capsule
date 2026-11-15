@@ -3,16 +3,17 @@ import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile 
 import {
   clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  floatOpen, fxStop, hubAction, storeSet, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
+  chatSendPaths, floatOpen, fxStop, hubAction, storeSet, teamState, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
 import { Island, type LinkView, type NextItem, type TeamNews } from '../surfaces/Island'
-import { CalendarFilter, setGroupCount, TeamDemo } from '../surfaces/Team'
+import { CalendarFilter, groupOf, setGroupCount, TeamDemo } from '../surfaces/Team'
 import { Panel, TodoTab, type Tab } from '../surfaces/Panel'
 import { Hub, type HubKind } from '../surfaces/Hub'
 import { ClipsList, FloatShell, ShelfList } from '../surfaces/Float'
 import { Player, type PlayerRec } from '../surfaces/Player'
+import { ChatWindow, type Msg as ChatMsg } from '../surfaces/Chat'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
@@ -281,6 +282,42 @@ export function Desktop({ only }: { only?: string }) {
   ]
   const fireNews = () => setNews((n) => ({ ...NEWS[(n?.n ?? 0) % NEWS.length], n: (n?.n ?? 0) + 1 }))
 
+  // 팀 채팅: 받은 메시지 → Island 알림 + 빠른 답장, 읽지 않음 수 = store `chat.unread` (채팅 창이 열리면 0)
+  const [chatUnread, setChatUnread] = useValue('chat.unread', 0)
+  const [msg, setMsg] = useState<{ who: string; group: string; color: string; text: string; n: number; gid: string } | null>(null)
+  const msgT = useRef(0)
+  const [meTeam, setMeTeam] = useState({ name: '나', pk: 'me' })
+  const showMsg = (m: ChatMsg) => {
+    const g = groupOf(m.group)
+    setMsg((x) => ({ who: m.by, group: g?.name ?? '', color: g?.color ?? '#64748b', gid: m.group, text: m.kind === 'text' ? m.text ?? '' : m.kind === 'image' ? `사진 · ${m.name}` : `파일 · ${m.name}`, n: (x?.n ?? 0) + 1 }))
+    const hide = () => {
+      clearTimeout(msgT.current)
+      // 답장을 쓰는 중이면 기다린다
+      msgT.current = window.setTimeout(() => (document.activeElement?.closest('.hubmsg') ? hide() : setMsg(null)), 7000)
+    }
+    hide()
+  }
+  useEffect(() => {
+    if (!isTauri || only !== 'island') return
+    void teamState().then((t) => setMeTeam({ name: t.name, pk: t.pk }), () => {})
+    return onEvent<ChatMsg>('chat-msg', showMsg)
+  }, [])
+  // 채팅 창이 열려 있으면 노치 드롭존 오른쪽 = '채팅에 보내기' (Rust float-opened/float-closed)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatGroup] = useValue<string>('chat.group', '')
+  useEffect(() => {
+    if (!isTauri || only !== 'island') return
+    const offs = [onEvent<string>('float-opened', (f) => f === 'chat' && setChatOpen(true)), onEvent<string>('float-closed', (f) => f === 'chat' && setChatOpen(false))]
+    return () => offs.forEach((off) => off())
+  }, [])
+  const reply = (t: string) => {
+    if (!msg) return
+    const id = crypto.randomUUID()
+    storeSet(`chat:${id}`, { id, group: msg.gid, by: meTeam.name, byPk: meTeam.pk, kind: 'text', text: t, at: Date.now() })
+    setMsg(null)
+    setChatUnread(0)
+  }
+
   // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
   // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
   const [apps, setApps] = useState<[string, string][]>([])
@@ -439,6 +476,7 @@ export function Desktop({ only }: { only?: string }) {
       <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
         onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
     )
+    : f === 'chat' ? <ChatWindow setEvents={setEvents} />
     : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
     : <p className="float-empty">준비 중이에요.</p>
   const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
@@ -461,6 +499,7 @@ export function Desktop({ only }: { only?: string }) {
             <div className="demo-btns">
               <button onClick={fireAlert}>알림 발생</button>
               <button onClick={() => setHub((h) => !h)}>허브 열기</button>
+              <button onClick={() => (setChatUnread((n) => n + 1), showMsg({ id: 'demo', group: 'tg-dev', by: '민수', kind: 'text', text: '내일 3시 회의 어때요? 배포 체크리스트 같이 봐요', at: Date.now() }))}>메시지 받기</button>
               <button onClick={() => (panel?.open ? closePanel() : openPanel('todo'))}>패널</button>
               <button onClick={() => setPalette(true)}>검색 <kbd>Ctrl K</kbd></button>
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
@@ -536,9 +575,13 @@ export function Desktop({ only }: { only?: string }) {
           onSnooze={snooze}
           onOpen={() => setHub((h) => !h)}
           onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
-          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => pick('shelf') }}
+          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => pick('shelf'), badge: chatUnread }}
           onHover={onHover}
           forceDrop={dragNear}
+          msg={msg}
+          onReply={reply}
+          onMsgOpen={() => (setMsg(null), openFloat('chat'))}
+          dropTo={chatOpen ? { label: '채팅에 보내기', sub: groupOf(chatGroup)?.name ?? '열린 채팅방', onFiles: (paths) => void (isTauri && chatGroup ? chatSendPaths(chatGroup, paths).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) : undefined) } : null}
           extraRect={hub ? hubRect : null}
           link={linkView}
           onSendFiles={sendToPeer}
@@ -550,7 +593,7 @@ export function Desktop({ only }: { only?: string }) {
       {show('island') && (
         <Hub open={hub} next={next} todos={openTodos} onPick={pick} onNewNote={addNote} onRect={setHubRect}
           onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))}
-          badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null }} />
+          badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null, chat: chatUnread || null }} />
       )}
       {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
       {only === 'float' && floatQ && <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell>}

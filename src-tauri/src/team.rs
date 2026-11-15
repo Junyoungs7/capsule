@@ -3,8 +3,13 @@
 // 신원: 각 PC 의 장기 공개키. 그룹 = 그룹원 공개키 목록. 들어오기 = 그룹원이 만든 6자리 초대 코드(10분, 5번 틀리면 폐기).
 // 동기화 = link_sync (항목마다 최종 수정 우선 + 묘비, scope = group:<id>). 온라인 그룹원이 새로 받은 항목을 다른 그룹원에게 전달(릴레이).
 // 개인 항목(그룹 필드 없음)은 절대 보내지 않는다 — 보낼 때도 받을 때도 그 그룹의 그룹원인지 확인.
+// 채팅(chat:<id>) = 같은 동기화(그룹마다 방 1개, 늦게 켠 사람도 따라잡기) + 보관 기간(기본 30일, 지난 건 주고받지 않음).
+// 채팅 파일·사진은 메시지에 {fid, from(보낸 사람 공개키)} 만 싣고, 받는 쪽이 보낸 사람에게 직접 'cget' → 같은 암호 채널로 전송.
+// 보낸 사람이 오프라인이면 받을 수 없다(서버·중계 저장 없음) — 다시 온라인이 되면 받는다.
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +21,8 @@ use crate::link_sync as ls;
 
 pub const PORT: u16 = 24820;
 pub const BEACON_PORT: u16 = 24821;
+/// 채팅 보관 기간(일) — store `chat.retentionDays` (기본 30)
+pub static RETAIN_DAYS: AtomicI64 = AtomicI64::new(30);
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct Member {
@@ -59,6 +66,10 @@ pub enum TeamEv {
     Online { pk: String, name: String, online: bool },
     /// 들어오기 결과
     Joined { group: String, ok: bool, error: String },
+    /// 채팅 파일 전송 진행 (dir = in | out)
+    ChatXfer { fid: String, dir: String, bytes: u64, size: u64 },
+    /// 채팅 파일을 다 받음 (임시 경로 — 위층이 옮긴다)
+    ChatFile { fid: String, path: String },
 }
 
 pub type TeamSink = Arc<dyn Fn(TeamEv) + Send + Sync>;
@@ -79,6 +90,10 @@ pub struct Node {
     meta: Mutex<ls::Meta>,
     conns: Mutex<Vec<Arc<Conn>>>,
     invites: Mutex<Vec<Invite>>,
+    /// 내가 보낸 채팅 파일: fid → (경로, 그룹) — 그 그룹원이 요청하면 직접 보낸다
+    outbox: Mutex<HashMap<String, (PathBuf, String)>>,
+    /// 요청해 둔 채팅 파일: (fid, 파일 이름) — 진행률을 메시지에 잇는다
+    pending: Mutex<Vec<(String, String)>>,
     sink: TeamSink,
 }
 
@@ -113,6 +128,8 @@ impl Node {
             meta: Mutex::new(meta),
             conns: Mutex::new(vec![]),
             invites: Mutex::new(vec![]),
+            outbox: Mutex::new(HashMap::new()),
+            pending: Mutex::new(vec![]),
             sink,
         })
     }
@@ -194,6 +211,8 @@ impl Node {
         let live: Vec<(String, Value)> = self.items.lock().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         let meta = self.meta.lock().unwrap();
         let mut v = ls::snapshot(&meta, &live, |s| s == scope);
+        let (now, days) = (now_ms(), RETAIN_DAYS.load(Ordering::Relaxed));
+        v.retain(|i| !ls::expired(&i.key, i.value.as_ref(), now, days));
         // 묘비는 그룹을 모르면 보낼 수 없다 → 이 그룹 항목이었던 묘비만 (값이 없으니 scope 기록이 필요 — 여기선 키 접두로 그룹 기억)
         v.retain(|i| i.value.is_some() || self.tomb_group(&i.key).as_deref() == Some(group));
         for i in v.iter_mut().filter(|i| i.value.is_none()) {
@@ -208,6 +227,8 @@ impl Node {
 
     fn apply(&self, group: &str, items: Vec<ls::Item>, from: &[u8; 32], by: &str) {
         let scope = format!("group:{group}");
+        let (now, days) = (now_ms(), RETAIN_DAYS.load(Ordering::Relaxed));
+        let items: Vec<ls::Item> = items.into_iter().filter(|i| !ls::expired(&i.key, i.value.as_ref(), now, days)).collect();
         let todo = {
             let mut meta = self.meta.lock().unwrap();
             let t = ls::merge(&meta, &items, |s| s == scope);
@@ -335,6 +356,24 @@ impl Node {
                     (self.sink)(TeamEv::Joined { group: g.id.clone(), ok: true, error: String::new() });
                 }
             }
+            "cget" => {
+                // 그룹원이 내 채팅 파일을 달라고 함 → 그 그룹원일 때만 이 연결로 직접
+                let fid = msg["fid"].as_str().unwrap_or("").to_string();
+                let Some((path, group)) = self.outbox.lock().unwrap().get(&fid).cloned() else { return };
+                let Some(c) = self.conn_of(&pk).filter(|_| member_of(&group)) else { return };
+                let sink = self.sink.clone();
+                std::thread::spawn(move || {
+                    let f2 = fid.clone();
+                    let prog: lf::Sink = Arc::new(move |e| {
+                        if let lf::Event::Xfer { bytes, size, .. } = e {
+                            sink(TeamEv::ChatXfer { fid: f2.clone(), dir: "out".into(), bytes, size });
+                        }
+                    });
+                    if let Err(e) = c.send_file_meta(&path, &prog, json!({ "cfid": fid })) {
+                        eprintln!("chat file {fid}: {e}");
+                    }
+                });
+            }
             "tsync" => {
                 let group = msg["group"].as_str().unwrap_or("").to_string();
                 if !member_of(&group) {
@@ -354,12 +393,27 @@ impl Node {
         let peer: Arc<Mutex<Peer>> = Arc::new(Mutex::new(None));
         let p2 = peer.clone();
         let me2 = self.clone();
-        let sink: lf::Sink = Arc::new(move |e: lf::Event| {
-            if let lf::Event::Msg { msg } = e {
+        // 받는 중인 채팅 파일: 전송 이름 → fid (offer 의 cfid 는 Received 때만 오므로 요청할 때 적어 둔 이름으로 맞춘다)
+        let sink: lf::Sink = Arc::new(move |e: lf::Event| match e {
+            lf::Event::Msg { msg } => {
                 if let Some((pk, name)) = p2.lock().unwrap().clone() {
                     me2.handle(&pk, &name, &msg);
                 }
             }
+            lf::Event::Xfer { dir, name, bytes, size, .. } if dir == "in" => {
+                if let Some(fid) = me2.pending_fid(&name) {
+                    (me2.sink)(TeamEv::ChatXfer { fid, dir, bytes, size });
+                }
+            }
+            lf::Event::Received { path, meta, .. } => {
+                if let Some(fid) = meta["cfid"].as_str().filter(|f| !f.is_empty()) {
+                    me2.pending.lock().unwrap().retain(|(f, _)| f != fid);
+                    (me2.sink)(TeamEv::ChatFile { fid: fid.into(), path });
+                } else {
+                    let _ = std::fs::remove_file(&path); // 팀 채널로 온 채팅 외 파일은 받지 않는다
+                }
+            }
+            _ => {}
         });
         let code = join_code;
         let on_conn = move |c: Option<Arc<Conn>>| {
@@ -403,6 +457,26 @@ impl Node {
         let me = self.clone();
         std::thread::spawn(move || me.run_conn(s, false, join_code));
         Ok(())
+    }
+
+    /// 내 채팅 파일 등록 (보낸 메시지의 fid → 원본 경로)
+    pub fn offer_file(&self, fid: &str, path: PathBuf, group: &str) {
+        self.outbox.lock().unwrap().insert(fid.into(), (path, group.into()));
+    }
+
+    /// 채팅 파일 받기 요청: 보낸 사람(공개키)과 연결돼 있을 때만. 보냈으면 true.
+    pub fn request_file(&self, fid: &str, name: &str, from_pk: &str) -> bool {
+        let Some(c) = self.conn_of(from_pk) else { return false };
+        let mut p = self.pending.lock().unwrap();
+        if !p.iter().any(|(f, _)| f == fid) {
+            p.push((fid.into(), name.into()));
+        }
+        drop(p);
+        c.send(json!({ "t": "cget", "fid": fid })).is_ok()
+    }
+
+    fn pending_fid(&self, name: &str) -> Option<String> {
+        self.pending.lock().unwrap().iter().find(|(_, n)| n == name).map(|(f, _)| f.clone())
     }
 
     /// 그룹원 공개키로 이미 연결돼 있나 (비콘 중복 접속 방지)
@@ -474,6 +548,53 @@ pub mod app {
 
     fn on_team(app: &AppHandle, e: TeamEv) {
         match &e {
+            TeamEv::Applied { key, value, .. } if key.starts_with("chat:") => {
+                if let Some(s) = store(app) {
+                    APPLYING.lock().unwrap().push((key.clone(), value.clone()));
+                    match value {
+                        Some(v) => s.set(key.clone(), v.clone()),
+                        None => {
+                            s.delete(key);
+                        }
+                    }
+                }
+                persist_meta(app);
+                // 남이 보낸 새 메시지: Island 알림(빠른 답장) + 읽지 않음, 파일이면 보낸 사람에게서 바로 받기
+                let me = NODE.get().map(|n| n.pk.clone()).unwrap_or_default();
+                if let Some(v) = value.as_ref().filter(|v| v["byPk"].as_str() != Some(me.as_str())) {
+                    if let Some(s) = store(app) {
+                        let n = s.get("chat.unread").and_then(|v| v.as_i64()).unwrap_or(0);
+                        s.set("chat.unread", n + 1);
+                    }
+                    let _ = app.emit_to("island", "chat-msg", v);
+                    fetch_file(app, v);
+                }
+            }
+            TeamEv::ChatXfer { .. } => {}
+            TeamEv::ChatFile { fid, path } => {
+                // 임시 폴더 → %APPDATA%\<앱>\chat\<fid>\<이름> (사진 미리보기 = asset 프로토콜 범위)
+                let dest = chat_dir(app, "chat").map(|d| d.join(fid));
+                if let (Some(dest), Some(name)) = (dest, std::path::Path::new(path).file_name()) {
+                    let _ = std::fs::create_dir_all(&dest);
+                    let to = dest.join(name);
+                    if std::fs::rename(path, &to).or_else(|_| std::fs::copy(path, &to).map(|_| ())).is_ok() {
+                        let _ = std::fs::remove_file(path);
+                        if let Some(s) = store(app) {
+                            s.set(format!("chatin:{fid}"), to.display().to_string());
+                        }
+                    }
+                }
+            }
+            TeamEv::Online { pk, online: true, .. } => {
+                // 다시 온라인이 된 그룹원이 보냈던 파일 중 아직 못 받은 것
+                if let Some(s) = store(app) {
+                    for (k, v) in s.entries() {
+                        if k.starts_with("chat:") && v["from"].as_str() == Some(pk.as_str()) {
+                            fetch_file(app, &v);
+                        }
+                    }
+                }
+            }
             TeamEv::Applied { group, key, value, by, action } => {
                 if let Some(s) = store(app) {
                     APPLYING.lock().unwrap().push((key.clone(), value.clone()));
@@ -501,6 +622,75 @@ pub mod app {
             _ => {}
         }
         let _ = app.emit("team", &e);
+    }
+
+    fn chat_dir(app: &AppHandle, sub: &str) -> Option<PathBuf> {
+        use tauri::Manager;
+        app.path().app_data_dir().ok().map(|d| d.join(sub))
+    }
+
+    /// 파일 메시지 → 아직 안 받았으면 보낸 사람에게 요청 (연결돼 있을 때만)
+    fn fetch_file(app: &AppHandle, v: &Value) {
+        let (Some(fid), Some(from), Some(name)) = (v["fid"].as_str(), v["from"].as_str(), v["name"].as_str()) else { return };
+        let have = store(app).and_then(|s| s.get(format!("chatin:{fid}"))).and_then(|p| p.as_str().map(|p| std::path::Path::new(p).exists())).unwrap_or(false);
+        if !have {
+            if let Some(n) = NODE.get() {
+                n.request_file(fid, name, from);
+            }
+        }
+    }
+
+    /// 채팅 보내기 (파일·사진): 원본을 %APPDATA%\chat-out\<fid>\<이름> 으로 복사 → 등록 → 메시지 저장(= 그룹에 동기화)
+    pub fn chat_send_file(app: &AppHandle, group: &str, src: &std::path::Path) -> Result<String, String> {
+        let n = node(app);
+        if !n.groups().iter().any(|g| g.id == group) {
+            return Err("그룹이 없어요".into());
+        }
+        let max_mb = store(app).and_then(|s| s.get("chat.maxMB")).and_then(|v| v.as_u64()).unwrap_or(100);
+        let size = std::fs::metadata(src).map_err(|e| e.to_string())?.len();
+        if size > max_mb * 1024 * 1024 {
+            return Err(format!("{max_mb}MB 보다 큰 파일은 보낼 수 없어요"));
+        }
+        let name = src.file_name().ok_or("파일 이름 없음")?.to_string_lossy().into_owned();
+        let fid = lf::hex(&lf::random32())[..16].to_string();
+        let dir = chat_dir(app, "chat-out").ok_or("앱 데이터 폴더 없음")?.join(&fid);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let to = dir.join(&name);
+        std::fs::copy(src, &to).map_err(|e| e.to_string())?;
+        n.offer_file(&fid, to.clone(), group);
+        let img = matches!(to.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp"));
+        let id = lf::hex(&lf::random32())[..16].to_string();
+        if let Some(s) = store(app) {
+            s.set(format!("chatout:{fid}"), json!({ "path": to.display().to_string(), "group": group }));
+            s.set(format!("chatin:{fid}"), to.display().to_string()); // 내 것도 미리보기·열기 경로
+            s.set(format!("chat:{id}"), json!({ "id": id, "group": group, "by": n.name, "byPk": n.pk, "kind": if img { "image" } else { "file" }, "name": name, "size": size, "fid": fid, "from": n.pk, "at": now_ms() }));
+        }
+        Ok(id)
+    }
+
+    /// 보관 기간이 지난 채팅 + 그 파일을 이 PC 에서만 정리 (store 리스너를 걸기 전에 — 묘비가 나가지 않게)
+    fn prune_chat(app: &AppHandle) {
+        let Some(s) = store(app) else { return };
+        let days = s.get("chat.retentionDays").and_then(|v| v.as_i64()).filter(|d| *d > 0).unwrap_or(30);
+        RETAIN_DAYS.store(days, Ordering::Relaxed);
+        let now = now_ms();
+        let mut meta: ls::Meta = s.get("team.meta").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+        for (k, v) in s.entries() {
+            if ls::expired(&k, Some(&v), now, days) {
+                s.delete(&k);
+                meta.remove(&k);
+                if let Some(fid) = v["fid"].as_str() {
+                    for sub in ["chat", "chat-out"] {
+                        if let Some(d) = chat_dir(app, sub) {
+                            let _ = std::fs::remove_dir_all(d.join(fid));
+                        }
+                    }
+                    s.delete(format!("chatin:{fid}"));
+                    s.delete(format!("chatout:{fid}"));
+                }
+            }
+        }
+        s.set("team.meta", serde_json::to_value(&meta).unwrap_or(Value::Null));
     }
 
     /// 포트 열기 + 비콘 (그룹이 생기거나 들어올 때 1번)
@@ -559,8 +749,21 @@ pub mod app {
     }
 
     pub fn start(app: &AppHandle) {
+        prune_chat(app);
+        // 내가 보낸 채팅 파일 다시 등록 (재시작 후에도 그룹원이 받을 수 있게)
+        if let Some(s) = store(app) {
+            let n = node(app);
+            for (k, v) in s.entries() {
+                if let (Some(fid), Some(p), Some(g)) = (k.strip_prefix("chatout:"), v["path"].as_str(), v["group"].as_str()) {
+                    n.offer_file(fid, PathBuf::from(p), g);
+                }
+            }
+        }
         let a = app.clone();
         crate::listen_store(app, move |key, value| {
+            if key == "chat.retentionDays" {
+                RETAIN_DAYS.store(value.as_ref().and_then(|v| v.as_i64()).filter(|d| *d > 0).unwrap_or(30), Ordering::Relaxed);
+            }
             if !ls::team_syncable(key) {
                 return;
             }
@@ -588,11 +791,13 @@ pub mod app {
         name: String,
         pk: String,
         groups: Vec<Group>,
+        online: Vec<String>, // 지금 연결된 그룹원 공개키 (늦게 뜬 창도 온라인 표시)
     }
 
     pub fn state(app: &AppHandle) -> State {
         let n = node(app);
-        State { name: n.name.clone(), pk: n.pk.clone(), groups: n.groups() }
+        let online = n.conns.lock().unwrap().iter().filter(|c| c.is_ready()).map(|c| lf::hex(&c.peer_pk)).collect();
+        State { name: n.name.clone(), pk: n.pk.clone(), groups: n.groups(), online }
     }
 
     pub fn create(app: &AppHandle, name: &str, color: &str) -> Group {
@@ -712,6 +917,50 @@ mod tests {
     }
 
     /// 세 그룹원(A·B·C) + 외부인 D: 초대로 들어오기, B 를 거친 릴레이, 묘비, 개인 항목 비공개, 외부인 거부, 틀린 코드
+    #[test]
+    fn chat_messages_and_files() {
+        let (a, b, d) = (peer("A"), peer("B"), peer("D"));
+        let g = a.node.create_group("채팅방", "#8b5cf6");
+        let code = a.node.invite(&g.id).unwrap();
+        b.node.connect(a.addr, Some(code)).unwrap();
+        assert!(wait(|| b.node.groups().iter().any(|x| x.id == g.id)), "B joined");
+
+        // 메시지 = chat:<id> 그룹 동기화
+        let now = now_ms();
+        a.node.local_change("chat:m1", Some(json!({ "id": "m1", "group": g.id, "by": "A", "kind": "text", "text": "내일 3시 회의", "at": now })));
+        assert!(wait(|| b.node.item("chat:m1").is_some()), "message reached B");
+        // 보관 기간 지난 메시지는 보내도 적용되지 않는다
+        a.node.local_change("chat:old", Some(json!({ "id": "old", "group": g.id, "by": "A", "kind": "text", "text": "옛날", "at": now - 40 * 86_400_000 })));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(b.node.item("chat:old").is_none(), "expired message not applied");
+
+        // 파일: A 가 등록 → B 가 A 에게 직접 요청 → 받음 (진행 이벤트 포함)
+        let dir = std::env::temp_dir().join(format!("hera-chat-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("빌드로그.txt");
+        std::fs::write(&src, vec![b'x'; 300_000]).unwrap();
+        a.node.offer_file("f1", src.clone(), &g.id);
+        assert!(b.node.request_file("f1", "빌드로그.txt", &a.node.pk));
+        assert!(wait(|| b.events.lock().unwrap().iter().any(|e| matches!(e, TeamEv::ChatFile { fid, .. } if fid == "f1"))), "file received");
+        let got = b.events.lock().unwrap().iter().find_map(|e| if let TeamEv::ChatFile { path, .. } = e { Some(path.clone()) } else { None }).unwrap();
+        assert_eq!(std::fs::read(&got).unwrap().len(), 300_000);
+        assert!(b.events.lock().unwrap().iter().any(|e| matches!(e, TeamEv::ChatXfer { fid, dir, .. } if fid == "f1" && dir == "in")));
+        let _ = std::fs::remove_file(&got);
+
+        // 그룹원이 아닌 D 는 같은 fid 를 요청해도 받지 못한다
+        d.node.connect(a.addr, None).unwrap();
+        assert!(wait(|| d.node.connected_to(&a.node.pk)));
+        d.node.request_file("f1", "빌드로그.txt", &a.node.pk);
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!d.events.lock().unwrap().iter().any(|e| matches!(e, TeamEv::ChatFile { .. })), "non-member got nothing");
+        // 보낸 사람이 없으면(연결 없음) 요청 자체가 안 된다
+        assert!(!b.node.request_file("f2", "x", "00ff"));
+        let _ = std::fs::remove_dir_all(&dir);
+        for p in [&a, &b, &d] {
+            p.node.close_all();
+        }
+    }
+
     #[test]
     fn three_members_relay() {
         let (a, b, c, d) = (peer("A"), peer("B"), peer("C"), peer("D"));

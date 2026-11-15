@@ -76,6 +76,7 @@ type Props = {
   onAsciiStop?: () => void
   link?: LinkView | null
   onSendFiles?: (paths: string[]) => void // 연결 중 드롭존 오른쪽 절반 = 맥으로 보내기
+  dropTo?: { label: string; sub: string; onFiles: (paths: string[]) => void } | null // 오른쪽 절반을 다른 곳으로 (채팅 창이 열려 있으면 '채팅에 보내기')
   onPair?: (ok: boolean) => void
   ime?: { source: 'ko' | 'en'; n: number } | null // 한/영이 바뀐 직후 0.8초 '한'/'A' 칩
   onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
@@ -91,17 +92,18 @@ type Props = {
   extraRect?: DOMRect | null // 허브가 펼쳐져 있으면 그 상자도 클릭 받기
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip, pill, onHover, flash, forceDrop, msg, onReply, onMsgOpen, extraRect }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip, pill, onHover, flash, forceDrop, msg, onReply, onMsgOpen, extraRect, dropTo }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
   // (idle 알약 위로 오면 통과 해제 → 'enter' → drop 모양으로 커지고 그 rect 를 보고).
   const [drag, setDrag] = useState(false)
   // 맥과 파일 채널이 연결돼 있으면 드롭존이 두 칸: 왼쪽 = 선반에 놓기, 오른쪽 = Mac으로 보내기 (커서 x 로 고름)
-  const split = !!link?.files && !!onSendFiles
+  const split = !!dropTo || (!!link?.files && !!onSendFiles)
+  const sendRight = dropTo?.onFiles ?? onSendFiles
   const [toPeer, setToPeer] = useState(false)
-  const drop = useRef({ onDropFiles, onSendFiles, split })
-  drop.current = { onDropFiles, onSendFiles, split }
+  const drop = useRef({ onDropFiles, onSendFiles: sendRight, split })
+  drop.current = { onDropFiles, onSendFiles: sendRight, split }
   const right = (clientX: number) => clientX >= innerWidth / 2
   useEffect(() => {
     if (!isTauri) return
@@ -127,7 +129,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       e.preventDefault()
       setDrag(false)
       const names = [...e.dataTransfer.files].map((f) => f.name)
-      if (names.length) (split && right(e.clientX) ? onSendFiles! : onDropFiles)(names)
+      if (names.length) (split && right(e.clientX) ? sendRight! : onDropFiles)(names)
     },
   }
   const pillW = pill ? 300 + (pill.badge ? 30 : 0) + (pill.shelf ? 64 : 0) : 0
@@ -317,8 +319,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
         </span>
         {split && (
           <span className="txt to-peer" data-hot={toPeer}>
-            <b>{link!.peer}으로 보내기</b>
-            <small>놓으면 바로 전송</small>
+            <b>{dropTo ? dropTo.label : `${link?.peer}으로 보내기`}</b>
+            <small>{dropTo ? dropTo.sub : '놓으면 바로 전송'}</small>
           </span>
         )}
       </div>

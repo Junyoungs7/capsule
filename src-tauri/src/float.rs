@@ -66,7 +66,7 @@ pub fn open(app: &AppHandle, f: &str) -> tauri::Result<()> {
     let pin = s.as_ref().and_then(|s| s.get(format!("float.{f}.pin"))).and_then(|v| v.as_bool()).unwrap_or(f == "lp");
     let mons: Vec<[i32; 4]> = app.available_monitors().unwrap_or_default().iter().map(|m| [m.position().x, m.position().y, m.size().width as i32, m.size().height as i32]).collect();
     let lp = f == "lp";
-    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?surface=float&f={f}").into()))
+    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?surface=float&f={f}").into()))
         .title(format!("Hera · {title}"))
         .inner_size(size.0, size.1)
         .min_inner_size(MIN.0, MIN.1)
@@ -76,9 +76,12 @@ pub fn open(app: &AppHandle, f: &str) -> tauri::Result<()> {
         .shadow(!lp) // LP 플레이어는 CSS 로 그린 유리 턴테이블 (창 그림자 없음)
         .skip_taskbar(lp) // 기능 창은 작업 표시줄에서 찾을 수 있게, LP 위젯만 숨김
         .always_on_top(pin)
-        .visible(false)
-        .disable_drag_drop_handler() // HTML5 드롭 (채팅 첨부·선반)
-        .build()?;
+        .visible(false);
+    // 채팅 창만 네이티브 드롭(파일 경로 → 첨부), 나머지는 HTML5 드롭
+    if f != "chat" {
+        b = b.disable_drag_drop_handler();
+    }
+    let win = b.build()?;
     if !lp {
         let _ = window_vibrancy::apply_acrylic(&win, None);
     }

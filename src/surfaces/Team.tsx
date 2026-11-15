@@ -42,11 +42,13 @@ const fromRaw = (g: TeamGroupRaw): TeamGroup => ({
   id: g.id, name: g.name, color: g.color, alarms: g.alarms, news: g.news,
   members: g.members.map((m) => ({ id: m.pk, name: m.name, online: m.pk === myPk || online.has(m.pk), me: m.pk === myPk })),
 })
-export const refreshTeam = () => teamState().then((t) => ((myPk = t.pk), setTeam({ groups: t.groups.map(fromRaw) })), () => {})
+export const refreshTeam = () => teamState().then((t) => ((myPk = t.pk), t.online?.forEach((pk) => online.add(pk)), setTeam({ groups: t.groups.map(fromRaw) })), () => {})
+export const myTeamPk = () => myPk
 if (isTauri) {
   st = { ...st, groups: [] }
   void refreshTeam()
   onEvent<{ kind: string; pk?: string; online?: boolean }>('team', (e) => {
+    if (e.kind === 'chatXfer' || e.kind === 'chatFile') return // 채팅 파일 진행 — 그룹 정보와 무관
     if (e.kind === 'online' && e.pk) e.online ? online.add(e.pk) : online.delete(e.pk)
     void refreshTeam()
   })

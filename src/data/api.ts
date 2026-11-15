@@ -250,7 +250,24 @@ export const ocrSave = (text: string) => invoke<string>('ocr_save', { text })
 export const snippetPaste = (text: string) => invoke('snippet_paste', { text })
 // Hera Team
 export type TeamGroupRaw = { id: string; name: string; color: string; members: { pk: string; name: string }[]; rev: number; alarms: boolean; news: boolean }
-export const teamState = () => invoke<{ name: string; pk: string; groups: TeamGroupRaw[] }>('team_state')
+export const teamState = () => invoke<{ name: string; pk: string; groups: TeamGroupRaw[]; online?: string[] }>('team_state')
+// 팀 채팅: 파일 경로로 보내기(채팅 창 네이티브 드롭) · '+' 로 고른 파일 바이트 · 파일을 클립보드에 · 선반에
+export const chatSendPaths = (group: string, paths: string[]) => invoke<string[]>('chat_send_paths', { group, paths })
+export const chatAttach = async (group: string, f: File) =>
+  invoke<string>('chat_attach', new Uint8Array(await f.arrayBuffer()), { headers: { 'x-group': group, 'x-name': encodeURIComponent(f.name) } })
+export const clipFiles = (paths: string[]) => invoke('clip_files', { paths })
+export const shelfAdd = (path: string) => invoke('shelf_add', { path })
+export const fileSrc = (path: string) => convertFileSrc(path)
+/** store 의 `<prefix><키>` → 값 (항목이 {id} 객체가 아닌 것: chatin:<fid> = 경로). 실제 앱만, 시안 = 빈 객체 */
+export function usePrefix<T>(prefix: string): Record<string, T> {
+  const [m, setM] = useState<Record<string, T>>({})
+  useEffect(() => {
+    if (!isTauri) return
+    void store().then((s) => s.entries<T>()).then((es) => setM(Object.fromEntries(es.filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]))))
+    return onStore((k, v) => k.startsWith(prefix) && setM((x) => { const n = { ...x }; if (v === undefined) delete n[k.slice(prefix.length)]; else n[k.slice(prefix.length)] = v as T; return n }))
+  }, [])
+  return m
+}
 export const teamCreate = (name: string, color: string) => invoke<TeamGroupRaw>('team_create', { name, color })
 export const teamInvite = (group: string) => invoke<[string, string]>('team_invite', { group })
 export const teamJoin = (input: string) => invoke('team_join', { input })

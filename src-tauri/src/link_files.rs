@@ -431,7 +431,7 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
                     hash: Sha256::new(),
                     got: 0,
                     last: Instant::now(),
-                    meta: json!({ "via": m["via"], "edge": m["edge"], "pos": m["pos"] }),
+                    meta: json!({ "via": m["via"], "edge": m["edge"], "pos": m["pos"], "cfid": m["cfid"] }), // cfid = Hera Team 채팅 파일
                 });
             }
             "done" => {

@@ -250,6 +250,7 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
   return (
     <div className="settings">
       <div id="sec-team"><TeamSection /></div>
+      <ChatSettings />
       <Reserve />
       <h3>날씨 · 계절 효과</h3>
       <label className="row">
@@ -409,6 +410,30 @@ function Reserve() {
         </span>
         <input type="checkbox" className="switch" checked={on} onChange={(e) => setOn(e.target.checked)} />
       </label>
+    </>
+  )
+}
+
+/** 팀 채팅 기본값 (제안 — 사용자 확정 전): 보관 기간 · 파일 크기 상한. 전송은 Team 과 같은 사내망 P2P · 같은 암호화 */
+function ChatSettings() {
+  const [days, setDays] = useValue('chat.retentionDays', 30)
+  const [mb, setMb] = useValue('chat.maxMB', 100)
+  return (
+    <>
+      <h3 id="sec-chat">팀 채팅</h3>
+      <label className="row">
+        <span className="grow"><b>이 PC 에 보관</b><small>지난 메시지는 이 PC 에서만 지워요 (다른 그룹원 기록은 그대로)</small></span>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="채팅 보관 기간">
+          {[7, 30, 90, 365].map((d) => <option key={d} value={d}>{d}일</option>)}
+        </select>
+      </label>
+      <label className="row">
+        <span className="grow"><b>파일·사진 최대</b><small>보낸 사람 PC 에서 직접 받아요 — 보낸 사람이 오프라인이면 다시 켜질 때까지 못 받아요</small></span>
+        <select value={mb} onChange={(e) => setMb(Number(e.target.value))} aria-label="파일 크기 상한">
+          {[25, 100, 500].map((m) => <option key={m} value={m}>{m}MB</option>)}
+        </select>
+      </label>
+      <p className="hint">공유 그룹마다 방 1개 · 같은 사내망 P2P · Team 과 같은 종단간 암호화 · 늦게 켠 그룹원은 온라인 그룹원에게서 따라잡아요.</p>
     </>
   )
 }
