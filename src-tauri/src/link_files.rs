@@ -185,6 +185,7 @@ impl Conn {
         }
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn send_clip(&self, text: &str) -> std::io::Result<()> {
         self.json(json!({ "t": "clip", "text": text }))
     }
@@ -416,7 +417,7 @@ pub fn beacon(name: &str, port: u16, stop: &AtomicBool, busy: &dyn Fn() -> bool)
 }
 
 /// 맥(클라이언트) 쪽: 비콘 1개를 기다려 서버 주소를 돌려준다 (윈도우 빌드에선 안 씀)
-#[cfg_attr(windows, allow(dead_code))]
+#[allow(dead_code)] // 맥 포트(클라이언트)에서 사용
 pub fn discover(timeout: Duration) -> Option<(SocketAddr, String)> {
     let sock = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, BEACON_PORT)).ok()?;
     sock.set_read_timeout(Some(timeout)).ok()?;
@@ -446,7 +447,7 @@ pub fn serve(listener: TcpListener, cfg: Arc<dyn Fn() -> Config + Send + Sync>, 
 }
 
 /// 맥(클라이언트)·테스트: 접속해서 run (윈도우 빌드에선 안 씀)
-#[cfg_attr(windows, allow(dead_code))]
+#[allow(dead_code)] // 맥 포트(클라이언트)에서 사용
 pub fn connect(addr: SocketAddr, cfg: &Config, sink: Sink, on_conn: &dyn Fn(Option<Arc<Conn>>)) -> std::io::Result<()> {
     run(TcpStream::connect_timeout(&addr, Duration::from_secs(5))?, false, cfg, sink, on_conn)
 }

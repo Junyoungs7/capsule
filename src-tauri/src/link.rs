@@ -619,6 +619,7 @@ pub fn send_file(app: &AppHandle, path: &str) -> Result<(), String> {
 }
 
 /// 이 PC 클립보드 기록에 새 항목 → 맥 Hera 기록에도 (클립보드 자체는 엔진이 맞춘다)
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn on_local_clip(text: &str) {
     let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) else { return };
     let t = text.to_string();

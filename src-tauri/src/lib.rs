@@ -1,11 +1,23 @@
+// Windows 전용 모듈 — 맥 등에서는 stub.rs 의 같은 이름 모듈(빈 구현)로 컴파일만 된다 (docs/mac-port.md)
+#[cfg(windows)]
 mod clip;
+#[cfg(windows)]
 mod icons;
+#[cfg(windows)]
 mod launch;
+#[cfg(windows)]
+mod shell;
+#[cfg(windows)]
+mod taskbar;
+#[cfg(windows)]
+mod watch;
+#[cfg(not(windows))]
+mod stub;
+#[cfg(not(windows))]
+use stub::{clip, icons, launch, shell, taskbar, watch};
 mod link;
 mod link_files;
-mod shell;
-mod taskbar;
-mod watch;
+mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -14,11 +26,6 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowLongPtrW, IsWindow, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
-};
 
 // 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
 /// 높이 = 독 178 + 위 여유 72 (자동 숨김 작업 표시줄이 올라오면 독이 창 안에서 스프링으로 그만큼 올라간다 — 창 이동 없음)
@@ -53,20 +60,9 @@ fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) 
         .shadow(false)
         .focusable(false) // tao: WS_EX_NOACTIVATE (TOOLWINDOW 은 watch 루프가 유지)
         .build()?;
-    let _ = low_memory(&win); // 최적화일 뿐 — 실패해도 창은 쓴다
-    watch::add_overlay(label, win.hwnd()?.0 as isize); // 클릭 통과·전체화면 숨김 대상
+    let _ = ui::low_memory(&win); // 최적화일 뿐 — 실패해도 창은 쓴다
+    watch::add_overlay(label, ui::hwnd(&win)); // 클릭 통과·전체화면 숨김 대상
     Ok(win)
-}
-
-/// B0-5: 상주 웹뷰(독/아일랜드/턴테이블/숨긴 팔레트)는 상시 저메모리 모드
-fn low_memory(win: &WebviewWindow) -> tauri::Result<()> {
-    win.with_webview(|wv| unsafe {
-        use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW};
-        use windows::core::Interface;
-        if let Ok(w) = wv.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_19>()) {
-            let _ = w.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
-        }
-    })
 }
 
 /// 주 모니터 작업 영역 기준 배치 (독 = 하단 중앙, 아일랜드 = 상단 중앙). DPI/작업 영역 변경 시 재호출.
@@ -77,12 +73,9 @@ pub(crate) fn place(app: &AppHandle) {
     let dock_h = if DOCK_IS_TALL.load(Ordering::Relaxed) { DOCK_TALL } else { DOCK.1 };
     let dock_w = DOCK_MAX_W.min(w / s);
     for (label, (lw, lh)) in [("dock", (dock_w, dock_h)), ("island", ISLAND)] {
-        let Some(Ok(hwnd)) = app.get_webview_window(label).map(|w| w.hwnd()) else { continue };
+        let Some(win) = app.get_webview_window(label) else { continue };
         let top = if label == "island" { y } else { y + h - lh * s };
-        // 크기·위치를 한 번에 (set_size → set_position 두 번이면 독이 한 프레임 아래로 튄다)
-        unsafe {
-            let _ = SetWindowPos(hwnd, None, (x + (w - lw * s) / 2.0).round() as i32, top.round() as i32, (lw * s).round() as i32, (lh * s).round() as i32, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
+        ui::set_bounds(&win, (x + (w - lw * s) / 2.0).round() as i32, top.round() as i32, (lw * s).round() as i32, (lh * s).round() as i32);
     }
     if let Some(win) = app.get_webview_window("panel") {
         let _ = win.set_position(PhysicalPosition::new(
@@ -176,7 +169,7 @@ static PALETTE_PREV: AtomicIsize = AtomicIsize::new(0);
 
 fn palette_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let win = builder(app, "palette", "index.html?surface=palette".into(), PALETTE).shadow(false).build()?;
-    low_memory(&win)?;
+    ui::low_memory(&win)?;
     Ok(win)
 }
 
@@ -186,7 +179,7 @@ fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
         Some(w) => w,
         None => palette_window(app)?,
     };
-    PALETTE_PREV.store(unsafe { GetForegroundWindow() }.0 as isize, Ordering::Relaxed);
+    PALETTE_PREV.store(ui::foreground(), Ordering::Relaxed);
     if let Ok(Some(m)) = app.primary_monitor() {
         let (s, wa) = (m.scale_factor(), *m.work_area());
         let (x, w) = (wa.position.x as f64, wa.size.width as f64);
@@ -197,11 +190,7 @@ fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
     // Alt+Tab 제외 = TOOLWINDOW, APPWINDOW 없음 (포커스는 받음 — NOACTIVATE 아님). tao 가 show 때 GWL_EXSTYLE 을 통째로 다시 쓰므로
     // 보이기 처리 뒤(메인 스레드 큐에서 show 다음 순서)에 OR 한다.
     let w = win.clone();
-    app.run_on_main_thread(move || {
-        if let Ok(h) = w.hwnd() {
-            unsafe { SetWindowLongPtrW(h, GWL_EXSTYLE, (GetWindowLongPtrW(h, GWL_EXSTYLE) | WS_EX_TOOLWINDOW.0 as isize) & !(WS_EX_APPWINDOW.0 as isize)) };
-        }
-    })?;
+    app.run_on_main_thread(move || ui::toolwindow(&w))?;
     win.set_focus()?; // 전역 단축키(WM_HOTKEY)를 받은 직후라 전면 전환이 허용된다
     app.emit_to("palette", "palette-open", ())
 }
@@ -210,9 +199,8 @@ fn close_palette_win(app: &AppHandle, restore: bool) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("palette") {
         w.hide()?;
     }
-    let prev = HWND(PALETTE_PREV.load(Ordering::Relaxed) as _);
-    if restore && unsafe { IsWindow(Some(prev)) }.as_bool() {
-        let _ = unsafe { SetForegroundWindow(prev) };
+    if restore {
+        ui::restore_foreground(PALETTE_PREV.load(Ordering::Relaxed));
     }
     Ok(())
 }
@@ -314,10 +302,8 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         return r;
     }
     for l in ["turntable", "dock", "island"] {
-        if let Some(Ok(h)) = app.get_webview_window(l).map(|w| w.hwnd()) {
-            unsafe {
-                let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
+        if let Some(w) = app.get_webview_window(l) {
+            ui::raise(&w);
         }
     }
     // 안전망: 웹뷰가 멈춰 onDone 이 안 와도 40초 뒤 파괴 (그 사이 새 효과가 열렸으면 그대로)
@@ -407,7 +393,7 @@ async fn shell_key(kind: String) -> Result<(), String> {
 /// 창 목록 팝오버의 DWM 썸네일 (호출한 창 = 독에 그린다). 빈 목록 = 모두 해제.
 #[tauri::command]
 fn thumbs(window: WebviewWindow, list: Vec<(isize, [f64; 4])>) -> Result<usize, String> {
-    Ok(shell::thumbs(window.hwnd().map_err(|e| e.to_string())?, list))
+    Ok(shell::thumbs(ui::hwnd(&window), list))
 }
 
 #[tauri::command]

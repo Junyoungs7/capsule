@@ -357,7 +357,8 @@ fn fit(sw: i32, sh: i32, r: [f64; 4]) -> RECT {
 }
 
 /// 창 목록 팝오버의 DWM 썸네일: 이전 것은 모두 해제하고 (src, 칸 rect — 독 창 기준 물리 px) 마다 등록. 빈 목록 = 해제만. 등록 수 반환.
-pub fn thumbs(dest: HWND, list: Vec<(isize, [f64; 4])>) -> usize {
+pub fn thumbs(dest: isize, list: Vec<(isize, [f64; 4])>) -> usize {
+    let dest = HWND(dest as _);
     let mut t = THUMBS.lock().unwrap();
     unsafe {
         for &id in t.iter() {
