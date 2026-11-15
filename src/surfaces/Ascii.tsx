@@ -193,21 +193,43 @@ function ground(r: Raster, R: number, mat: number, sy: number, sr: number, dark 
   }
 }
 
-/* 12월: 회전하는 원뿔 트리, 나선 전구, 별, 3D 눈 */
+/* 12월: 회전하는 원뿔 트리 · 줄을 따라 달리는 가랜드 불빛 · 빛살이 반짝이는 별 · 떨어져 트리 아래 쌓이는 선물 상자
+   · 가끔 유성 · 땅에 쌓여 가는 눈 · 살짝 흔들리는 카메라. 선물·눈은 GIFT_CYCLE 주기로 눈 속에 가라앉고 다시 시작. */
+const GIFT_CYCLE = 42 // s: 떨어짐(~25s) → 쌓인 채 → 34s부터 가라앉음 → 40s 사라짐
+// 선물 자리 (트리 기준 좌표): 각도, 반지름, 폭, 색, 아래 선물 index(-1 = 바닥). 아래 선물이 먼저 떨어진다.
+const GIFTS: [number, number, number, number, number][] = [
+  [0.35, 1.95, 0.56, 0, -1], [1.4, 2.08, 0.46, 1, -1], [2.45, 1.88, 0.6, 2, -1], [3.5, 2.1, 0.44, 3, -1], [4.55, 1.92, 0.52, 0, -1], [5.55, 2.06, 0.48, 2, -1],
+  [0.35, 1.95, 0.34, 3, 0], [2.45, 1.88, 0.36, 1, 2],
+]
 const xmas: Scene = {
   name: '크리스마스 트리',
   bg: '#060a17',
-  mats: ['#fffbe6', '#3fae6a', '#8b5a2b', '#dfe8fb', '#ffd84a', '#ff5468', '#62b6ff', '#ffffff', '#8f9bc8'],
+  mats: ['#fffbe6', '#3fae6a', '#8b5a2b', '#dfe8fb', '#ffd84a', '#ff5468', '#62b6ff', '#ffffff', '#8f9bc8', '#b98cff', '#ff9f45'],
   make() {
-    const [TREE, TRUNK, SNOW, GOLD, RED, BLUE, WHITE, STAR] = [1, 2, 3, 4, 5, 6, 7, 8]
+    const [TREE, TRUNK, SNOW, GOLD, RED, BLUE, WHITE, STAR, PURPLE, ORANGE] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     const TIERS = [[1.5, 0.35, 1.75], [1.15, 1.25, 2.55], [0.8, 2.05, 3.25]]
+    const BOX = [RED, BLUE, PURPLE, ORANGE], RIB = [GOLD, WHITE, GOLD, RED]
+    // 선물 바닥 높이 (쌓인 것은 아래 선물 윗면) · 높이 = 폭 × 0.78
+    const base: number[] = []
+    GIFTS.forEach(([, , , , under], i) => (base[i] = under < 0 ? 0 : base[under] + GIFTS[under][2] * 0.78))
     let fl: Float32Array | null = null
+    const LAND = 220
+    const land = new Float32Array(LAND * 2) // 땅에 쌓인 눈송이 (트리 기준 좌표)
+    let nLand = 0, landTick = 0, lastCyc = 0
+
     return (r, t, dt) => {
-      r.look(0, 2.2, -7.0, 0, 1.95, 0)
+      const q = r.q, a = t * 0.35, ca = Math.cos(a), sa = Math.sin(a)
+      const rot = (x: number, z: number) => [x * ca - z * sa, x * sa + z * ca]
+      // 카메라: 아주 천천히 좌우·위아래로 흔들림
+      r.look(Math.sin(t * 0.21) * 0.45, 2.2 + Math.sin(t * 0.37) * 0.12, -7.0 + Math.sin(t * 0.15) * 0.25, 0, 1.95, 0)
       r.light(-0.55, 0.75, -0.5)
       r.fog = 0.03
       r.amb = 0.22
-      const a = t * 0.35, q = r.q
+      const cyc = t % GIFT_CYCLE
+      if (cyc < lastCyc) nLand = 0 // 새 주기: 쌓인 눈도 처음부터
+      lastCyc = cyc
+      const acc = Math.min(1, cyc / 30) // 쌓인 눈 정도
+
       // 트리: 원뿔 3단 (법선 = (cos, rb/H, sin) 정규화)
       TIERS.forEach(([rb, y0, y1], ti) => {
         const H = y1 - y0, k = rb / H, nn = 1 / Math.hypot(1, k)
@@ -219,19 +241,19 @@ const xmas: Scene = {
             r.surf(rr * c, y, rr * s, c * nn, k * nn, s * nn, TREE, (hash(j, i, ti) < 0.22 ? -0.2 : 0) + (h < 0.1 ? 0.08 : 0), 1, false)
           }
         }
-        // 나선 가랜드: 금빛 줄 + 반짝이는 전구
-        const ns = Math.ceil(60 * q * rb)
+        // 나선 가랜드: 금빛 줄 + 전구. 불빛 물결이 줄을 따라 아래→위로 달린다 (pos = 단 + 높이, 트리 전체에서 이어짐)
+        const ns = Math.ceil(60 * q * rb), step = Math.max(3, Math.round(ns / 26))
         for (let k2 = 0; k2 < ns; k2++) {
           const h = (k2 / ns) * 0.92, th = h * TAU * 2.2 + ti * 2.1 + a, rr = rb * (1 - h) + 0.06
           const x = rr * Math.cos(th), z = rr * Math.sin(th), y = y0 + h * H
           if ((r.ex - x) * Math.cos(th) + (r.ez - z) * Math.sin(th) < 0) continue
-          const bulb = k2 % Math.max(3, Math.round(ns / 26)) === 0
-          if (!bulb) {
-            if (k2 % 2) r.dot(x, y, z, GOLD, C('.'), 2)
+          const ph = ((((ti + h) * 5 - t * 1.6) % 1) + 1) % 1 // 0..1, 작을수록 물결 머리
+          if (k2 % step) {
+            if (k2 % 2) r.dot(x, y, z, GOLD, C('.'), ph < 0.12 ? 3 : 2)
             continue
           }
-          const id = ti * 31 + k2, tw = Math.sin(t * 2.4 + id * 2.3)
-          r.dot(x, y, z, [RED, GOLD, BLUE][id % 3], C(tw > 0.45 ? '@' : 'o'), tw > 0.45 ? 3 : tw > -0.4 ? 2 : 1)
+          const bi = k2 / step
+          r.dot(x, y, z, [RED, GOLD, BLUE][(bi + ti) % 3], C(ph < 0.16 ? '@' : 'o'), ph < 0.16 ? 3 : ph < 0.34 ? 2 : 1)
         }
       })
       // 줄기
@@ -240,15 +262,70 @@ const xmas: Scene = {
           const th = (j / nt) * TAU + a, c = Math.cos(th), s = Math.sin(th)
           r.surf(0.22 * c, (i / Math.ceil(6 * q)) * 0.4, 0.22 * s, c, 0, s, TRUNK, j % 3 ? 0 : -0.2)
         }
-      // 별: 가운데 '*' 와 십자 빛
-      const si = r.dot(0, 3.4, 0, GOLD, C(Math.sin(t * 3) > 0 ? '*' : '+'), 3)
-      if (si >= 0 && q > 1.2)
-        for (const [o, c] of [[-1, '-'], [1, '-'], [-r.cols, '|'], [r.cols, '|']] as const) {
-          const j = si + o
-          if (j >= 0 && j < r.g.length && r.z[j] < r.iz) (r.z[j] = r.iz), (r.g[j] = gl(GOLD, C(c), 2))
+
+      // 선물: 차례로 떨어져(중력 + 작은 튕김) 쌓이고, 주기 끝에 눈 속으로 가라앉는다. 트리와 같이 돈다.
+      const sink = cyc > 34 ? ((cyc - 34) / 6) * 1.4 : 0
+      GIFTS.forEach(([ang, rad, w, ci, under], gi) => {
+        const t0 = 1.5 + gi * 3, tau = cyc - t0
+        if (tau < 0) return
+        const hgt = w * 0.78, by0 = base[gi], drop = 6.2 - by0, T = Math.sqrt((2 * drop) / 7)
+        let by = by0
+        if (tau < T) by = 6.2 - 3.5 * tau * tau
+        else if (tau < T + 1) by += 0.22 * w * Math.abs(Math.sin((tau - T) * 9)) * Math.exp(-(tau - T) * 5)
+        by -= sink
+        if (by + hgt < -0.05) return
+        const [cx, cz] = rot(Math.cos(ang) * rad, Math.sin(ang) * rad)
+        const yaw = ang * 1.7 + a + (tau < T ? (T - tau) * 2.5 : 0) + (under >= 0 ? 0.5 : 0)
+        const cy = Math.cos(yaw), sy = Math.sin(yaw), hw = w / 2
+        const mat = BOX[ci], rib = RIB[ci], n = Math.max(2, Math.ceil(w * 11 * q)), nv = Math.max(2, Math.ceil(hgt * 11 * q))
+        // 옆면 4개 (리본 띠가 가운데를 세로로), 윗면 (리본 십자 + 쌓인 눈), 매듭
+        for (const [lx, lz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = lx * cy - lz * sy, nz = lx * sy + lz * cy, tx = -nz, tz = nx
+          for (let i = 0; i <= n; i++) {
+            const u = (i / n - 0.5) * w, ribbon = Math.abs(u) < w * 0.09
+            for (let j = 0; j <= nv; j++) {
+              const py = by + (j / nv) * hgt
+              if (py < 0) continue
+              r.surf(cx + nx * hw + tx * u, py, cz + nz * hw + tz * u, nx, 0, nz, ribbon ? rib : mat, ribbon ? 0.05 : hash(i, j, gi) < 0.1 ? -0.1 : 0)
+            }
+          }
         }
-      ground(r, 2.7, SNOW, 1.6, 1.3, -0.42)
-      // 3D 눈: x,y,z,속도,위상
+        const top = by + hgt
+        if (top > 0)
+          for (let i = 0; i <= n; i++)
+            for (let j = 0; j <= n; j++) {
+              const u = (i / n - 0.5) * w, v = (j / n - 0.5) * w, ribbon = Math.abs(u) < w * 0.09 || Math.abs(v) < w * 0.09
+              const snow = !ribbon && hash(i, j, 70 + gi) < acc * 0.55
+              r.surf(cx + u * cy - v * sy, top, cz + u * sy + v * cy, 0, 1, 0, ribbon ? rib : snow ? SNOW : mat, 0)
+            }
+        if (top > 0) {
+          r.dot(cx, top + 0.07, cz, rib, C('&'), 3)
+          if (q > 1.2) for (const s of [-1, 1]) r.dot(cx + s * 0.09 * cy, top + 0.06, cz + s * 0.09 * sy, rib, C('o'), 2)
+        }
+      })
+
+      // 별: 빛살이 길어졌다 짧아지고, 가끔 대각 빛살까지 번쩍 (화면 공간, 맨 앞)
+      const tw = 0.5 + 0.5 * Math.sin(t * 3.1), flash = Math.sin(t * 0.9 + 1) > 0.95
+      const si = r.dot(0, 3.42, 0, GOLD, C(flash ? '@' : tw > 0.5 ? '*' : '+'), 3)
+      if (si >= 0) {
+        const sx = si % r.cols, sy = (si / r.cols) | 0
+        const put = (x: number, y: number, c: string, b: number) => {
+          if (x < 0 || y < 0 || x >= r.cols || y >= r.rows) return
+          const j = y * r.cols + x
+          if (r.z[j] < 0.5) (r.z[j] = 0.5), (r.g[j] = gl(GOLD, C(c), b))
+        }
+        const L = Math.round(q * (0.7 + 1.1 * tw + (flash ? 1.4 : 0)))
+        const diag = flash || Math.floor(t * 1.2) % 3 === 0
+        for (let d = 1; d <= L; d++) {
+          const b = d === 1 ? 3 : d <= L / 2 ? 2 : 1
+          put(sx - 2 * d, sy, '-', b), put(sx - 2 * d + 1, sy, '-', b), put(sx + 2 * d, sy, '-', b), put(sx + 2 * d - 1, sy, '-', b)
+          put(sx, sy - d, '|', b), put(sx, sy + d, '|', b)
+          if (diag && d <= Math.ceil(L * 0.6)) put(sx + 2 * d, sy - d, '/', b), put(sx - 2 * d, sy + d, '/', b), put(sx - 2 * d, sy - d, '\\', b), put(sx + 2 * d, sy + d, '\\', b)
+        }
+      }
+
+      ground(r, 2.7, SNOW, 1.6, 1.3, -0.42 + 0.24 * acc)
+      // 3D 눈: x,y,z,속도,위상. 땅(지름 안)에 닿은 것 3개 중 1개는 그 자리에 쌓인다
       const N = Math.round(30 + 40 * q)
       if (!fl || fl.length !== N * 5) {
         fl = new Float32Array(N * 5)
@@ -258,9 +335,30 @@ const xmas: Scene = {
         const o = k2 * 5
         fl[o + 1] -= fl[o + 3] * dt
         fl[o] += Math.sin(t * 0.8 + fl[o + 4]) * 0.2 * dt
-        if (fl[o + 1] < 0) (fl[o + 1] = 5.5), (fl[o] = (Math.random() - 0.5) * 9)
+        if (fl[o + 1] < 0) {
+          const x = fl[o], z = fl[o + 2]
+          if (Math.hypot(x, z) < 2.6 && nLand < LAND && ++landTick % 3 === 0) land.set([x * ca + z * sa, -x * sa + z * ca], 2 * nLand++)
+          fl[o + 1] = 5.5
+          fl[o] = (Math.random() - 0.5) * 9
+        }
         const near = fl[o + 2] < -2
         r.dot(fl[o], fl[o + 1], fl[o + 2], WHITE, C(near ? '*' : '.'), near ? 3 : 2)
+      }
+      for (let k2 = 0; k2 < nLand; k2++) {
+        const [x, z] = rot(land[2 * k2], land[2 * k2 + 1])
+        r.dot(x, 0.02, z, WHITE, C(k2 % 4 ? '.' : ','), 2)
+      }
+
+      // 유성: 11초마다 한 번, 하늘을 비스듬히 가로지른다 (빈 칸에만, 머리 먼저)
+      const P = 11, kk = Math.floor(t / P), ph = t - kk * P
+      if (ph < 1.3) {
+        const vx = -r.cols * 0.55, vy = r.rows * 0.16
+        const hx = r.cols * (0.4 + hash(kk, 3, 9) * 0.55) + vx * ph, hy = r.rows * (0.04 + hash(kk, 4, 9) * 0.16) + vy * ph
+        const len = Math.ceil(9 * q), fade = ph > 1 ? 1 : 0
+        for (let i = 0; i <= len; i++) {
+          const f = i / len
+          r.scr(Math.round(hx - vx * f * 0.2), Math.round(hy - vy * f * 0.2), i ? WHITE : GOLD, C(i ? (f < 0.4 ? '-' : '.') : '*'), Math.max(0, (i ? (f < 0.4 ? 2 : 1) : 3) - fade))
+        }
       }
       stars(r, Math.round(26 * q), 0.55, STAR, t)
     }
