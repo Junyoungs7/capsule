@@ -205,8 +205,16 @@ export const openFx = (kind: string) => invoke('fx', { kind })
 export const closeSelf = () => invoke('close_panel')
 
 /* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
-export type FloatKind = 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'lp'
+export type FloatKind = 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'
 export const floatOpen = (f: FloatKind) => invoke('float_open', { f })
+// 떼어내기: 유령 자리(아일랜드 CSS rect)에 만들어 첫 페인트 뒤 보이기 / 흡수: 유령을 그린 뒤 창 파괴 / 떠 있는 창: 첫 페인트 끝
+export const floatShow = (f: FloatKind, r: DOMRect) => invoke('float_show', { f, rect: [r.x, r.y, r.width, r.height] })
+export const floatAbsorbed = (f: FloatKind) => invoke('float_absorbed', { f })
+export const floatReady = () => invoke('float_ready')
+// 아일랜드 창: 애니메이션 동안 화면 높이로 · 글자 입력용 포커스 · 스니펫 붙여넣기(직전 앱으로)
+export const islandTall = (on: boolean) => invoke('island_tall', { on })
+export const islandFocus = (on: boolean) => invoke('island_focus', { on })
+export const islandPaste = (text: string) => invoke('island_paste', { text })
 export const floatClose = () => invoke('float_close')
 export const floatPin = (on: boolean) => invoke('float_pin', { on })
 // 떠 있는 창이 아닌 허브 아이콘: 메모(펼침 토글) · OCR · 스니펫(팔레트 ';') · Team/Link/설정(패널 섹션) · 팔레트

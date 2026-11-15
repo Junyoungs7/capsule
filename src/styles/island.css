@@ -256,3 +256,69 @@
 .term-out .xterm-viewport { background: transparent !important; }
 .term-err { margin: 0; font-size: 11.5px; color: #dc2626; }
 .term-legend { margin: 0; font-size: 10.5px; color: var(--text-3); }
+
+/* ── (a2) 허브 안 화면: 제자리 넘김 · 화면마다 크기 (스프링으로 커짐) ── */
+.hub[data-view]:not([data-view='home']) { width: var(--vw); padding: 0; transition: transform var(--dur-bouncy) var(--spring-bouncy), opacity 160ms, width var(--dur-bouncy) var(--spring-bouncy); }
+.hub-home { animation: hub-in 360ms var(--spring-bouncy); }
+.hub-home[data-dir='-1'] { animation-name: hub-back; }
+@keyframes hub-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes hub-back { from { opacity: 0; transform: translateX(-26px); } }
+.hub-vhead { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 8px; cursor: grab; touch-action: none; user-select: none; }
+.hub-vhead:active { cursor: grabbing; }
+.hub-vhead > b { flex: 1; font-size: 14px; font-weight: 650; }
+.hub-back, .hub-detach { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; color: var(--text-2); background: none; cursor: pointer; flex: none; }
+.hub-back:hover, .hub-detach:hover { color: var(--text); background: var(--fill-2); }
+.hub-back svg, .hub-detach svg { width: 17px; height: 17px; }
+.hub-vbody { height: var(--vh); overflow: auto; padding: 0 12px 12px; animation: hub-push 380ms var(--spring-bouncy); }
+@keyframes hub-push { from { opacity: 0; transform: translateX(26px); } }
+.hub[data-term='true'] .hub-vbody { padding: 0 8px 8px; overflow: hidden; }
+.hub[data-term='true'] .hub-vhead { height: 34px; }
+.hub[data-term='true'] { border-radius: 0 0 24px 24px; top: 0; padding-top: 6px; }
+/* 안의 화면은 짙은 유리 (아일랜드 색) — 패널 부품의 밝은 판을 어둡게 */
+.hub .float-list li > button:first-child, .hub .list li { color: var(--text); }
+.hub .panel-body, .hub .float-body { background: none; box-shadow: none; }
+.hub :is(.add input, .mc-add input, .chat-input input:not([type='file'])) { color: var(--text); }
+.hub .add input, .hub .mc-add input { background: var(--fill-2); }
+.view-ocr, .view-link { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 8px 4px; }
+.view-ocr small, .view-link small { color: var(--text-2); font-size: 12px; }
+.view-link b { font-size: 14px; }
+.view-team { font-size: 13px; }
+.term-preview { display: flex; align-items: flex-start; padding: 12px; font: 12.5px/1.5 'Cascadia Mono', Consolas, monospace; color: #e6e9ef; }
+.hub .term-head { flex: 1; min-width: 0; }
+.hub .term-ara, .term-ara { display: flex; align-items: center; gap: 5px; }
+.term-ara svg { width: 13px; height: 13px; }
+.pill-term { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; color: var(--island-accent); background: rgba(255, 255, 255, 0.1); cursor: pointer; }
+.pill-term svg { width: 14px; height: 14px; }
+
+/* ── 떼어내기 · 흡수 유령 (아일랜드 창이 화면 높이일 때만) ── */
+.ghost-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.ghost-neck { position: fixed; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ghost-neck path { fill: var(--island-solid); transform-origin: 50% 0; transform-box: fill-box; }
+.ghost { position: fixed; left: 0; top: 0; border-radius: 10px; transform-origin: 50% 0; will-change: transform; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 14px 32px -12px rgba(0, 0, 0, 0.55); transition: box-shadow 260ms ease-out, filter 260ms ease-out; }
+.ghost[data-lift='1'] { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 34px 70px -18px rgba(0, 0, 0, 0.7); animation: ghost-sharpen 220ms ease-out; }
+@keyframes ghost-sharpen { from { filter: blur(1.2px); } }
+.ghost-body { width: 100%; height: 100%; overflow: hidden; border-radius: inherit; }
+/* 흡수 자석: 창이 다가오면 노치가 그쪽으로 부풀고 빛난다 (--pull 0..1) */
+.island[data-magnet] .island-shape { transition: width var(--dur-bouncy) var(--spring-bouncy), height var(--dur-bouncy) var(--spring-bouncy), box-shadow 200ms, transform 240ms var(--spring-bouncy), opacity 200ms; }
+.island[data-magnet='near'] .island-shape, .island[data-magnet='hot'] .island-shape {
+  opacity: 1 !important;
+  transform: translateX(-50%) scale(calc(1 + var(--pull) * 0.35), calc(1 + var(--pull) * 2.2));
+  box-shadow: var(--island-spec), 0 0 calc(var(--pull) * 26px) calc(var(--pull) * 6px) rgba(52, 224, 161, calc(var(--pull) * 0.55));
+}
+.island[data-magnet='hot'] .island-shape { box-shadow: var(--island-spec), 0 0 30px 8px rgba(52, 224, 161, 0.6); }
+
+/* ── 떠 있는 창 = 아일랜드 화면과 같은 짙은 유리 (떼어내기·흡수 때 유령과 진짜 창이 같은 그림) ── */
+.float, .ghost .float {
+  --text: #f4f6fa;
+  --text-2: rgba(244, 246, 250, 0.7);
+  --text-3: rgba(244, 246, 250, 0.45);
+  --fill: rgba(255, 255, 255, 0.07);
+  --fill-2: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.09);
+  --glass-plate: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 30%), #16181f;
+}
+.ghost .float { height: 100%; border-radius: 10px; }
+.float[data-f='lp'] { background: none; }
+.float-body { background: rgba(255, 255, 255, 0.03); }

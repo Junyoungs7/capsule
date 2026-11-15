@@ -82,7 +82,8 @@ type Props = {
   onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
   // 허브 시안(독 없음): 알약 = 시계 · 다음 일정 · 작은 LP(재생 중) + 정지. 호버 미리보기 대신 허브가 열린다.
   // notch = 접힌 상태(얇은 노치 120×6, 글자 없음 · 점만). 펼침 = 시계 · 다음 일정 · 선반 칩
-  pill?: { clock: string; next?: string; badge?: number; busy?: string; notch: boolean; shelf?: number; onShelf?: () => void }
+  pill?: { clock: string; next?: string; badge?: number; busy?: string; notch: boolean; shelf?: number; onShelf?: () => void; onTerm?: () => void }
+  onFlashTap?: () => void // 한 줄 알림 누르기 (터미널 완료/실패 → 드롭다운 다시 열기)
   msg?: { who: string; group: string; color: string; text: string; n: number } | null // 팀 채팅 수신 + 빠른 답장
   onReply?: (text: string) => void
   onMsgOpen?: () => void
@@ -92,7 +93,7 @@ type Props = {
   extraRect?: DOMRect | null // 허브가 펼쳐져 있으면 그 상자도 클릭 받기
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip, pill, onHover, flash, forceDrop, msg, onReply, onMsgOpen, extraRect, dropTo }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip, pill, onHover, flash, forceDrop, msg, onReply, onMsgOpen, extraRect, dropTo, onFlashTap }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -132,7 +133,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       if (names.length) (split && right(e.clientX) ? sendRight! : onDropFiles)(names)
     },
   }
-  const pillW = pill ? 300 + (pill.badge ? 30 : 0) + (pill.shelf ? 64 : 0) : 0
+  const pillW = pill ? 300 + (pill.badge ? 30 : 0) + (pill.shelf ? 64 : 0) + (pill.onTerm ? 34 : 0) : 0
   const [w, h, r] = mode === 'idle' && pill ? (pill.notch ? ([120, 6, 3] as const) : ([pillW, 40, 20] as const)) : mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
   const pct = link?.xfer ? Math.round((100 * link.xfer.bytes) / Math.max(1, link.xfer.size)) : 0
 
@@ -167,7 +168,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       data-lp={lp}
       onPointerEnter={(e) => (setHover(true), onHover?.(true, e.pointerType))}
       onPointerLeave={(e) => (setHover(false), onHover?.(false, e.pointerType))}
-      onClick={() => (mode === 'preview' || (pill && (mode === 'idle' || mode === 'nowPlaying'))) && onOpen()}
+      onClick={() => (mode === 'flash' && onFlashTap ? onFlashTap() : (mode === 'preview' || (pill && (mode === 'idle' || mode === 'nowPlaying'))) && onOpen())}
       {...dnd}
     >
       {/* 블러 없는 짙은 판 1장 — clip-path(path)+backdrop-filter 재래스터가 버벅임 원인이었음 */}
@@ -184,6 +185,11 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
             <b className="pill-clock">{pill.clock}</b>
             {pill.busy ? <span className="pill-next pill-busy"><i className="hub-spin" />{pill.busy}</span> : <span className="pill-next">{pill.next ?? '예정 없음'}</span>}
             {!!pill.badge && <span className="pill-badge" aria-label={`읽지 않은 메시지 ${pill.badge}개`}>{pill.badge}</span>}
+            {pill.onTerm && (
+              <button className="pill-term" onClick={(e) => (e.stopPropagation(), pill.onTerm?.())} tabIndex={mode === 'idle' && !pill.notch ? 0 : -1} aria-label="터미널 (Ctrl+`)" title="터미널 · Ctrl+`">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8l4 4-4 4M12 17h7" /></svg>
+              </button>
+            )}
             {!!pill.shelf && (
               <button className="pill-shelf" onClick={(e) => (e.stopPropagation(), pill.onShelf?.())} tabIndex={mode === 'idle' && !pill.notch ? 0 : -1} aria-label={`선반 파일 ${pill.shelf}개 보기`}>
                 <i />선반 {pill.shelf}

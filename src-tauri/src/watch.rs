@@ -200,11 +200,10 @@ const DRAG_MARGIN: f64 = 24.0;
 /// 원하는 확장 스타일. tao 는 자기 플래그로 GWL_EXSTYLE 을 통째로 다시 쓰므로(show/hide 등)
 /// TOOLWINDOW 를 지우고 APPWINDOW 를 되살린다 → 매 틱 비교해 다를 때만 쓴다.
 /// 클릭 통과 = TRANSPARENT|LAYERED (tao 의 set_ignore_cursor_events 와 같은 비트).
-/// 아일랜드 창(맨 위 가운데) 기준 드롭 띠: 창 폭 양옆 +120px, 창 위에서 140px 까지 (물리 px 근사 — 창 폭이 배율을 따른다)
-fn drag_near(x: i32, y: i32, r: &RECT) -> bool {
-    let s = (r.right - r.left) as f64 / 460.0; // 아일랜드 창 논리 폭 460
-    let pad = (120.0 * s) as i32;
-    x >= r.left - pad && x < r.right + pad && y >= r.top && y < r.top + (140.0 * s) as i32
+/// 아일랜드 창(모니터 폭, 맨 위) 기준 드롭 띠: 가운데 ±350 논리 px, 위에서 140 논리 px 까지 (s = 배율)
+fn drag_near(x: i32, y: i32, r: &RECT, s: f64) -> bool {
+    let cx = (r.left + r.right) / 2;
+    (x - cx).abs() < (350.0 * s) as i32 && y >= r.top && y < r.top + (140.0 * s) as i32
 }
 
 fn ex_style(cur: isize, pass: bool) -> isize {
@@ -539,7 +538,8 @@ pub fn start(app: AppHandle) {
             crate::edge::tick(pt.x, pt.y, drag_out);
             // 바깥에서 끌어오는 드래그(파일)가 아일랜드 근처(위쪽 가운데 띠)에 오면 노치를 드롭존으로 — OS 전역 '파일 드래그 중' 신호는 없다
             if let Some(i) = overlays.iter().position(|&(l, _)| l == "island") {
-                let near = drag_out && drag_near(pt.x, pt.y, &rects[i]);
+                let s = windows::Win32::UI::HiDpi::GetDpiForWindow(HWND(overlays[i].1 as _)) as f64 / 96.0;
+                let near = drag_out && drag_near(pt.x, pt.y, &rects[i], if s > 0.0 { s } else { 1.0 });
                 if near != drag_shown {
                     drag_shown = near;
                     let _ = app.emit_to("island", "drag-near", near);
@@ -563,7 +563,11 @@ pub fn start(app: AppHandle) {
                 let p = !(hit(x, y, shape, 0.0) || (drag_out && hit(x, y, shape, DRAG_MARGIN)));
                 let hwnd = HWND(h as _);
                 let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                let want = ex_style(cur, p);
+                let mut want = ex_style(cur, p);
+                // 아일랜드 안 화면에 글자를 치는 동안은 포커스를 받을 수 있게 (NOACTIVATE 빼기)
+                if label == "island" && crate::island::INTERACTIVE.load(Ordering::Relaxed) {
+                    want &= !(WS_EX_NOACTIVATE.0 as isize);
+                }
                 if want != cur {
                     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
                 }
@@ -577,7 +581,8 @@ pub fn start(app: AppHandle) {
                 GetWindowThreadProcessId(fg, Some(&mut pid));
                 if pid == me {
                     let root = GetAncestor(fg, GA_ROOT);
-                    if overlays.iter().any(|&(_, h)| HWND(h as _) == root) && !prev_fg.is_invalid() && IsWindow(Some(prev_fg)).as_bool() {
+                    let typing = crate::island::INTERACTIVE.load(Ordering::Relaxed) && overlays.iter().any(|&(l, h)| l == "island" && HWND(h as _) == root);
+                    if !typing && overlays.iter().any(|&(_, h)| HWND(h as _) == root) && !prev_fg.is_invalid() && IsWindow(Some(prev_fg)).as_bool() {
                         let _ = SetForegroundWindow(prev_fg);
                     }
                 } else if !fg.is_invalid() {
@@ -703,14 +708,14 @@ mod tests {
 
     #[test]
     fn drag_band() {
-        let r = RECT { left: 730, top: 0, right: 1190, bottom: 560 }; // 1920 폭 모니터, 배율 1
-        assert!(drag_near(960, 10, &r));
-        assert!(drag_near(615, 139, &r)); // 왼쪽 여유 120 안
-        assert!(!drag_near(600, 10, &r));
-        assert!(!drag_near(960, 140, &r)); // 띠 아래 (앱 위 드래그는 그대로)
-        let r2 = RECT { left: 1095, top: 0, right: 1785, bottom: 840 }; // 배율 1.5
-        assert!(drag_near(1785 + 179, 209, &r2));
-        assert!(!drag_near(960, 300, &r2));
+        let r = RECT { left: 0, top: 0, right: 1920, bottom: 600 }; // 1920 폭 모니터, 배율 1
+        assert!(drag_near(960, 10, &r, 1.0));
+        assert!(drag_near(611, 139, &r, 1.0));
+        assert!(!drag_near(600, 10, &r, 1.0)); // 가운데에서 360
+        assert!(!drag_near(960, 140, &r, 1.0)); // 띠 아래 (앱 위 드래그는 그대로)
+        let r2 = RECT { left: 0, top: 0, right: 2880, bottom: 900 }; // 배율 1.5
+        assert!(drag_near(1440 + 520, 209, &r2, 1.5));
+        assert!(!drag_near(1440, 300, &r2, 1.5));
     }
 
     #[test]

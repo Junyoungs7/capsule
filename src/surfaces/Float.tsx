@@ -1,26 +1,30 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Clip, ShelfFile } from '../data/types'
-import { dragOut, floatClose, floatPin, isTauri, storeGet, type FloatKind } from '../data/api'
+import { dragOut, floatClose, floatPin, floatReady, isTauri, storeGet, type FloatKind } from '../data/api'
 
 /* 떠 있는 기능 창 (허브 아이콘 → 창 1개). 머리줄 = 끌기 영역 · 제목 · '항상 위' 핀 · 닫기(Esc 도).
    실제 앱: Tauri 창 `float-<f>` (닫으면 파괴). 시안: 같은 컴포넌트를 페이지 안에 띄운다. */
 
-export const FLOAT_TITLE: Record<FloatKind, string> = { todo: '할 일', calendar: '달력', chat: '채팅', term: '터미널', clips: '최근 복사', shelf: '선반', lp: 'LP' }
+export const FLOAT_TITLE: Record<FloatKind, string> = { todo: '할 일', calendar: '달력', chat: '채팅', term: '터미널', clips: '최근 복사', shelf: '선반', snippets: '스니펫', team: 'Team', link: 'Link', ocr: 'OCR', lp: 'LP' }
 
-export function FloatShell({ f, onClose, children, mock }: { f: FloatKind; onClose?: () => void; children: ReactNode; mock?: boolean }) {
+export function FloatShell({ f, onClose, children, mock, ghost }: { f: FloatKind; onClose?: () => void; children: ReactNode; mock?: boolean; ghost?: boolean }) {
   const [pin, setPin] = useState(false)
   useEffect(() => {
-    if (isTauri) void storeGet<boolean>(`float.${f}.pin`).then((v) => setPin(v ?? f === 'lp'))
+    if (!isTauri || ghost) return
+    void storeGet<boolean>(`float.${f}.pin`).then((v) => setPin(v ?? f === 'lp'))
+    // 떼어내기 바꿔치기: 첫 페인트가 끝나야 Rust 가 창을 보인다 (유령과 같은 그림이 이미 있는 상태로)
+    if (!mock) requestAnimationFrame(() => requestAnimationFrame(() => void floatReady()))
   }, [])
   const close = () => (onClose ? onClose() : void floatClose())
   useEffect(() => {
+    if (ghost) return
     const k = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && close()
     addEventListener('keydown', k)
     return () => removeEventListener('keydown', k)
   }, [onClose])
   return (
-    <section className="float glass-card" data-f={f} data-mock={mock}>
-      <header className="float-head" data-tauri-drag-region>
+    <section className="float" data-f={f} data-mock={mock} data-ghost={ghost}>
+      <header className="float-head" data-tauri-drag-region title="머리줄을 끌어 노치에 놓으면 아일랜드로 돌아가요">
         <b data-tauri-drag-region>{FLOAT_TITLE[f]}</b>
         <button className="float-btn" aria-pressed={pin} title="항상 위" aria-label="항상 위" onClick={() => (setPin(!pin), isTauri && void floatPin(!pin))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7" /></svg>

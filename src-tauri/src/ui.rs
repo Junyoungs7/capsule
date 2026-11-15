@@ -25,12 +25,42 @@ mod imp {
         win.hwnd().map_or(0, |h| h.0 as isize)
     }
 
+    /// 떠 있는 창을 닫은 뒤: 남은 웹뷰가 같은 렌더러·GPU 프로세스를 나눠 쓰므로 저메모리 수준을 다시 걸어 정리를 재촉한다 (NORMAL → LOW)
+    pub fn trim(win: &WebviewWindow) -> tauri::Result<()> {
+        win.with_webview(|wv| unsafe {
+            use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL};
+            use windows::core::Interface;
+            if let Ok(w) = wv.controller().CoreWebView2().and_then(|c| c.cast::<ICoreWebView2_19>()) {
+                let _ = w.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL);
+                let _ = w.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+            }
+        })
+    }
+
     /// 크기·위치를 한 번에 (set_size → set_position 두 번이면 독이 한 프레임 아래로 튄다)
     pub fn set_bounds(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
         if let Ok(hwnd) = win.hwnd() {
             unsafe {
                 let _ = SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
             }
+        }
+    }
+
+    /// 클라이언트 영역(= 웹뷰가 그리는 곳)이 정확히 (x, y, w, h) 가 되게 창 rect 를 맞춘다.
+    /// 장식 없는 크기 조절 창은 보이지 않는 테두리(보통 좌우·아래 8px)가 있어 창 rect 와 그려지는 곳이 다르다 — 숨긴 창에서도 계산된다.
+    pub fn set_client_bounds(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+        use windows::Win32::Foundation::{POINT, RECT};
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
+        use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, GetWindowRect};
+        let Ok(hwnd) = win.hwnd() else { return };
+        unsafe {
+            let (mut wr, mut cr, mut o) = (RECT::default(), RECT::default(), POINT::default());
+            if GetWindowRect(hwnd, &mut wr).is_err() || GetClientRect(hwnd, &mut cr).is_err() || !ClientToScreen(hwnd, &mut o).as_bool() {
+                return set_bounds(win, x, y, w, h);
+            }
+            let (l, t) = (o.x - wr.left, o.y - wr.top);
+            let (r, b) = (wr.right - (o.x + cr.right), wr.bottom - (o.y + cr.bottom));
+            let _ = SetWindowPos(hwnd, None, x - l, y - t, w + l + r, h + t + b, SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 
@@ -71,8 +101,14 @@ mod imp {
     pub fn low_memory(_: &WebviewWindow) -> tauri::Result<()> {
         Ok(())
     }
+    pub fn trim(_: &WebviewWindow) -> tauri::Result<()> {
+        Ok(())
+    }
     pub fn hwnd(_: &WebviewWindow) -> isize {
         0
+    }
+    pub fn set_client_bounds(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
+        set_bounds(win, x, y, w, h)
     }
     pub fn set_bounds(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
         let _ = win.set_size(PhysicalSize::new(w.max(0) as u32, h.max(0) as u32));
