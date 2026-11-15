@@ -11,7 +11,7 @@ curl https://sh.rustup.rs -sSf | sh        # Rust (stable)
 brew install node                          # Node 20+
 npm ci
 cd src-tauri && cargo check --lib          # 지금 상태로 컴파일되어야 함 (빈 구현 stub)
-cd .. && npx tauri dev                     # 독·Island 가 뜨지만 앱 실행·아이콘 등은 빈 값
+cd .. && npx tauri dev                     # Island(노치)·허브·떠 있는 창이 뜨지만 앱 실행·아이콘 등은 빈 값
 ```
 윈도우에서 `cargo check --lib --target x86_64-apple-darwin` 가 통과하도록 맞춰 둔 상태다 (C 의존성은 맥에선 진짜 SDK 로 빌드).
 
@@ -20,7 +20,7 @@ cd .. && npx tauri dev                     # 독·Island 가 뜨지만 앱 실�
 |---|---|---|
 | `src-tauri/src/lib.rs` | 창 생성·배치·명령·트레이 | 공용 (Win32 직접 호출 없음) |
 | `src-tauri/src/ui.rs` | 창 핸들 도우미 (한 번에 배치, 최상위로, 포커스 반환, Alt+Tab 제외, 저메모리) | 맥 = 간단 대체/빈 구현 → **채울 것** |
-| `src-tauri/src/stub.rs` | 윈도우 전용 모듈(`watch` `launch` `icons` `clip` `shell` `taskbar`)과 같은 모양의 빈 구현 | 하나씩 **진짜 맥 모듈로 교체** |
+| `src-tauri/src/stub.rs` | 윈도우 전용 모듈(`watch` `launch` `icons` `clip` `shell` `appbar`)과 같은 모양의 빈 구현 | 하나씩 **진짜 맥 모듈로 교체** (`appbar` 는 맥에서 빈 채로 둔다 — 아래) |
 | `src-tauri/src/link_files.rs` | 파일 채널 (TCP·암호·페어링) | **공용 그대로 사용** — 맥은 `discover()` + `connect()` |
 | `src-tauri/src/link.rs` | 엔진 감독(서버 모드)·설정 생성·로그 해석·Deskflow 가져오기 | 로그 해석·설정 생성은 공용. 맥은 **클라이언트 모드** 감독을 추가 |
 | `src/**` (React) | 모든 화면 | 공용. 윈도우 전용 UI(시작 버튼 등)는 맥에서 숨길 것 |
@@ -39,7 +39,7 @@ cd .. && npx tauri dev                     # 독·Island 가 뜨지만 앱 실�
 | 창 썸네일 (DWM) | ScreenCaptureKit `SCScreenshotManager` (정지 이미지로 충분) — 어렵다면 아이콘만 | 화면 기록 |
 | 깜빡임 알림 (HSHELL_FLASH) | 직접 대응 없음 → 생략하거나 Dock 배지 변화(AX) 감시. **생략 가능** | — |
 | 시작·트레이·빠른 설정·알림 센터 버튼 | 맥엔 해당 없음 → `SysKeys` 숨김 (Desktop/Dock 에 플랫폼 플래그) | — |
-| 작업 표시줄 공존 `taskbar` | 맥 Dock 자동 숨김과 겹치면 `NSScreen.visibleFrame` 기준 배치만 | — |
+| ~~작업 표시줄 공존 `taskbar`~~ | Island-only 에서 지웠다 (독 없음) | — |
 | 클립보드 기록 `clip` (AddClipboardFormatListener) | 리스너 API 없음 → `NSPasteboard.changeCount` 를 0.5초 폴링. `org.nspasteboard.ConcealedType`/`TransientType` 이 있으면 기록 안 함 (비밀번호 관리자) | — |
 | 전체화면 앱 감지 (SHQueryUserNotificationState) | 맨 앞 앱 창이 화면을 덮는지 `CGWindowList` 로 / 발표 모드는 `CGDisplayIsCaptured` | — |
 | 자리 비움 (GetLastInputInfo) | `CGEventSourceSecondsSinceLastEventType(.combinedSessionState, .any)` | — |
@@ -50,7 +50,7 @@ cd .. && npx tauri dev                     # 독·Island 가 뜨지만 앱 실�
 | 배경화면 (SPI_GETDESKWALLPAPER) | `NSWorkspace.desktopImageURL(for:)` | — |
 | 배터리 (GetSystemPowerStatus) | IOKit `IOPSCopyPowerSourcesInfo` | — |
 | 작업 영역 변화 | `NSApplication.didChangeScreenParametersNotification` | — |
-| 독 창 키우기·효과 창 최상위 (SetWindowPos) | `ui.rs` 맥 구현: `setFrame(_:display:)` 한 번에, 레벨로 위아래 | — |
+| 효과 창 최상위 (SetWindowPos) | `ui.rs` 맥 구현: `setFrame(_:display:)` 한 번에, 레벨로 위아래 | — |
 
 ## 3. 입력 엔진 (맥 = Deskflow 클라이언트)
 윈도우는 `deskflow-core server` 를 숨김 자식으로 실행한다 (`link.rs`). 맥은 **`deskflow-core client`**.
@@ -89,7 +89,7 @@ loop {
 }
 ```
 - `Config.secret`/`known_peer` 는 맥 store 의 `link.key`/`link.peerPk` (윈도우와 같은 키 이름).
-- 받은 파일: `~/Downloads/Hera/` → 'link-received' 로 독 선반.
+- 받은 파일: `~/Downloads/Hera/` → 'link-received' 로 Island 선반.
 - Island 표시(페어링 코드·진행·→ Windows)는 React 가 공용 — 이벤트 이름만 같게 (`link-status`, `link-switch`, `link-files`, `link-received`).
 
 ## 5. Hera Link 추가 기능 (3b) — 맥 쪽 구현
@@ -115,13 +115,26 @@ loop {
 - 상용구 붙여넣기: NSPasteboard 에 넣고 → 이전 앱 활성화 → CGEvent ⌘V → 0.5초 뒤 changeCount 가 그대로면 원래 내용 복원.
 - Hera Team: `team.rs` 공용(포트 24820/비콘 24821), 맥도 같은 그룹에 들 수 있다.
 
+## 5c. Island-only (독 제거, 2026-11-15) — 맥
+
+윈도우는 독을 없애고 모든 기능을 위쪽 Island 로 모았다 (`.omc/plans/hera-island-only.md`). 맥에서는:
+
+- **Island 자리**: 노치가 있는 맥북 = **노치 바로 아래·양옆**(`NSScreen.safeAreaInsets` / `auxiliaryTopLeftArea`·`auxiliaryTopRightArea` 로 노치 폭을 알고 그 아래에 붙인다), 노치 없는 모니터 = **메뉴막대 가운데**. 윈도우의 120×6 노치 = 맥에서는 진짜 노치 자체가 입구 — 노치 아래 1~2px 히트 띠 + 노치 양옆 점(읽지 않음·터미널·선반).
+- **'상단 공간 확보'(AppBar) 없음**: 맥은 메뉴막대가 이미 위쪽을 예약한다. `stub.rs` 의 `appbar` 는 빈 채로 두고, 설정의 그 스위치는 맥에서 숨긴다.
+- 클릭 통과: 투명 창 + `ignoresMouseEvents` 를 히트 rect 에 맞춰 켜고 끈다 (윈도우 watch 루프의 WS_EX_TRANSPARENT 와 같은 역할). 바깥 클릭으로 허브 접기 = 전역 마우스 모니터(`NSEvent.addGlobalMonitorForEvents`)로 'island-outside'.
+- 파일 끌어오기(드롭존): 윈도우는 '위쪽 가운데로 끌어오면'. 맥은 `NSDraggingDestination` 을 노치 창에 걸면 드래그가 노치에 닿을 때 바로 안다.
+- **떠 있는 기능 창**(`float.rs`): 같은 코드 (Tauri 창). 아크릴 대신 `NSVisualEffectView`(window-vibrancy `apply_vibrancy`).
+- **터미널**(`term.rs`): portable-pty 는 맥 PTY 도 지원 — 셸 = `zsh`, OSC 9999 프롬프트는 zsh `precmd` 로 같은 표지를 찍는다 (`print -n "\e]9999;hera;$HISTCMD;$?;…"`). 아라 CLI 는 맥 경로(`/Applications/ARA.app/…/ara`)로.
+- **팀 채팅**: 플랫폼 코드 없음 (team.rs · link_files.rs 공용). 받은 파일 = `~/Library/Application Support/<id>/chat/`, 파일 '복사' = `NSPasteboard` 에 파일 URL.
+- **LP 플레이어**: 같은 코드 (효과·아스키 창 = 기존 맥 대응 그대로).
+
 ## 6. 수락 시험 (맥)
 1. `cargo test --lib` 통과 (link_files 루프백 시험 포함), `npx tsc --noEmit -p .` 통과, `npx tauri build` 로 .app.
-2. 독이 화면 아래 가운데 점으로 뜨고, 올리면 펼쳐지며 앱 실행·아이콘이 된다. 다른 앱을 클릭해도 포커스가 Hera 로 오지 않는다.
-3. Island 이 노치에 붙어 보이고, 알림·할 일 미리보기가 동작한다. 클릭 통과: 독/Island 바깥 투명 영역 클릭이 아래 앱으로 간다.
+2. (독 없음) 앱 실행은 맥 Dock · Spotlight · Hera 팔레트. 다른 앱을 클릭해도 포커스가 Hera 로 오지 않는다.
+3. Island 이 노치(또는 메뉴막대 가운데)에 붙어 보이고, 탭·머묾 → 허브(아이콘 13개) → 떠 있는 창. 알림·빠른 답장이 동작한다. 클릭 통과: 노치 밖 투명 영역 클릭이 아래 앱으로 간다.
 4. 윈도우 Hera 에서 '연결' 켜기 (사용자 Deskflow 종료 후) → 맥 Hera 가 비콘을 받아 접속 → 양쪽 Island 에 같은 6자리 → 양쪽 '같아요'.
 5. 마우스를 윈도우 오른쪽(설정한 방향) 끝으로 → 맥으로 넘어가고, 윈도우 Island 에 "→ MacBook", 돌아오면 "← Windows". 한/영·Cmd/Ctrl 정상.
-6. 윈도우에서 파일을 Island 오른쪽 절반("Mac으로 보내기")에 놓기 → 윈도우 Island 접힘, 맥 Island 튀어나오고 `~/Downloads/Hera/` + 맥 독 선반에 착지. 반대 방향도.
+6. 윈도우에서 파일을 Island 오른쪽 절반("Mac으로 보내기")에 놓기 → 윈도우 Island 접힘, 맥 Island 튀어나오고 `~/Downloads/Hera/` + 맥 Island 선반에 착지. 반대 방향도.
 7. 맥에서 복사한 텍스트가 윈도우 ⌘K '최근 복사' 에 보이고, 비밀번호 관리자 복사는 안 보인다.
 8. 메모리: 맥 Hera idle (효과·아스키 꺼짐) ≤ 150MB (Activity Monitor, WebKit 프로세스 포함).
 9. (3b) 패널 배치 캔버스에 맥 실제 모니터가 보이고, 맥 모니터를 PC 모니터 아래쪽 절반에 붙이면 그 구간에서만 넘어간다. 넘어갈 때 들어간 쪽에 진한, 떠난 쪽에 옅은 파란 물결.

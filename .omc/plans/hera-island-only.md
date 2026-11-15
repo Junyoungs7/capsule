@@ -57,3 +57,11 @@
 
 ## 단계 (보고)
 (a) 독 제거 + Island/허브 A + 떠 있는 창 → (b) LP 플레이어 → (c) 채팅 → (d) 터미널 → (e) 빌드.
+
+## 결과 (2026-11-15)
+- (a) 994ac78 — 독·작업 표시줄 대체 삭제, 노치(120×6)·허브 A·떠 있는 창·상단 공간 확보. island-cdp ALL PASS.
+- (b) 994ac78 — LP 플레이어(효과 5 + 아스키 5). lp-cdp ALL PASS.
+- (c) 0acbbe7 — 팀 채팅(chat:<id> 동기화, 파일 P2P 'cget', Island 빠른 답장). cargo test team::chat_messages_and_files, chat-cdp ALL PASS.
+- (d) 7314e94 — 터미널(ConPTY + 지연 로드 xterm.js, OSC 9999 완료 표지) + 아라 CLI 넘기기. term-cdp ALL PASS (가짜 CLI).
+- 확인 못 한 것(잠금 화면): 실제 화면에서 노치 호버·드래그 드롭존, AppBar 켜기(사용자 창이 움직여 시험하지 않음), 두 PC 사이 실제 채팅 파일(단위 시험으로 대신), 아라 실제 탭 생성(가짜 CLI 로 대신).
+- (e) 릴리스 메모리(격리 식별자, 안정 후): idle 64.8MB(떠 있는 창 없음 · 시작 직후 일시 178MB → 몇 초 안에 정리), 달력 창 1개 열면 137MB. cargo test ×5 = 65 passed ×5. 설치 파일 `src-tauri/target/release/bundle/nsis/Hera_0.1.0_x64-setup.exe` (12.55MB, 실행 안 함).
