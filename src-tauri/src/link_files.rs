@@ -490,6 +490,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 수동(실행 중인 Hera 상대, .omc/verify/link-cdp.mjs 가 사용): 맥 역할로 접속 → 자동 확인 → 파일 1개 보내고 ack 확인.
+    /// HERA_LINK_ADDR=127.0.0.1:24810 HERA_LINK_FILE=<경로> cargo test --lib live_peer -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_peer() {
+        let addr: SocketAddr = std::env::var("HERA_LINK_ADDR").unwrap_or("127.0.0.1:24810".into()).parse().unwrap();
+        let file = PathBuf::from(std::env::var("HERA_LINK_FILE").expect("HERA_LINK_FILE"));
+        let cfg = Config { name: "TestMac".into(), secret: random32(), known_peer: None, engine_fp: String::new(), downloads: std::env::temp_dir().join("hera-live-peer") };
+        let sink: Sink = Arc::new(|e| println!("EVENT {}", serde_json::to_string(&e).unwrap()));
+        let done = Arc::new(AtomicBool::new(false));
+        let d = done.clone();
+        let s2 = sink.clone();
+        connect(addr, &cfg, sink, &move |c| {
+            let Some(c) = c else { return };
+            if !c.is_ready() {
+                c.confirm(true); // 맥 쪽 '같아요' (Hera 쪽은 CDP 가 link_pair(true))
+                return;
+            }
+            if d.swap(true, Ordering::Relaxed) {
+                return;
+            }
+            let (c, s, f) = (c.clone(), s2.clone(), file.clone());
+            std::thread::spawn(move || {
+                println!("SEND {:?}", c.send_file(&f, &s));
+                c.close();
+            });
+        })
+        .unwrap();
+        assert!(done.load(Ordering::Relaxed), "never became ready");
+    }
+
     /// 두 끝점(루프백): 처음엔 페어링(양쪽 같은 코드 → 확인) → 파일 전송 → 해시 확인 → 클립 → 재접속은 페어링 없이
     #[test]
     fn loopback_pair_and_transfer() {

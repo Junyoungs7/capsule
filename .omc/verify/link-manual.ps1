@@ -1,0 +1,14 @@
+﻿# Hera Link human checks (needs an UNLOCKED session, the Mac, and YOU switching from Deskflow to Hera).
+# Automated part (no unlock, never touches Deskflow/24800): see .omc/verify/link-cdp.mjs (isolated identifier build).
+# Run from the repo root with the INSTALLED Hera (or a build). Nothing here stops Deskflow for you — you do that in step 2.
+$steps = @(
+  "1. Panel > 설정 > 연결: with Link OFF nothing changes (Deskflow keeps working). Click 'Deskflow 설정 가져오기': names (DEV-…, MacBook), Mac position (오른쪽), TLS on, double-tap are filled in. Your Deskflow files are only read (C:\ProgramData\Deskflow untouched; Hera copies the cert into %APPDATA%\dev.hera.dock\link\settings\tls).",
+  "2. Turn the Link switch ON while Deskflow is still running: the panel shows 'Deskflow 앱(deskflow-core)이 실행 중이에요 — Deskflow 를 먼저 종료하세요' and Hera does NOT start its engine. Now quit Deskflow yourself (tray > Quit, and stop its service/daemon if it runs as a service). Within ~5s the panel shows '맥 기다리는 중'; Task Manager shows deskflow-core.exe under hera.exe.",
+  "3. On the Mac, keep the Deskflow client as is (or Mac Hera later): it connects to the Windows PC. Panel shows 연결됨 · MacBook, the Island idle pill shows a small 'MacBook' chip. If the Mac's certificate is new, the panel shows '새 맥 지문' with 신뢰 — compare it with the Mac's fingerprint and press 신뢰 (engine restarts, Mac connects).",
+  "4. Move the mouse past the right edge (double-tap if imported): the cursor goes to the Mac and the Island briefly shows '→ MacBook' (spring); coming back shows '← Windows'. Typing on the Mac works, 한/영 and Cmd/Ctrl as before. Copy text on the Mac, come back, Ctrl+Alt+K: it is in '최근 복사'.",
+  "5. Crash recovery: in Task Manager end deskflow-core.exe (the one under hera.exe): within 1-30s Hera starts it again (panel shows the restart). Quit Hera from the tray: deskflow-core.exe disappears too (job object). Kill hera.exe from Task Manager: deskflow-core.exe also disappears.",
+  "6. File channel (needs Mac Hera — see docs/mac-port.md; skip until then): Mac Hera connects, both Islands show the same 6 digits, press 같아요 on both. Drag a file onto the Windows Island: it splits into '선반에 놓기 | MacBook으로 보내기'; drop on the right half -> Island shows progress and folds in; the Mac Island pops out and the file lands in ~/Downloads/Hera + its shelf. Right-click a shelf chip -> 'MacBook으로 보내기'. Mac -> Windows: the file appears in Downloads\Hera and on the dock shelf.",
+  "7. Firewall: if Windows asks to allow Hera on private networks, allow (ports 24800 engine, 24810 files, 24811 UDP discovery). If the company security tool blocks it, the panel shows the error text.",
+  "8. Switch back to Deskflow any time: Link OFF in the panel (Hera's engine stops), then start Deskflow."
+)
+foreach ($s in $steps) { Write-Host $s; Read-Host "Enter when done" | Out-Null }
