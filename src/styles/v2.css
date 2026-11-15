@@ -274,7 +274,68 @@
   27% { transform: translateY(-5px); }
 }
 
+
+/* ── Hera Link ── */
+/* Island: 연결 칩 · 화면 전환 · 페어링 코드 · 전송 진행 (모두 data-mode 전환 — 표시 안 할 때 비용 0) */
+.link-chip { padding: 2px 7px; border-radius: 9px; font-size: 10.5px; font-weight: 650; color: #8ec5ff; background: rgba(80, 160, 255, 0.16); transition: color 200ms, background 200ms; }
+.link-chip[data-peer='true'] { color: #fff; background: rgba(80, 160, 255, 0.55); }
+.island[data-mode='swap'] .swap,
+.island[data-mode='pair'] .pair,
+.island[data-mode='xfer'] .xfer {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  transition: opacity 240ms 110ms, transform var(--dur-bouncy) var(--spring-bouncy) 40ms;
+}
+.swap { justify-content: center; }
+.swap b { font: 650 14px/1 var(--font-display); color: #8ec5ff; animation: swap-in 520ms var(--spring-bouncy) both; }
+.swap[data-dir='out'] b { --from: -18px; }
+.swap[data-dir='in'] b { --from: 18px; }
+@keyframes swap-in { from { opacity: 0; transform: translateX(var(--from)); } }
+.pair { gap: 14px; padding: 0 18px; }
+.island .pair .code { font: 700 26px/1.1 var(--font-display); letter-spacing: 0.12em; font-variant-numeric: tabular-nums; color: #fff; }
+.pair .actions { display: flex; gap: 6px; }
+.island .pair button, .island .actions button { padding: 7px 12px; border: 0; border-radius: 10px; font-size: 12.5px; font-weight: 600; color: #fff; background: rgba(255, 255, 255, 0.12); }
+.island .pair button.primary { background: #0a84ff; }
+.xfer .file-ico { position: relative; flex: none; width: 30px; height: 36px; border-radius: 5px; background: rgba(255, 255, 255, 0.85); }
+.xfer .file-ico::after { content: ''; position: absolute; top: 0; right: 0; border: 6px solid transparent; border-top-color: var(--island-solid); border-right-color: var(--island-solid); }
+.xfer .time { font: 650 15px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+/* 보내기 끝: Island 이 파일을 삼키듯 접혔다 펴짐 · 받기 끝: 튀어나오고 파일이 아래(독 선반)로 날아감 */
+.island[data-xfer='out-done'] .island-shape { animation: swallow 620ms var(--ease-out); }
+.island[data-xfer='out-done'] .file-ico { animation: sink-in 420ms var(--ease-out) both; }
+@keyframes swallow { 35% { transform: translateX(-50%) scale(0.86, 0.78); } 70% { transform: translateX(-50%) scale(1.03); } }
+@keyframes sink-in { to { opacity: 0; transform: scale(0.3) translateY(-10px); } }
+.island[data-xfer='in-done'] .island-shape { animation: pop-out 560ms var(--spring-bouncy); }
+.island[data-xfer='in-done'] .file-ico { animation: fly-down 700ms cubic-bezier(0.5, 0, 0.75, 0) both; }
+@keyframes pop-out { 30% { transform: translateX(-50%) scale(1.08); } }
+@keyframes fly-down { 30% { transform: translateY(-4px); } to { opacity: 0; transform: translateY(90px) scale(0.6); } }
+/* 드롭존 두 칸: 커서가 있는 쪽이 밝아진다 */
+.drop[data-split='true'] { gap: 10px; }
+.drop[data-split='true'] .txt { padding: 8px 10px; border-radius: 14px; transition: background 160ms, opacity 160ms; opacity: 0.55; }
+.drop[data-split='true'] .txt[data-hot='true'] { opacity: 1; background: rgba(61, 220, 151, 0.14); }
+.drop[data-split='true'] .to-peer[data-hot='true'] { background: rgba(80, 160, 255, 0.22); }
+.drop[data-split='true'] .to-peer b { color: #8ec5ff; }
+/* 선반 우클릭 메뉴 (연결 중) */
+.shelf { position: relative; }
+.shelf-menu { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); animation: fade 140ms ease-out; }
+/* 패널 설정: 연결 */
+.link-note { margin: 0 4px; padding: 8px 10px; border-radius: 10px; font-size: 12px; color: var(--text); background: var(--accent-soft); }
+.link-note[data-state='blocked'], .link-note[data-state='error'] { background: rgba(255, 159, 10, 0.16); }
+.settings .mono { font-family: 'Cascadia Mono', Consolas, monospace; }
+.settings .pair-row .code { font: 700 18px/1.2 var(--font-display); letter-spacing: 0.1em; color: var(--text); }
+.layout-grid { position: relative; display: grid; grid-template: 18px 30px 18px / 30px 44px 30px; gap: 3px; flex: none; }
+.layout-grid .me { grid-area: 2 / 2; display: grid; place-items: center; border-radius: 6px; font-size: 10px; font-weight: 700; color: var(--text-2); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.layout-grid .slot { padding: 0; border: 1px dashed var(--line-strong); border-radius: 6px; font-size: 9.5px; font-weight: 700; color: #fff; background: none; transition: background 160ms; }
+.layout-grid .slot[aria-checked='true'] { border-style: solid; border-color: transparent; background: #0a84ff; }
+.layout-grid .top { grid-area: 1 / 2; } .layout-grid .bottom { grid-area: 3 / 2; } .layout-grid .left { grid-area: 2 / 1; } .layout-grid .right { grid-area: 2 / 3; }
+.link-fields { gap: 6px; }
+.link-fields label { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; font-size: 11px; color: var(--text-2); }
+.link-fields input { min-width: 0; padding: 6px 8px; border: 0; border-radius: 8px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+.link-actions { display: flex; align-items: center; gap: 8px; margin: 0 4px; }
+.link-actions small { color: var(--text-2); }
+
 @media (prefers-reduced-motion: reduce) {
+  .swap b, .island[data-xfer] .island-shape, .island[data-xfer] .file-ico { animation: none; }
   .dock-slot[data-attention='true'] .icon-bounce { animation: none; }
   .folder-pop, .folder-pop[data-show='true'] { transform: translateX(-50%); }
   .ascii-full, .ascii-full[data-show='true'], .ascii-full[data-zoom='true'] { transform: none; clip-path: none; transition: opacity 240ms; }

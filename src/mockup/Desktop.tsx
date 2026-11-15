@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   activate, clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
+  linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
   setTurntable, shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
-import { Island, type NextItem } from '../surfaces/Island'
+import { Island, type LinkView, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
@@ -78,6 +79,47 @@ export function Desktop({ only }: { only?: string }) {
     void navigator.clipboard?.writeText(c.text).catch(() => {})
     setClips((cs) => [{ ...c, at: Date.now() }, ...cs.filter((x) => x.id !== c.id)].slice(0, 20))
   }
+
+  // Hera Link: 엔진 상태(모든 창) · 파일 채널 페어링/전송 · 화면 전환 애니메이션(Island). 시안 = 꺼짐.
+  const [linkOn, setLinkOn] = useValue('link.enabled', false)
+  const [linkCfg, setLinkCfg] = useValue<LinkCfg | null>('link.cfg', null)
+  const [peerName] = useValue<string | null>('link.peerName', null)
+  const [link, setLink] = useState<LinkStatus | null>(null)
+  const [filesPeer, setFilesPeer] = useState<string | null>(null)
+  const [pair, setPair] = useState<{ code: string; name: string } | null>(null)
+  const [xfer, setXfer] = useState<{ dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null>(null)
+  const [swap, setSwap] = useState<{ onPeer: boolean; n: number } | null>(null)
+  const swapTimer = useRef(0)
+  const xferTimer = useRef(0)
+  const shelveRef = useRef<(paths: string[]) => void>(() => {})
+  shelveRef.current = shelve
+  useEffect(() => {
+    if (!isTauri) return
+    void linkStatus().then(([st, f]) => (setLink(st), setFilesPeer(f)))
+    const offs = [
+      onEvent<LinkStatus>('link-status', setLink),
+      onEvent<{ onPeer: boolean }>('link-switch', (e) => {
+        setSwap((s) => ({ onPeer: e.onPeer, n: (s?.n ?? 0) + 1 }))
+        clearTimeout(swapTimer.current)
+        swapTimer.current = window.setTimeout(() => setSwap(null), 1600)
+      }),
+      onEvent<LinkFilesEv>('link-files', (e) => {
+        if (e.kind === 'peer') (setFilesPeer(e.state === 'ready' ? e.name : null), setPair(e.state === 'pairing' ? { code: e.code, name: e.name } : null))
+        if (e.kind === 'xfer') (clearTimeout(xferTimer.current), setXfer({ dir: e.dir, name: e.name, bytes: e.bytes, size: e.size }))
+        if (e.kind === 'received' || e.kind === 'sent') {
+          setXfer((x) => x && { ...x, done: true, bytes: x.size })
+          xferTimer.current = window.setTimeout(() => setXfer(null), 1400)
+          if (e.kind === 'sent' && !e.ok) showAlert({ title: '보내지 못했어요', body: e.error })
+        }
+      }),
+    ]
+    if (only === 'dock') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])))
+    return () => offs.forEach((off) => off())
+  }, [])
+  const linkView: LinkView | null = link && link.state !== 'off' ? { connected: link.state === 'connected', peer: link.peer || linkCfg?.peer || 'Mac', files: !!filesPeer, swap, pair, xfer } : pair || xfer || swap ? { connected: !isTauri, peer: pair?.name ?? 'MacBook', files: !isTauri || !!filesPeer, swap, pair, xfer } : null
+  const sendToPeer = (paths: string[]) => paths.forEach((p) => void linkSend(p).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })))
+  // 설정 저장은 store 에 비동기로 쓰인다 → 잠깐 뒤에 Rust 가 다시 읽게
+  const applyLink = () => window.setTimeout(() => void linkApply(), 250)
 
   // v2 시간·계절 (시안 데모 바에서 바꿔 볼 수 있음) → 아스키 장면·효과 선택
   const [demoNow, setDemoNow] = useState<Date | null>(null)
@@ -364,6 +406,20 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={() => setAscii({ open: true, from: null, saver: false })}>아스키 전체화면</button>
               <button aria-pressed={idleDemo} onClick={() => setIdleDemo((d) => !d)}>화면보호기 5초 {idleDemo ? '켬' : '끔'}</button>
             </div>
+            <div className="demo-btns v2">
+              <button onClick={() => (setSwap((s) => ({ onPeer: !s?.onPeer, n: (s?.n ?? 0) + 1 })), clearTimeout(swapTimer.current), (swapTimer.current = window.setTimeout(() => setSwap(null), 1600)))}>→ Mac</button>
+              <button onClick={() => setPair((p) => (p ? null : { code: '482913', name: 'MacBook' }))}>페어링</button>
+              <button onClick={() => {
+                // 시안: 전송 진행 흉내 (2초) → 완료 애니메이션
+                const size = 5_000_000, dir = Math.random() < 0.5 ? 'out' : 'in'
+                let b = 0
+                const t = window.setInterval(() => {
+                  b = Math.min(size, b + size / 12)
+                  setXfer({ dir, name: '회의록 최종.pdf', bytes: b, size, done: b >= size })
+                  if (b >= size) (clearInterval(t), (xferTimer.current = window.setTimeout(() => setXfer(null), 1400)))
+                }, 170)
+              }}>파일 전송</button>
+            </div>
           </aside>
           <Taskbar />
         </>
@@ -395,6 +451,9 @@ export function Desktop({ only }: { only?: string }) {
           onSnooze={snooze}
           onOpen={() => openPanel('todo')}
           onDropFiles={(paths) => dropFiles(paths, true)}
+          link={linkView}
+          onSendFiles={sendToPeer}
+          onPair={(ok) => void linkPair(ok)}
         />
       )}
       {show('dock') && (
@@ -409,6 +468,8 @@ export function Desktop({ only }: { only?: string }) {
           shelf={shelf}
           onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
+          onShelfSend={filesPeer ? (f) => sendToPeer([f.path]) : undefined}
+          peerName={filesPeer ?? undefined}
           groups={dockGroups}
           scene={scene}
           runApps={runApps}
@@ -449,6 +510,20 @@ export function Desktop({ only }: { only?: string }) {
           idleMin={idleMin}
           setIdleMin={setIdleMin}
           onFxNow={() => playFx(pickFx(clock, weather))}
+          link={{
+            on: linkOn,
+            setOn: (v) => (setLinkOn(v), applyLink()),
+            cfg: linkCfg,
+            setCfg: (c) => (setLinkCfg(c), applyLink()),
+            status: link,
+            filesPeer,
+            pairedName: peerName,
+            pair,
+            onPair: (ok) => void linkPair(ok),
+            onImport: () => linkImport().then(setLinkCfg),
+            onTrust: (fp) => void linkTrust(fp).catch((e) => showAlert({ title: '신뢰하지 못했어요', body: String(e) })),
+            onUnpair: () => void linkUnpair(),
+          }}
         />
       )}
       {palette && show('palette') && (

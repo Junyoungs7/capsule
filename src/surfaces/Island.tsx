@@ -6,7 +6,16 @@ import { Tile } from './Dock'
 import { labelVars } from './Turntable'
 
 export type NextItem = { title: string; at?: string; kind: 'todo' | 'event' }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop'
+/** Hera Link 표시: 엔진 연결 · 파일 채널(files) · 화면 전환(swap, n 이 바뀔 때마다 1번) · 페어링 코드 · 전송 진행 */
+export type LinkView = {
+  connected: boolean
+  peer: string
+  files: boolean
+  swap: { onPeer: boolean; n: number } | null
+  pair: { code: string; name: string } | null
+  xfer: { dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null
+}
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'swap' | 'pair' | 'xfer'
 
 // 컨테이너(=창)는 최대 크기 고정, 상태별 모양은 고정 프리셋 → clip-path 스프링
 const SIZES: Record<Mode, [number, number, number]> = {
@@ -15,6 +24,9 @@ const SIZES: Record<Mode, [number, number, number]> = {
   nowPlaying: [372, 68, 30],
   alert: [404, 122, 30],
   drop: [372, 92, 30],
+  swap: [196, 44, 22],
+  pair: [404, 104, 30],
+  xfer: [372, 68, 30],
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
 
@@ -48,40 +60,52 @@ type Props = {
   onSnooze: () => void
   onOpen: () => void
   onDropFiles: (paths: string[]) => void
+  link?: LinkView | null
+  onSendFiles?: (paths: string[]) => void // 연결 중 드롭존 오른쪽 절반 = 맥으로 보내기
+  onPair?: (ok: boolean) => void
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, link, onSendFiles, onPair }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
   // (idle 알약 위로 오면 통과 해제 → 'enter' → drop 모양으로 커지고 그 rect 를 보고).
   const [drag, setDrag] = useState(false)
-  const drop = useRef(onDropFiles)
-  drop.current = onDropFiles
+  // 맥과 파일 채널이 연결돼 있으면 드롭존이 두 칸: 왼쪽 = 선반에 놓기, 오른쪽 = Mac으로 보내기 (커서 x 로 고름)
+  const split = !!link?.files && !!onSendFiles
+  const [toPeer, setToPeer] = useState(false)
+  const drop = useRef({ onDropFiles, onSendFiles, split })
+  drop.current = { onDropFiles, onSendFiles, split }
+  const right = (clientX: number) => clientX >= innerWidth / 2
   useEffect(() => {
     if (!isTauri) return
     const off = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload
-      if (p.type === 'enter' || p.type === 'over') return setDrag(true)
+      if (p.type === 'enter' || p.type === 'over') return setDrag(true), setToPeer(right(p.position.x / devicePixelRatio))
       setDrag(false)
-      if (p.type === 'drop' && p.paths.length) drop.current(p.paths)
+      if (p.type !== 'drop' || !p.paths.length) return
+      const d = drop.current
+      if (d.split && right(p.position.x / devicePixelRatio)) d.onSendFiles!(p.paths)
+      else d.onDropFiles(p.paths)
     })
     return () => void off.then((f) => f())
   }, [])
-  const mode: Mode = drag ? 'drop' : alert ? 'alert' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  // 화면 전환 표시는 swap.n 이 바뀔 때만 (1.6초 — Desktop 이 지움)
+  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : link?.xfer ? 'xfer' : link?.swap ? 'swap' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
-    onDragOver: (e: DragEvent) => files(e) && (e.preventDefault(), (e.dataTransfer.dropEffect = 'copy')),
+    onDragOver: (e: DragEvent) => files(e) && (e.preventDefault(), (e.dataTransfer.dropEffect = 'copy'), setToPeer(right(e.clientX))),
     onDragLeave: (e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrag(false),
     onDrop: (e: DragEvent) => {
       e.preventDefault()
       setDrag(false)
       const names = [...e.dataTransfer.files].map((f) => f.name)
-      if (names.length) onDropFiles(names)
+      if (names.length) (split && right(e.clientX) ? onSendFiles! : onDropFiles)(names)
     },
   }
-  const [w, h, r] = SIZES[mode]
+  const [w, h, r] = mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
+  const pct = link?.xfer ? Math.round((100 * link.xfer.bytes) / Math.max(1, link.xfer.size)) : 0
 
   // 미니 LP: 곡(포그라운드 앱)이 바뀌면 10초간 회전 후 정지 (Open Question 5 기본안)
   const [spinning, setSpinning] = useState(false)
@@ -116,6 +140,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       className="island"
       data-mode={mode}
       data-spin={spinning && mode === 'nowPlaying'}
+      data-xfer={link?.xfer ? `${link.xfer.dir}${link.xfer.done ? '-done' : ''}` : undefined}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onClick={() => mode === 'preview' && onOpen()}
@@ -124,9 +149,35 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       {/* 블러 없는 짙은 판 1장 — clip-path(path)+backdrop-filter 재래스터가 버벅임 원인이었음 */}
       <div className="island-shape" style={{ width: w, height: h, borderRadius: r }} />
 
-      <div className="island-layer idle" style={{ width: SIZES.idle[0], height: SIZES.idle[1] }} aria-hidden={mode !== 'idle'}>
+      <div className="island-layer idle" style={{ width: link?.connected ? 156 : SIZES.idle[0], height: SIZES.idle[1] }} aria-hidden={mode !== 'idle'}>
         <span className="pulse" data-on={!!playing} />
         <span>{today}</span>
+        {link?.connected && <span className="link-chip" data-peer={link.swap?.onPeer ?? false} title={`${link.peer} 연결됨`}>{link.peer.slice(0, 6)}</span>}
+      </div>
+
+      <div className="island-layer swap" style={{ width: SIZES.swap[0], height: SIZES.swap[1] }} aria-hidden={mode !== 'swap'} data-dir={link?.swap?.onPeer ? 'out' : 'in'}>
+        <b key={link?.swap?.n}>{link?.swap?.onPeer ? `→ ${link.peer}` : '← Windows'}</b>
+      </div>
+
+      <div className="island-layer pair" style={{ width: SIZES.pair[0], height: SIZES.pair[1] }} aria-hidden={mode !== 'pair'} role="dialog" aria-label="Hera Link 페어링">
+        <span className="txt">
+          <small>{link?.pair?.name} 연결 · 양쪽 숫자가 같나요?</small>
+          <b className="code">{link?.pair ? `${link.pair.code.slice(0, 3)} ${link.pair.code.slice(3)}` : ''}</b>
+        </span>
+        <span className="actions">
+          <button onClick={() => onPair?.(false)} tabIndex={mode === 'pair' ? 0 : -1}>취소</button>
+          <button className="primary" onClick={() => onPair?.(true)} tabIndex={mode === 'pair' ? 0 : -1}>같아요</button>
+        </span>
+      </div>
+
+      <div className="island-layer xfer" style={{ width: SIZES.xfer[0], height: SIZES.xfer[1] }} aria-hidden={mode !== 'xfer'}>
+        <span className="file-ico" data-dir={link?.xfer?.dir} />
+        <span className="txt">
+          <small>{link?.xfer?.dir === 'in' ? `${link.peer}에서 받는 중` : `${link?.peer ?? 'Mac'}으로 보내는 중`}{link?.xfer?.done ? ' · 완료' : ''}</small>
+          <b>{link?.xfer?.name}</b>
+          <span className="bar"><i style={{ transform: `scaleX(${pct / 100})` }} /></span>
+        </span>
+        <span className="time">{pct}<small>%</small></span>
       </div>
 
       <div className="island-layer preview" style={{ width: SIZES.preview[0], height: SIZES.preview[1] }} aria-hidden={mode !== 'preview'}>
@@ -154,14 +205,20 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
         <span className="time">{mins}<small>/{CYCLE}분</small></span>
       </div>
 
-      <div className="island-layer drop" style={{ width: SIZES.drop[0], height: SIZES.drop[1] }} aria-hidden={mode !== 'drop'}>
+      <div className="island-layer drop" data-split={split} style={{ width: split ? 404 : SIZES.drop[0], height: SIZES.drop[1] }} aria-hidden={mode !== 'drop'}>
         <span className="tray">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v10M8 10l4 4 4-4" /><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" /></svg>
         </span>
-        <span className="txt">
+        <span className="txt" data-hot={split ? !toPeer : true}>
           <b>선반에 놓기</b>
-          <small>놓으면 독 선반에 담아 둘게요 · 최대 4개</small>
+          <small>{split ? '독 선반에 담기' : '놓으면 독 선반에 담아 둘게요 · 최대 4개'}</small>
         </span>
+        {split && (
+          <span className="txt to-peer" data-hot={toPeer}>
+            <b>{link!.peer}으로 보내기</b>
+            <small>놓으면 바로 전송</small>
+          </span>
+        )}
       </div>
 
       <div className="island-layer alert" style={{ width: SIZES.alert[0], height: SIZES.alert[1] }} aria-hidden={mode !== 'alert'} role="alert">

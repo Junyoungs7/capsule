@@ -253,7 +253,16 @@ pub fn engine_dir(app: &AppHandle) -> Option<PathBuf> {
 pub fn read_cfg(app: &AppHandle) -> (bool, Cfg) {
     let Ok(s) = app.store("hera.json") else { return (false, Cfg::default()) };
     let on = s.get("link.enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    (on, s.get("link.cfg").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default())
+    let mut c: Cfg = s.get("link.cfg").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    // 빈 이름 = 이 PC 이름 / 기본 맥 이름 (패널은 빈칸에 자리 표시만)
+    let d = Cfg::default();
+    if c.me.trim().is_empty() {
+        c.me = d.me;
+    }
+    if c.peer.trim().is_empty() {
+        c.peer = d.peer;
+    }
+    (on, c)
 }
 
 /// 설정이 바뀌었을 때 (패널) — 감독 스레드가 다시 읽는다

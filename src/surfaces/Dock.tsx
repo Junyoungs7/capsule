@@ -87,6 +87,8 @@ type Props = {
   shelf: ShelfFile[]
   onShelfOpen: (f: ShelfFile) => void
   onShelfRemove: (f: ShelfFile) => void
+  onShelfSend?: (f: ShelfFile) => void // Hera Link 연결 중: 선반 우클릭 메뉴 'Mac으로 보내기'
+  peerName?: string
   groups: { group: AppGroup; recs: LpRecord[] }[]
   scene: SceneId
   onAscii: (from: DOMRect) => void
@@ -99,7 +101,7 @@ type Props = {
   onKey: (k: 'start' | 'tray' | 'quick' | 'notify') => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, onShelfSend, peerName, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
   const [open, setOpen] = useState(false)
   const [folder, setFolder] = useState<string | null>(null) // 열린 앱 묶음 id
   const root = useRef<HTMLDivElement>(null)
@@ -349,7 +351,17 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
         <Clock open={open} />
         <AsciiWidget id={scene} live={open} onOpen={onAscii} />
         <Battery />
-        <Shelf files={shelf} onOpen={onShelfOpen} onRemove={onShelfRemove} onDrop={(paths) => onDropFiles(paths, true)} />
+        <Shelf
+          files={shelf}
+          onOpen={onShelfOpen}
+          onRemove={onShelfRemove}
+          onDrop={(paths) => onDropFiles(paths, true)}
+          onSend={onShelfSend}
+          peerName={peerName}
+          menu={folder?.startsWith('shelf:') ? folder.slice(6) : null}
+          onMenu={(id) => void openFolder(id ? 'shelf:' + id : null)}
+          onMenuClosed={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+        />
       </div>
     </div>
   )

@@ -215,3 +215,21 @@ export const shellKey = (kind: 'start' | 'tray' | 'quick' | 'notify') => (isTaur
 // 창 목록 팝오버 DWM 썸네일: [hwnd, [x, y, w, h] 독 창 기준 CSS px] → 물리 px 로 보냄. 빈 배열 = 해제
 export const thumbs = (list: [number, DOMRect][]) =>
   isTauri ? invoke<number>('thumbs', { list: list.map(([h, r]) => [h, [r.x, r.y, r.width, r.height].map((v) => v * devicePixelRatio)]) }) : Promise.resolve(0)
+
+/* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files', 받은 파일 'link-received'(독) ── */
+export type LinkCfg = { me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number }
+export type LinkStatus = { state: 'off' | 'starting' | 'waiting' | 'connected' | 'blocked' | 'error'; detail: string; peer: string; onPeer: boolean; fingerprint: string }
+export type LinkFilesEv =
+  | { kind: 'peer'; state: 'pairing' | 'ready' | 'closed'; name: string; code: string }
+  | { kind: 'paired'; pk: string; name: string; fp: string }
+  | { kind: 'xfer'; dir: 'in' | 'out'; id: number; name: string; bytes: number; size: number }
+  | { kind: 'received'; id: number; path: string }
+  | { kind: 'sent'; id: number; ok: boolean; error: string }
+  | { kind: 'clip'; text: string }
+export const linkStatus = () => invoke<[LinkStatus, string | null]>('link_status')
+export const linkApply = () => invoke('link_apply')
+export const linkImport = () => invoke<LinkCfg>('link_import')
+export const linkTrust = (fp: string) => invoke('link_trust', { fp })
+export const linkPair = (ok: boolean) => invoke('link_pair', { ok })
+export const linkUnpair = () => invoke('link_unpair')
+export const linkSend = (path: string) => invoke('link_send', { path })

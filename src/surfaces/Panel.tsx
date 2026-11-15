@@ -4,6 +4,25 @@ import { isTauri, startApps } from '../data/api'
 import { Tile } from './Dock'
 import { fmtWhen } from './Island'
 import type { Weather } from './Fx'
+import type { LinkCfg, LinkStatus } from '../data/api'
+
+/** Hera Link 설정·상태 (Desktop 이 store·Rust 이벤트와 연결) */
+export type LinkPanel = {
+  on: boolean
+  setOn: (v: boolean) => void
+  cfg: LinkCfg | null
+  setCfg: (c: LinkCfg) => void
+  status: LinkStatus | null
+  filesPeer: string | null
+  pairedName: string | null
+  pair: { code: string; name: string } | null
+  onPair: (ok: boolean) => void
+  onImport: () => Promise<unknown>
+  onTrust: (fp: string) => void
+  onUnpair: () => void
+}
+const LINK_DEFAULT: LinkCfg = { me: '', peer: 'MacBook', side: 'right', port: 24800, tls: true, doubleTap: false, filePort: 24810 }
+const LINK_STATE: Record<LinkStatus['state'], string> = { off: '꺼짐', starting: '시작하는 중', waiting: '맥 기다리는 중', connected: '연결됨', blocked: '대기 — Deskflow 실행 중', error: '문제 있음' }
 import { moonName, moonPhase } from './Ascii'
 
 export type Tab = 'todo' | 'calendar' | 'library' | 'settings'
@@ -37,6 +56,7 @@ type Props = {
   idleMin: number
   setIdleMin: (m: number) => void
   onFxNow: () => void
+  link?: LinkPanel
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -287,7 +307,7 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
 }
 
 // v2 설정: 효과 이벤트 스위치(트레이에도 같은 스위치 — Rust), 도시(날씨), 지금 보기, 아스키 화면보호기 대기 시간
-function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMin, onFxNow }: Props) {
+function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMin, onFxNow, link }: Props) {
   const [draft, setDraft] = useState(city)
   const f = moonPhase(new Date())
   const save = () => draft.trim() && setCity(draft.trim())
@@ -309,6 +329,7 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
         <input className="city" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="도시 이름" />
       </form>
       <button className="primary now" onClick={onFxNow}>지금 보기</button>
+      {link && <LinkSettings {...link} />}
       <h3>아스키 아트</h3>
       <label className="row">
         <span className="grow">
@@ -347,5 +368,82 @@ function AppPicker({ onPick }: { onPick: (target: string, title: string) => void
         ))}
       </ul>
     </div>
+  )
+}
+
+// Hera Link: 켜기 · 이름 · 맥 위치(이 PC 화면 기준 상하좌우) · 포트 · TLS · Deskflow 설정 가져오기 · 상태/지문/페어링
+function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, pair, onPair, onImport, onTrust, onUnpair }: LinkPanel) {
+  const c = cfg ?? LINK_DEFAULT
+  const [msg, setMsg] = useState('')
+  const put = (patch: Partial<LinkCfg>) => setCfg({ ...c, ...patch })
+  const st = status?.state ?? 'off'
+  return (
+    <>
+      <h3>연결 · Hera Link</h3>
+      <label className="row">
+        <span className="grow">
+          <b>맥과 마우스·키보드·파일 함께 쓰기</b>
+          <small>{on ? `${LINK_STATE[st]}${status?.peer && st === 'connected' ? ` · ${status.peer}` : ''}` : '내장 입력 엔진 꺼짐'}</small>
+        </span>
+        <input type="checkbox" className="switch" checked={on} onChange={(e) => setOn(e.target.checked)} />
+      </label>
+      {on && status?.detail && <p className="link-note" data-state={st}>{status.detail}</p>}
+      {status?.fingerprint && (
+        <div className="row">
+          <span className="grow">
+            <b>새 맥 지문</b>
+            <small className="mono">{status.fingerprint.match(/.{1,4}/g)?.slice(0, 8).join(' ')}…</small>
+          </span>
+          <button className="primary" onClick={() => onTrust(status.fingerprint)}>신뢰</button>
+        </div>
+      )}
+      {pair && (
+        <div className="row pair-row">
+          <span className="grow">
+            <b>{pair.name} 페어링 코드</b>
+            <small className="code">{pair.code.slice(0, 3)} {pair.code.slice(3)}</small>
+          </span>
+          <button onClick={() => onPair(false)}>취소</button>
+          <button className="primary" onClick={() => onPair(true)}>같아요</button>
+        </div>
+      )}
+      <div className="row link-layout">
+        <span className="grow">
+          <b>맥 위치</b>
+          <small>이 PC 화면의 어느 쪽으로 넘어가면 맥인지</small>
+        </span>
+        <div className="layout-grid" role="radiogroup" aria-label="맥 위치">
+          {(['top', 'left', 'right', 'bottom'] as const).map((side) => (
+            <button key={side} className={`slot ${side}`} role="radio" aria-checked={c.side === side} onClick={() => put({ side })} aria-label={{ top: '위', left: '왼쪽', right: '오른쪽', bottom: '아래' }[side]}>
+              {c.side === side ? 'Mac' : ''}
+            </button>
+          ))}
+          <span className="me">PC</span>
+        </div>
+      </div>
+      <div className="row link-fields">
+        <label>이 PC<input value={c.me} placeholder="이 PC 이름" onChange={(e) => put({ me: e.target.value.trim() })} /></label>
+        <label>맥<input value={c.peer} onChange={(e) => put({ peer: e.target.value.trim() })} /></label>
+        <label>포트<input className="mins" type="number" value={c.port} onChange={(e) => put({ port: Number(e.target.value) || 24800 })} /></label>
+      </div>
+      <label className="row">
+        <span className="grow">
+          <b>TLS 암호화</b>
+          <small>{c.doubleTap ? '가장자리 두 번 치기로 넘어감 · ' : ''}끄면 같은 네트워크의 누구나 입력을 볼 수 있어요</small>
+        </span>
+        <input type="checkbox" className="switch" checked={c.tls} onChange={(e) => put({ tls: e.target.checked })} />
+      </label>
+      <div className="row">
+        <span className="grow">
+          <b>파일 채널</b>
+          <small>{filesPeer ? `${filesPeer} 연결됨` : pairedName ? `${pairedName} 와 페어링됨 · 연결 대기` : '페어링 전 — 맥 Hera 에서 연결하면 코드가 떠요'}</small>
+        </span>
+        {pairedName && <button onClick={onUnpair}>페어링 해제</button>}
+      </div>
+      <div className="link-actions">
+        <button onClick={() => onImport().then(() => setMsg('Deskflow 설정을 가져왔어요 (이름·배치·인증서)'), (e) => setMsg(String(e)))}>Deskflow 설정 가져오기</button>
+        {msg && <small>{msg}</small>}
+      </div>
+    </>
   )
 }
