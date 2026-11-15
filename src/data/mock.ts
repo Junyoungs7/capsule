@@ -30,10 +30,16 @@ export const seedTodos: Todo[] = [
   { id: 't3', title: '주간 보고 작성', due: at(1, 10), done: true, source: 'local' },
 ]
 
+const FRI = (5 - new Date().getDay() + 7) % 7 || 7 // 다음 금요일까지 며칠
 export const seedEvents: CalendarEvent[] = [
   { id: 'e1', title: '디자인 리뷰', start: at(0, 16), end: at(0, 17), source: 'local' },
   { id: 'e2', title: '스프린트 회고', start: at(2, 14), end: at(2, 15), source: 'local' },
   { id: 'e3', title: '점심 약속', start: at(5, 12), end: at(5, 13), source: 'local' },
+  // Hera Team 시안: 공유 그룹 일정 (그룹 색으로 표시)
+  { id: 't1', title: '배포', start: at(FRI, 14), end: at(FRI, 15), source: 'local', group: 'tg-dev', by: '민수' },
+  { id: 't2', title: '코드 리뷰 데이', start: at(1, 10), end: at(1, 12), source: 'local', group: 'tg-dev', by: '지은' },
+  { id: 't3', title: '배너 시안 리뷰', start: at(0, 15), end: at(0, 16), source: 'local', group: 'tg-banner', by: '서연' },
+  { id: 't4', title: '가을 배너 오픈', start: at(6, 9), end: at(6, 10), source: 'local', group: 'tg-banner', by: '현우' },
 ]
 
 export const seedGroups: AppGroup[] = [{ id: 'g-dev', title: '개발', recordIds: ['vscode', 'github', 'chrome', 'notepad', 'notion'] }]

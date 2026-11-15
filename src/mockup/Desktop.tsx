@@ -7,7 +7,8 @@ import {
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
-import { Island, type NextItem } from '../surfaces/Island'
+import { Island, type NextItem, type TeamNews } from '../surfaces/Island'
+import { TeamDemo } from '../surfaces/Team'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
@@ -220,6 +221,20 @@ export function Desktop({ only }: { only?: string }) {
   const onCue = (r: LpRecord) => void run(r)
   const [lpDrag, setLpDrag] = useState<'off' | 'drag' | 'over'>('off')
 
+  // Hera Team 변경 소식 (시안: 데모 바에서 발생, 4초 뒤 사라짐). 실제 앱: 그룹원이 바꾸면 Hera Link 로 받아 Island 에.
+  const [news, setNews] = useState<TeamNews | null>(null)
+  useEffect(() => {
+    if (!news) return
+    const t = window.setTimeout(() => setNews(null), 4200)
+    return () => clearTimeout(t)
+  }, [news?.n])
+  const NEWS = [
+    { who: '민수', group: 'tg-dev', what: '일정 추가', detail: '금 14:00 · 배포' },
+    { who: '서연', group: 'tg-banner', what: '메모 수정', detail: '메인 배너 카피 A/B 안 정리' },
+    { who: '지은', group: 'tg-dev', what: '일정 변경', detail: '코드 리뷰 데이 · 내일 10:00 → 11:00' },
+  ]
+  const fireNews = () => setNews((n) => ({ ...NEWS[(n?.n ?? 0) % NEWS.length], n: (n?.n ?? 0) + 1 }))
+
   // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
   // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
   const [apps, setApps] = useState<[string, string][]>([])
@@ -370,6 +385,12 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={() => setAscii({ open: true, from: null, saver: false })}>아스키 전체화면</button>
               <button aria-pressed={idleDemo} onClick={() => setIdleDemo((d) => !d)}>화면보호기 5초 {idleDemo ? '켬' : '끔'}</button>
             </div>
+ <TeamDemo
+              onSettings={() => openPanel('settings')}
+              onCalendar={() => openPanel('calendar')}
+              onNews={fireNews}
+              onAlarm={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}
+            />
             <V3Demo records={records} fgId={playing?.recordId} onApp={(r) => setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() - 4 * 60_000 })} onPanel={openPanel} onPalette={() => setPalette(true)} />
           </aside>
           <Taskbar />
@@ -390,6 +411,7 @@ export function Desktop({ only }: { only?: string }) {
           peek={peek}
           alive={isTauri ? !!fgRec && aliveIds.has(fgRec.id) : !!playing && ids(records.find((r) => r.id === playing.recordId) ?? { id: playing.recordId, kind: 'single' } as LpRecord).some((id) => running.has(id))}
           lp={lpDrag}
+          news={news}
           onDone={done}
           onSnooze={snooze}
           onOpen={() => openPanel('todo')}

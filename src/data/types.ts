@@ -17,9 +17,10 @@ export type Source = 'local' | 'google' | 'ms'
 // snooze = '10분 뒤 다시' 로 미룬 알림 시각 (있으면 due/start 대신 이 시각에 알림, Rust watch 루프가 판정)
 export type Todo = { id: string; title: string; due?: string; done: boolean; source: Source; externalId?: string; snooze?: string }
 
-export type CalendarEvent = { id: string; title: string; start: string; end: string; source: Source; externalId?: string; snooze?: string }
+// group = Hera Team 공유 그룹 id (없으면 내 일정), by = 마지막으로 추가·수정한 그룹원 이름
+export type CalendarEvent = { id: string; title: string; start: string; end: string; source: Source; externalId?: string; snooze?: string; group?: string; by?: string }
 
-export type Notification = { id: string; title: string; body: string; key?: string } // key = store 키 (todo:<id> / event:<id>)
+export type Notification = { id: string; title: string; body: string; key?: string; group?: string } // key = store 키 (todo:<id> / event:<id>), group = 팀 일정 알림의 그룹 id
 
 // C4 파일 선반: 키 shelf:<id>, at = 넣은 시각(정렬용)
 export type ShelfFile = { id: string; path: string; at: number }

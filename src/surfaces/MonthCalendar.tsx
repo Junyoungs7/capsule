@@ -1,6 +1,7 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import type { CalendarEvent, Todo } from '../data/types'
 import { dayKey, isHoliday, lunarOf } from '../data/holidays'
+import { GroupChips, groupOf, useTeam } from './Team'
 
 /* v3 패널 달력: 주/월 전환. 일요일·공휴일 빨강, 토요일 파랑, 공휴일 이름, 작은 음력 날짜, 일정·할 일 점, 오늘 링.
    달(주) 넘기기 = 새 격자가 스프링으로 밀려 들어오고 이전 격자는 반대로 빠진다. */
@@ -30,7 +31,10 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   const [out, setOut] = useState<{ anchor: Date; mode: Mode; dir: number } | null>(null) // 빠지는 중인 이전 격자
   const [dir, setDir] = useState(0)
   const [title, setTitle] = useState('')
+  const [scope, setScope] = useState('') // '' = 내 일정, 아니면 공유 그룹 id
+  const { groups, hidden } = useTeam()
   const today = dayKey(new Date())
+  const colorOf = (ev: CalendarEvent) => groupOf(ev.group)?.color ?? 'var(--accent)'
 
   const go = (next: Date, m = mode) => {
     if (next.getTime() === anchor.getTime() && m === mode) return
@@ -50,6 +54,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   // 날짜별 일정·마감 할 일
   const evBy = new Map<string, CalendarEvent[]>()
   for (const ev of events) {
+    if (hidden.includes(ev.group ?? 'me')) continue // 필터 칩으로 숨긴 달력
     const k = dayKey(new Date(ev.start))
     evBy.set(k, [...(evBy.get(k) ?? []), ev])
   }
@@ -76,9 +81,12 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           <b>{d.getDate()}</b>
           {m === 'month' ? <small className={hol ? 'mc-hol' : 'mc-lunar'}>{hol ? hol.replace(/^대체공휴일\((.+)\)$/, '대체($1)') : lunarText(d)}</small> : <small className="mc-lunar">음 {lunarOf(d)?.join('.') ?? ''}</small>}
           {m === 'week' && hol && <small className="mc-hol">{hol}</small>}
-          {m === 'week' && evs.slice(0, 3).map((ev) => <span key={ev.id} className="mc-chip">{hm(ev.start)} {ev.title}</span>)}
+          {m === 'week' && evs.slice(0, 3).map((ev) => <span key={ev.id} className="mc-chip" data-group={!!ev.group} style={{ '--g': colorOf(ev) } as React.CSSProperties}>{hm(ev.start)} {ev.title}</span>)}
           {(evs.length > 0 || todoBy.has(k)) && m === 'month' && (
-            <span className="mc-dots">{evs.length > 0 && <i />}{todoBy.has(k) && <i className="todo" />}</span>
+            <span className="mc-dots">
+              {[...new Set(evs.map(colorOf))].slice(0, 3).map((c) => <i key={c} style={{ '--g': c } as React.CSSProperties} />)}
+              {todoBy.has(k) && <i className="todo" />}
+            </span>
           )}
         </button>
       )
@@ -97,7 +105,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
     e.preventDefault()
     if (!title.trim()) return
     const s = new Date(`${sel}T09:00`)
-    setEvents((all) => [...all, { id: crypto.randomUUID(), title: title.trim(), start: s.toISOString(), end: new Date(s.getTime() + 3_600_000).toISOString(), source: 'local' }])
+    setEvents((all) => [...all, { id: crypto.randomUUID(), title: title.trim(), start: s.toISOString(), end: new Date(s.getTime() + 3_600_000).toISOString(), source: 'local', ...(scope && { group: scope, by: '나' }) }])
     setTitle('')
     onAdded()
   }
@@ -122,6 +130,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           <button className="icon-btn" onClick={() => shift(1)} aria-label={mode === 'month' ? '다음 달' : '다음 주'}>›</button>
         </span>
       </div>
+      <GroupChips />
       <div className="mc-stage" role="grid">
         {out && sheet(out.anchor, out.mode, 'out', out.dir)}
         {sheet(anchor, mode, out ? 'in' : 'still', dir)}
@@ -132,18 +141,26 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
         {hol && <small className="mc-hol">{hol}</small>}
       </div>
       <form className="add mc-add" onSubmit={add}>
+        <select className="mc-scope" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="어느 달력에" style={{ '--g': groupOf(scope)?.color ?? 'var(--accent)' } as React.CSSProperties}>
+          <option value="">내 일정</option>
+          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${sel.slice(5).replace('-', '/')} 일정 추가 (09:00)`} aria-label="일정 제목" />
         <button className="primary">추가</button>
       </form>
       <ul className="list">
         {dayEvents.length + dayTodos.length === 0 && <li className="empty">{hol ? '쉬는 날이에요' : '이 날은 일정이 없어요'}</li>}
-        {dayEvents.map((ev) => (
-          <li key={ev.id}>
+        {dayEvents.map((ev) => {
+          const g = groupOf(ev.group)
+          return (
+          <li key={ev.id} className="ev" data-group={!!g} style={{ '--g': colorOf(ev) } as React.CSSProperties}>
             <span className="ev-time">{hm(ev.start)}</span>
-            <span className="grow"><b>{ev.title}</b></span>
+            <span className="grow"><b>{ev.title}</b>{g && <small>{ev.by}님이 추가</small>}</span>
+            {g && <span className="gchip">{g.name}</span>}
             <button className="icon-btn del" onClick={() => setEvents((all) => all.filter((x) => x.id !== ev.id))} aria-label={`${ev.title} 삭제`}>×</button>
           </li>
-        ))}
+          )
+        })}
         {dayTodos.map((t) => (
           <li key={t.id} data-done={t.done}>
             <span className="ev-time todo">{hm(t.due!)}</span>

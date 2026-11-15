@@ -4,6 +4,7 @@ import './styles/glass.css'
 import './styles/lp.css'
 import './styles/v2.css'
 import './styles/v3.css'
+import './styles/team.css'
 import './styles/glass-b.css'
 import { Desktop } from './mockup/Desktop'
 

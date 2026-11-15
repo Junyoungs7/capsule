@@ -4,6 +4,7 @@ import { isTauri, useItems } from '../data/api'
 import { Tile, reducedMotion, usePresence } from './Dock'
 import { Ocr } from './Ocr'
 import type { Tab } from './Panel'
+import { Avatar, groupOf } from './Team'
 
 /* v3 바탕화면 포스트잇 · 앱별 메모 · 화면 글자 복사(OCR) 레이어.
    표면 사이 상태(메모 펼침/접힘, OCR 열림)는 작은 모듈 저장소 — 독 아이템·팔레트·데모 바가 같은 값을 본다. */
@@ -14,7 +15,8 @@ export const setV3 = (p: Partial<V3>) => ((st = { ...st, ...p }), subs.forEach((
 export const useV3 = () => useSyncExternalStore((f) => (subs.add(f), () => void subs.delete(f)), () => st)
 
 // 메모: 키 note:<id>. appId = 이 앱이 앞에 있을 때만 화면 오른쪽 가장자리에 붙는 메모 (바탕화면엔 안 보임)
-export type Note = { id: string; text: string; color: number; x: number; y: number; w: number; h: number; pinned: boolean; appId?: string }
+// group = Hera Team 공유 메모판 id (그룹 색 테두리 + 마지막 편집자), by = 마지막 편집자
+export type Note = { id: string; text: string; color: number; x: number; y: number; w: number; h: number; pinned: boolean; appId?: string; group?: string; by?: string }
 export const NOTE_COLORS = ['#f5c542', '#f47fb0', '#5bb8f5', '#42c9a0', '#a78bfa', '#f59e6b']
 const COLOR_NAMES = ['노랑', '분홍', '하늘', '민트', '라벤더', '살구']
 
@@ -22,6 +24,7 @@ const seedNotes: Note[] = [
   { id: 'n1', text: '오늘 3시 배너 QA\n디자인팀 피드백 반영본으로 확인', color: 0, x: 330, y: 96, w: 220, h: 150, pinned: false },
   { id: 'n2', text: '- [x] 주간 보고 초안\n- [ ] 휴가 신청 (12/24)\n- [ ] 노트북 반납\n- [ ] 회의록 공유', color: 3, x: 576, y: 128, w: 230, h: 170, pinned: true },
   { id: 'n3', text: '와이파이 HERA-5G\nhera2026!', color: 4, x: 360, y: 272, w: 196, h: 118, pinned: false },
+  { id: 'n5', text: '배포 체크리스트\n- [x] QA 확인\n- [ ] 릴리즈 노트', color: 3, x: 590, y: 318, w: 220, h: 140, pinned: false, group: 'tg-dev', by: '민수' },
   { id: 'n4', text: '- [ ] PR #142 리뷰 코멘트 반영\n- [x] lint 통과\n배포 전 .env.production 확인!', color: 2, x: 0, y: 0, w: 248, h: 150, pinned: false, appId: 'vscode' },
 ]
 
@@ -153,6 +156,8 @@ function NoteCard({ n, records, z, edge, edit: edit0, onFront, onPatch, onNew, o
   const [edit, setEdit] = useState(!!edit0)
   const [pop, setPop] = useState<'color' | 'app' | null>(null)
   const app = n.appId ? records.find((r) => r.id === n.appId) : undefined
+  const g = groupOf(n.group)
+  const editor = g?.members.find((m) => m.name === n.by)
 
   // 새 메모: 살짝 튀어나오며 등장
   useLayoutEffect(() => {
@@ -194,8 +199,10 @@ function NoteCard({ n, records, z, edge, edit: edit0, onFront, onPatch, onNew, o
 
   return (
     <div ref={pos} className="note-pos" style={edge ? undefined : { transform: `translate(${n.x}px, ${n.y}px)`, width: n.w, height: n.h, zIndex: z }} onPointerDown={onFront}>
-      <div ref={card} className="note" data-pinned={n.pinned} style={{ '--nc': NOTE_COLORS[n.color] } as CSSProperties}>
+      <div ref={card} className="note" data-pinned={n.pinned} data-group={!!g} style={{ '--nc': NOTE_COLORS[n.color], ...(g && { '--g': g.color }) } as CSSProperties}>
+        {g && <i className="note-gbar" aria-hidden />}
         <header className="note-bar" onPointerDown={(e) => grab(e, 'move')}>
+          {g && <span className="note-group" title={`${g.name} 공유 메모 · ${n.by} 마지막 편집`}><Avatar m={editor ?? { name: n.by ?? '?', online: false }} color={g.color} size={16} /><small>{g.name}</small></span>}
           {app && <span className="note-app" title={`${app.title} 메모`}><Tile rec={app} size={18} /><small>{app.title}</small></span>}
           {!edge && <button onClick={onNew} aria-label="새 메모" title="새 메모"><Ico d="M12 6v12M6 12h12" /></button>}
           <span className="grow" />

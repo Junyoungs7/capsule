@@ -3,9 +3,12 @@ import type { LpRecord, Notification, RunningSession } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri, reportHitRects } from '../data/api'
 import { Disc, useSpin } from './Lp'
+import { Avatar, groupOf } from './Team'
 
 export type NextItem = { title: string; at?: string; kind: 'todo' | 'event' }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue'
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news'
+// Hera Team 변경 소식: 누가 · 어느 그룹 · 무엇을 (짧게 떴다 사라짐)
+export type TeamNews = { who: string; group: string; what: string; detail: string; n: number }
 
 // 컨테이너(=창)는 최대 크기 고정, 상태별 모양은 고정 프리셋 → clip-path 스프링
 const SIZES: Record<Mode, [number, number, number]> = {
@@ -14,6 +17,7 @@ const SIZES: Record<Mode, [number, number, number]> = {
   nowPlaying: [372, 68, 30],
   alert: [404, 122, 30],
   drop: [372, 92, 30],
+  news: [392, 58, 29],
   cue: [372, 68, 30], // LP 를 끌고 오는 중 = nowPlaying 과 같은 모양 → 놓으면 내용만 바뀜
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
@@ -50,9 +54,10 @@ type Props = {
   onDropFiles: (paths: string[]) => void
   alive?: boolean // 지금 레코드의 앱이 살아 있음 = LP 회전 (턴테이블 규칙)
   lp?: 'off' | 'drag' | 'over' // 독에서 LP 를 끌고 오는 중
+  news?: TeamNews | null
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off' }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -70,7 +75,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     })
     return () => void off.then((f) => f())
   }, [])
-  const mode: Mode = drag ? 'drop' : alert ? 'alert' : lp !== 'off' ? 'cue' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const mode: Mode = drag ? 'drop' : alert ? 'alert' : lp !== 'off' ? 'cue' : news ? 'news' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
@@ -159,6 +164,15 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
         </span>
       </div>
 
+      <div className="island-layer news" style={{ width: SIZES.news[0], height: SIZES.news[1], '--g': groupOf(news?.group)?.color } as React.CSSProperties} aria-hidden={mode !== 'news'} role="status">
+        {news && <Avatar m={groupOf(news.group)?.members.find((m) => m.name === news.who) ?? { name: news.who, online: true }} color={groupOf(news.group)?.color ?? '#64748b'} size={34} />}
+        <span className="txt">
+          <b>{news?.who}님이 {groupOf(news?.group)?.name} {news?.what}</b>
+          <small>{news?.detail}</small>
+        </span>
+        <span className="chip gchip">{groupOf(news?.group)?.name}</span>
+      </div>
+
       <div className="island-layer drop" style={{ width: SIZES.drop[0], height: SIZES.drop[1] }} aria-hidden={mode !== 'drop'}>
         <span className="tray">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v10M8 10l4 4 4-4" /><path d="M4 14v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" /></svg>
@@ -172,7 +186,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       <div className="island-layer alert" style={{ width: SIZES.alert[0], height: SIZES.alert[1] }} aria-hidden={mode !== 'alert'} role="alert">
         <div className="head">
           <span className="bell" />
-          <small>알림 · 지금</small>
+          <small>{groupOf(alert?.group) ? '팀 일정 · 지금' : '알림 · 지금'}</small>
+          {groupOf(alert?.group) && <span className="chip gchip" style={{ '--g': groupOf(alert?.group)!.color } as React.CSSProperties}>{groupOf(alert?.group)!.name}</span>}
         </div>
         <b>{alert?.title}</b>
         <small className="body">{alert?.body}</small>

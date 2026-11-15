@@ -7,6 +7,7 @@ import type { Weather } from './Fx'
 import { moonName, moonPhase } from './Ascii'
 import { MonthCalendar } from './MonthCalendar'
 import { SnippetTab } from './Snippets'
+import { TeamSection } from './Team'
 
 export type Tab = 'todo' | 'calendar' | 'library' | 'snippets' | 'settings'
 const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['snippets', '상용구'], ['settings', '설정']]
@@ -221,6 +222,7 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
   const save = () => draft.trim() && setCity(draft.trim())
   return (
     <div className="settings">
+      <TeamSection />
       <h3>날씨 · 계절 효과</h3>
       <label className="row">
         <span className="grow">
