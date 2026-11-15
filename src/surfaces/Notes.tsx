@@ -67,6 +67,9 @@ export function NotesDockItem() {
 // 접힘 목표: 독이 펼쳐져 있으면 메모 아이콘, 아니면 독 점(하단 가운데)
 function dockTarget() {
   const dock = document.querySelector<HTMLElement>('.dock')
+  // 허브 시안(독 없음): Island 알약으로 빨려 들어간다
+  const isl = !dock && document.querySelector('.island-shape')?.getBoundingClientRect()
+  if (isl) return { x: isl.left + isl.width / 2, y: isl.top + isl.height / 2 }
   const icon = dock?.dataset.open === 'true' && document.querySelector('.dock-notes')
   const r = (icon || dock)?.getBoundingClientRect()
   return r ? { x: r.left + r.width / 2, y: icon ? r.top + r.height / 2 : r.bottom - 10 } : { x: innerWidth / 2, y: innerHeight }
@@ -141,6 +144,9 @@ function MockWindow({ rec, rect }: { rec?: LpRecord; rect: DOMRect }) {
 
 /* ── 레이어 (시안: 가짜 바탕화면 위) ── */
 // anchor = 지금 앞에 있는 앱 창 rect (실제 앱에서 넘겨줌). 없으면 시안은 가짜 창을 그려 그 옆에 붙인다.
+// 허브 시안: 바깥(허브 '새 메모'·'앱 메모')에서 메모 만들기
+let addReq: ((appId?: string) => void) | null = null
+export const newNote = (appId?: string) => addReq?.(appId)
 export function V3Layer({ records, fgId, anchor }: { records: LpRecord[]; fgId?: string; anchor?: DOMRect }) {
   const { notes: shown, ocr } = useV3()
   const [notes, setNotes] = useItems<Note>('note', seedNotes)
@@ -150,13 +156,14 @@ export function V3Layer({ records, fgId, anchor }: { records: LpRecord[]; fgId?:
   const layer = useRef<HTMLDivElement>(null)
 
   const patch = (id: string, p: Partial<Note>) => setNotes((all) => all.map((n) => (n.id === id ? { ...n, ...p } : n)))
-  const add = (from?: Note) => {
+  const add = (from?: Note, appId?: string) => {
     const id = crypto.randomUUID()
-    setNotes((all) => [...all, { id, text: '', color: from ? (from.color + 1) % 6 : 0, x: (from?.x ?? 420) + 28, y: (from?.y ?? 140) + 28, w: 210, h: 140, pinned: false }])
+    setNotes((all) => [...all, { id, text: '', color: from ? (from.color + 1) % 6 : appId ? 3 : 0, x: (from?.x ?? 420) + 28, y: (from?.y ?? 140) + 28, w: appId ? 248 : 210, h: appId ? 150 : 140, pinned: false, appId }])
     setFront(id)
     setFresh(id)
     setV3({ notes: true })
   }
+  addReq = (appId) => add(undefined, appId)
   const say = (msg: string) => setToast((t) => ({ msg, n: (t?.n ?? 0) + 1 }))
 
   // 시안 단축키: Ctrl+Alt+T = 화면 글자 복사 (실제 앱 = Rust 전역 단축키)
