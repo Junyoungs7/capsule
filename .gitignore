@@ -5,3 +5,6 @@ src-tauri/gen/
 **/.omc/state/
 .omc/sessions/
 src/.omc/
+
+# Hera Link engine binaries (scripts/fetch-deskflow.ps1)
+src-tauri/resources/link/
