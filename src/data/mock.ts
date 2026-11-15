@@ -1,5 +1,4 @@
 import type { AppGroup, CalendarEvent, Clip, LpRecord, ShelfFile, Todo } from './types'
-import type { Win } from './api'
 
 export const seedShelf: ShelfFile[] = [
   { id: 's1', path: String.raw`C:\Users\me\Documents\기획서_v3.pdf`, at: 1 },
@@ -89,9 +88,3 @@ if (STRESS) {
   )
 }
 if (EMPTY) for (const a of [seedEvents, seedTodos, seedClips, seedShelf, seedRecords, seedGroups] as unknown[][]) a.length = 0
-
-/** QA: 고정 안 된 실행 중 앱 15개 (독 '작업 표시줄' 칸 스트레스) */
-export function stressWins(): Win[] {
-  const apps = ['Excel', 'PowerPoint', 'Outlook', 'Teams', 'Explorer', 'Terminal', 'Paint', 'Photos', 'Settings', 'Edge', 'Spotify', 'Discord', 'Zoom', 'OneNote', 'Visual Studio 2022 — hera.sln']
-  return apps.map((t, i) => ({ hwnd: 9000 + i, key: 'qa' + i, keys: ['qa' + i], title: t, exe: `C:\\Apps\\${t.split(' ')[0]}.exe`, aumid: '', min: i % 4 === 0, flash: i === 3 }))
-}

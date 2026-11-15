@@ -900,7 +900,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
                 }
             }
             lf::Event::Received { path, meta, .. } => {
-                let _ = app.emit_to("dock", "link-received", path.clone());
+                let _ = app.emit_to("island", "link-received", path.clone());
                 // 맥 가장자리로 끌어 보낸 파일: 이어진 PC 가장자리 그 자리에 진한 물결
                 #[cfg(windows)]
                 if meta["via"] == "edge" {

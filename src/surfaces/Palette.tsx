@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type KeyboardEvent } from 'react'
 import type { Clip, LpRecord, Todo } from '../data/types'
 import { isTauri } from '../data/api'
-import { Tile } from './Dock'
+import { Tile } from './Tile'
 import { ExtraIcon, extraLabel, runExtra, useExtras, type Extra } from './Snippets'
 
 type Item = { key: string; title: string; sub: string; rec?: LpRecord; target?: string; clip?: Clip; x?: Extra; run?: () => void }
@@ -17,6 +17,7 @@ type Props = {
   clips: Clip[]
   onCopy: (c: Clip) => void
   cmds?: { key: string; title: string; sub: string; run: () => void }[] // 명령 (Hera Link: 맥에 아스키 켜기 …)
+  initialQ?: string // 허브 '스니펫' = ';'
 }
 
 const LIMIT = 30 // 목록 DOM 상한 (시작 메뉴 앱 300여 개)
@@ -27,8 +28,8 @@ const ago = (t: number) => {
 }
 
 // 실제 앱: Ctrl+Alt+K 전역 단축키(C3) → 팔레트 창. 시안: Ctrl+K. 검색은 단순 부분 일치.
-export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy, cmds = [] }: Props) {
-  const [q, setQ] = useState('')
+export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy, cmds = [], initialQ = '' }: Props) {
+  const [q, setQ] = useState(initialQ)
   const [sel, setSel] = useState(0)
   const [copied, setCopied] = useState<string | null>(null)
   const [pv, setPv] = useState<string | null>(null) // v3 상용구 미리보기 중인 항목

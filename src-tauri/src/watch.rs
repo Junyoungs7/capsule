@@ -200,6 +200,13 @@ const DRAG_MARGIN: f64 = 24.0;
 /// 원하는 확장 스타일. tao 는 자기 플래그로 GWL_EXSTYLE 을 통째로 다시 쓰므로(show/hide 등)
 /// TOOLWINDOW 를 지우고 APPWINDOW 를 되살린다 → 매 틱 비교해 다를 때만 쓴다.
 /// 클릭 통과 = TRANSPARENT|LAYERED (tao 의 set_ignore_cursor_events 와 같은 비트).
+/// 아일랜드 창(맨 위 가운데) 기준 드롭 띠: 창 폭 양옆 +120px, 창 위에서 140px 까지 (물리 px 근사 — 창 폭이 배율을 따른다)
+fn drag_near(x: i32, y: i32, r: &RECT) -> bool {
+    let s = (r.right - r.left) as f64 / 460.0; // 아일랜드 창 논리 폭 460
+    let pad = (120.0 * s) as i32;
+    x >= r.left - pad && x < r.right + pad && y >= r.top && y < r.top + (140.0 * s) as i32
+}
+
 fn ex_style(cur: isize, pass: bool) -> isize {
     let through = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
     let base = (cur | (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) as isize) & !(WS_EX_APPWINDOW.0 as isize);
@@ -485,6 +492,7 @@ pub fn start(app: AppHandle) {
         let me = GetCurrentProcessId();
         let mut prev_lb = false;
         let mut drag_out = false; // 창 밖에서 누른 채 들어오는 드래그(탐색기 파일 등)
+        let mut drag_shown = false;
         let mut last_fg = HWND::default();
         let mut prev_fg = HWND::default(); // 마지막 외부(비 Hera) 포그라운드
         let mut hidden = false;
@@ -520,7 +528,8 @@ pub fn start(app: AppHandle) {
                 })
                 .collect();
             let inside = |r: &RECT| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom;
-            if lb && !prev_lb {
+            let pressed = lb && !prev_lb;
+            if pressed {
                 drag_out = !rects.iter().any(inside);
             } else if !lb {
                 drag_out = false;
@@ -528,8 +537,25 @@ pub fn start(app: AppHandle) {
             prev_lb = lb;
             // Hera Link: 바깥에서 끌어오는 중이면 가장자리 띠를 받기 모드로 (근처일 때만)
             crate::edge::tick(pt.x, pt.y, drag_out);
+            // 바깥에서 끌어오는 드래그(파일)가 아일랜드 근처(위쪽 가운데 띠)에 오면 노치를 드롭존으로 — OS 전역 '파일 드래그 중' 신호는 없다
+            if let Some(i) = overlays.iter().position(|&(l, _)| l == "island") {
+                let near = drag_out && drag_near(pt.x, pt.y, &rects[i]);
+                if near != drag_shown {
+                    drag_shown = near;
+                    let _ = app.emit_to("island", "drag-near", near);
+                }
+            }
 
             let hits = HITS.lock().unwrap().clone();
+            // 허브가 펼쳐진 동안(아일랜드 히트 rect 2개 이상) 그 밖을 누르면 접기 — 아일랜드 창은 클릭 통과라 스스로 못 본다
+            if pressed {
+                if let (Some(i), Some((_, hr))) = (overlays.iter().position(|&(l, _)| l == "island"), hits.iter().find(|(l, _)| l == "island")) {
+                    let r = &rects[i];
+                    if hr.len() > 1 && !hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, hr, 0.0) {
+                        let _ = app.emit_to("island", "island-outside", ());
+                    }
+                }
+            }
             for (i, &(label, h)) in overlays.iter().enumerate() {
                 let r = &rects[i];
                 let shape = hits.iter().find(|(l, _)| l == label).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
@@ -674,6 +700,18 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drag_band() {
+        let r = RECT { left: 730, top: 0, right: 1190, bottom: 560 }; // 1920 폭 모니터, 배율 1
+        assert!(drag_near(960, 10, &r));
+        assert!(drag_near(615, 139, &r)); // 왼쪽 여유 120 안
+        assert!(!drag_near(600, 10, &r));
+        assert!(!drag_near(960, 140, &r)); // 띠 아래 (앱 위 드래그는 그대로)
+        let r2 = RECT { left: 1095, top: 0, right: 1785, bottom: 840 }; // 배율 1.5
+        assert!(drag_near(1785 + 179, 209, &r2));
+        assert!(!drag_near(960, 300, &r2));
+    }
 
     #[test]
     fn hit_test() {

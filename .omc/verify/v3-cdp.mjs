@@ -1,4 +1,4 @@
-// v3 native wiring on an ISOLATED-identifier release build (see link-cdp.mjs header). Does not paste/type into other apps.
+// v3 native wiring (Island-only) on an ISOLATED-identifier build (see link-cdp.mjs header). Does not paste/type into other apps.
 //   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9333'; start src-tauri\target\release\hera.exe; node .omc/verify/v3-cdp.mjs
 import { page, PORT, storeSet } from './cdp.mjs'
 
@@ -14,17 +14,10 @@ const until = async (f, ms = 5000) => {
   return false
 }
 
-const dock = await page('dock')
+const dock = await page('palette') // Island-only: 독 없음 — store·커맨드는 아무 창에서나
 const island = await page('island')
 
-// 1. dock: open it and check the row fits the window (useFit folds running apps into +N)
-await dock.evaluate(`document.querySelector('.dock').dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }))`)
-await sleep(900)
-const fit = await dock.evaluate(`(() => { const row = document.querySelector('.dock-row'); return { row: row.offsetWidth, win: innerWidth, run: document.querySelectorAll('.run-app').length, fold: document.querySelectorAll('[class*=more], .dock-more, .run-more').length } })()`)
-ok('dock row fits the window (useFit)', fit.row <= fit.win, `(row ${fit.row} ≤ window ${fit.win}, run slots ${fit.run})`)
-const wins = await dock.evaluate(inv('windows_list'))
-ok('running apps folded when many', wins.length < 7 || fit.run <= 6, `(${wins.length} app windows → ${fit.run} slots)`)
-ok('dock 최근 복사 command reachable', Array.isArray(await dock.evaluate(inv('clips'))))
+ok('최근 복사 command reachable', Array.isArray(await dock.evaluate(inv('clips'))))
 
 // 2. notes window: a desktop note + notes.shown → window per monitor; collapse → destroyed
 await dock.evaluate(storeSet('note:v3cdp', { id: 'v3cdp', text: 'CDP 메모', color: 2, x: 300, y: 200, w: 220, h: 140, pinned: false }))
@@ -63,12 +56,6 @@ ok('Island shows 아스키 재생 중', await until(() => island.evaluate(`docum
 await island.evaluate(inv('ascii_stop'))
 ok('ascii_stop closes the window', await until(async () => !(await pages()).includes('ascii'), 5000))
 ok('Island leaves ascii mode', await until(() => island.evaluate(`document.querySelector('.island')?.dataset.mode !== 'ascii'`)))
-
-// 5. LP drag relay → Island cue platter
-await dock.evaluate(inv('lp_drag', { phase: 'drag', x: 0, y: 0, recordId: '' }))
-ok('lp-drag shows the cue platter on the Island', await until(() => island.evaluate(`document.querySelector('.island')?.dataset.mode === 'cue'`)))
-await dock.evaluate(inv('lp_drag', { phase: 'off', x: 0, y: 0, recordId: '' }))
-ok('lp-drag off clears it', await until(() => island.evaluate(`document.querySelector('.island')?.dataset.mode !== 'cue'`)))
 
 // 6. Hera Team: create a group, invite code + string (isolated store)
 const g = await dock.evaluate(inv('team_create', { name: 'CDP팀', color: '#14b8a6' }))

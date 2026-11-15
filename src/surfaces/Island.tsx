@@ -15,7 +15,7 @@ export type LinkView = {
   pair: { code: string; name: string } | null
   xfer: { dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null
 }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news' | 'ascii' | 'swap' | 'pair' | 'xfer' | 'ime'
+type Mode = 'msg' | 'flash' | 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news' | 'ascii' | 'swap' | 'pair' | 'xfer' | 'ime'
 // Hera Team 변경 소식: 누가 · 어느 그룹 · 무엇을 (짧게 떴다 사라짐)
 export type TeamNews = { who: string; group: string; what: string; detail: string; n: number }
 
@@ -33,6 +33,8 @@ const SIZES: Record<Mode, [number, number, number]> = {
   pair: [404, 104, 30],
   xfer: [372, 68, 30],
   ime: [68, 36, 18],
+  flash: [280, 44, 22],
+  msg: [420, 104, 30],
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
 
@@ -77,9 +79,19 @@ type Props = {
   onPair?: (ok: boolean) => void
   ime?: { source: 'ko' | 'en'; n: number } | null // 한/영이 바뀐 직후 0.8초 '한'/'A' 칩
   onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
+  // 허브 시안(독 없음): 알약 = 시계 · 다음 일정 · 작은 LP(재생 중) + 정지. 호버 미리보기 대신 허브가 열린다.
+  // notch = 접힌 상태(얇은 노치 120×6, 글자 없음 · 점만). 펼침 = 시계 · 다음 일정 · 선반 칩
+  pill?: { clock: string; next?: string; badge?: number; busy?: string; notch: boolean; shelf?: number; onShelf?: () => void }
+  msg?: { who: string; group: string; color: string; text: string; n: number } | null // 팀 채팅 수신 + 빠른 답장
+  onReply?: (text: string) => void
+  onMsgOpen?: () => void
+  onHover?: (on: boolean, pointerType: string) => void
+  flash?: { text: string; rec?: LpRecord; n: number; icon?: 'ok' | 'fail' | 'spin' } | null // 잠깐 뜨는 한 줄 ('실행 중 · 앱' · '복사됨')
+  forceDrop?: boolean // 바깥에서 파일을 끌고 위쪽 가운데로 오면(watch 'drag-near') · 시안 '파일 놓기'
+  extraRect?: DOMRect | null // 허브가 펼쳐져 있으면 그 상자도 클릭 받기
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip, pill, onHover, flash, forceDrop, msg, onReply, onMsgOpen, extraRect }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -105,7 +117,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     return () => void off.then((f) => f())
   }, [])
   // 화면 전환 표시는 swap.n 이 바뀔 때만 (1.6초 — Desktop 이 지움)
-  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : ime ? 'ime' : lp !== 'off' ? 'cue' : link?.xfer ? 'xfer' : ascii ? 'ascii' : link?.swap ? 'swap' : news ? 'news' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const mode: Mode = link?.pair ? 'pair' : drag || forceDrop ? 'drop' : msg ? 'msg' : flash ? 'flash' : alert ? 'alert' : ime ? 'ime' : lp !== 'off' ? 'cue' : link?.xfer ? 'xfer' : ascii ? 'ascii' : link?.swap ? 'swap' : news ? 'news' : (hover && !pill) || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
@@ -118,7 +130,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       if (names.length) (split && right(e.clientX) ? onSendFiles! : onDropFiles)(names)
     },
   }
-  const [w, h, r] = mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
+  const pillW = pill ? 300 + (pill.badge ? 30 : 0) + (pill.shelf ? 64 : 0) : 0
+  const [w, h, r] = mode === 'idle' && pill ? (pill.notch ? ([120, 6, 3] as const) : ([pillW, 40, 20] as const)) : mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
   const pct = link?.xfer ? Math.round((100 * link.xfer.bytes) / Math.max(1, link.xfer.size)) : 0
 
   // LP: 앱이 살아 있는 동안 회전 (계단식 가속 → 정속 30°/150ms). 디스크가 보일 때만 돌린다.
@@ -138,8 +151,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const b = root.current!.getBoundingClientRect()
-    reportHitRects('island', [new DOMRect(b.left + (b.width - w) / 2, b.top, w, h)])
-  }, [w, h])
+    reportHitRects('island', [new DOMRect(b.left + (b.width - w) / 2, b.top, w, h), ...(extraRect ? [extraRect] : [])])
+  }, [w, h, extraRect?.x, extraRect?.y, extraRect?.width, extraRect?.height])
 
   const today = new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })
 
@@ -150,15 +163,59 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       data-mode={mode}
       data-xfer={link?.xfer ? `${link.xfer.dir}${link.xfer.done ? '-done' : ''}` : undefined}
       data-lp={lp}
-      onPointerEnter={() => setHover(true)}
-      onPointerLeave={() => setHover(false)}
-      onClick={() => mode === 'preview' && onOpen()}
+      onPointerEnter={(e) => (setHover(true), onHover?.(true, e.pointerType))}
+      onPointerLeave={(e) => (setHover(false), onHover?.(false, e.pointerType))}
+      onClick={() => (mode === 'preview' || (pill && (mode === 'idle' || mode === 'nowPlaying'))) && onOpen()}
       {...dnd}
     >
       {/* 블러 없는 짙은 판 1장 — clip-path(path)+backdrop-filter 재래스터가 버벅임 원인이었음 */}
       <div className="island-shape" style={{ width: w, height: h, borderRadius: r }} />
 
-      <div className="island-layer idle" style={{ width: link?.connected ? 156 : SIZES.idle[0], height: SIZES.idle[1] }} aria-hidden={mode !== 'idle'}>
+      {pill && (
+        <>
+          <div className="island-layer hubnotch" style={{ width: 120, height: 6 }} aria-hidden={mode !== 'idle' || !pill.notch}>
+            {!!pill.badge && <i data-k="unread" />}
+            {pill.busy && <i data-k="busy" />}
+            {!!pill.shelf && <i data-k="shelf" />}
+          </div>
+          <div className="island-layer hubpill" style={{ width: pillW, height: 40 }} aria-hidden={mode !== 'idle' || pill.notch}>
+            <b className="pill-clock">{pill.clock}</b>
+            {pill.busy ? <span className="pill-next pill-busy"><i className="hub-spin" />{pill.busy}</span> : <span className="pill-next">{pill.next ?? '예정 없음'}</span>}
+            {!!pill.badge && <span className="pill-badge" aria-label={`읽지 않은 메시지 ${pill.badge}개`}>{pill.badge}</span>}
+            {!!pill.shelf && (
+              <button className="pill-shelf" onClick={(e) => (e.stopPropagation(), pill.onShelf?.())} tabIndex={mode === 'idle' && !pill.notch ? 0 : -1} aria-label={`선반 파일 ${pill.shelf}개 보기`}>
+                <i />선반 {pill.shelf}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      <div className="island-layer hubflash" style={{ width: SIZES.flash[0], height: SIZES.flash[1] }} aria-hidden={mode !== 'flash'} role="status">
+        {flash?.rec ? <Disc rec={flash.rec} size={30} /> : flash?.icon === 'spin' ? <i className="hub-spin" /> : <span className="flash-ok" data-fail={flash?.icon === 'fail'} aria-hidden>{flash?.icon === 'fail' ? '✕' : '✓'}</span>}
+        <b key={flash?.n}>{flash?.text}</b>
+      </div>
+      {onReply && (
+        <form className="island-layer hubmsg" style={{ width: SIZES.msg[0], height: SIZES.msg[1], '--g': msg?.color } as React.CSSProperties} aria-hidden={mode !== 'msg'} role="status"
+          onClick={(e) => e.stopPropagation()}
+          onSubmit={(e) => {
+            e.preventDefault()
+            const el = e.currentTarget.elements.namedItem('r') as HTMLInputElement
+            if (el.value.trim()) onReply(el.value.trim())
+            el.value = ''
+          }}>
+          <button type="button" className="msg-head" onClick={onMsgOpen} tabIndex={mode === 'msg' ? 0 : -1}>
+            <i className="msg-dot" />
+            <b>{msg?.who}</b>
+            <small>{msg?.group} · 채팅</small>
+          </button>
+          <span className="msg-text">{msg?.text}</span>
+          <span className="msg-reply">
+            <input name="r" key={msg?.n} placeholder="빠른 답장…" autoComplete="off" tabIndex={mode === 'msg' ? 0 : -1} />
+            <button className="primary" tabIndex={mode === 'msg' ? 0 : -1}>보내기</button>
+          </span>
+        </form>
+      )}
+      <div className="island-layer idle" data-pill={!!pill} style={{ width: link?.connected ? 156 : SIZES.idle[0], height: SIZES.idle[1] }} aria-hidden={mode !== 'idle'}>
         <span className="pulse" data-on={!!playing} />
         <span>{today}</span>
         {link?.connected && (
@@ -217,8 +274,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
 
       <div className="island-layer ascii" style={{ width: SIZES.ascii[0], height: SIZES.ascii[1] }} aria-hidden={mode !== 'ascii'}>
         <span className="isl-eq" aria-hidden><i /><i /><i /></span>
-        <span className="txt"><b>아스키 재생 중</b><small>{ascii}</small></span>
-        <button className="isl-stop" onClick={(e) => (e.stopPropagation(), onAsciiStop?.())} tabIndex={mode === 'ascii' ? 0 : -1} aria-label="아스키 끄기">
+        <span className="txt"><b>LP 재생 중</b><small>{ascii}</small></span>
+        <button className="isl-stop" onClick={(e) => (e.stopPropagation(), onAsciiStop?.())} tabIndex={mode === 'ascii' ? 0 : -1} aria-label="재생 멈추기">
           <svg viewBox="0 0 12 12" aria-hidden><rect x="3" y="3" width="6" height="6" rx="1.2" fill="currentColor" /></svg>
         </button>
       </div>
@@ -256,7 +313,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
         </span>
         <span className="txt" data-hot={split ? !toPeer : true}>
           <b>선반에 놓기</b>
-          <small>{split ? '독 선반에 담기' : '놓으면 독 선반에 담아 둘게요 · 최대 4개'}</small>
+          <small>{split ? '선반에 담기' : '놓으면 선반에 담아 둘게요 · 최대 4개'}</small>
         </span>
         {split && (
           <span className="txt to-peer" data-hot={toPeer}>

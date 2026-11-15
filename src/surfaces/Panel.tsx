@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import type { AppGroup, CalendarEvent, LpRecord, Todo } from '../data/types'
 import { isTauri, startApps } from '../data/api'
-import { Tile } from './Dock'
+import { Tile } from './Tile'
 import { fmtWhen } from './Island'
 import type { Weather } from './Fx'
 import { useValue, type LinkCfg, type LinkStatus } from '../data/api'
@@ -62,6 +62,7 @@ type Props = {
   setIdleMin: (m: number) => void
   onFxNow: () => void
   link?: LinkPanel
+  sec?: string // 설정 탭 섹션 (허브 Team/Link → team | link)
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -72,6 +73,10 @@ export function Panel(p: Props) {
     el.getBoundingClientRect()
     el.dataset.open = String(p.open)
   }, [p.open])
+  // 허브 Team · Link: 설정 탭의 그 섹션으로
+  useEffect(() => {
+    if (p.tab === 'settings' && p.sec) document.getElementById(`sec-${p.sec}`)?.scrollIntoView({ block: 'start' })
+  }, [p.tab, p.sec])
 
   return (
     <section
@@ -105,7 +110,7 @@ export function Panel(p: Props) {
 
 const id = () => crypto.randomUUID()
 
-function TodoTab({ todos, setTodos, onAdded }: Props) {
+export function TodoTab({ todos, setTodos, onAdded }: Pick<Props, 'todos' | 'setTodos' | 'onAdded'>) {
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
   const add = (e: FormEvent) => {
@@ -244,7 +249,8 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
   const save = () => draft.trim() && setCity(draft.trim())
   return (
     <div className="settings">
-      <TeamSection />
+      <div id="sec-team"><TeamSection /></div>
+      <Reserve />
       <h3>날씨 · 계절 효과</h3>
       <label className="row">
         <span className="grow">
@@ -313,7 +319,7 @@ function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, p
   const st = status?.state ?? 'off'
   return (
     <>
-      <h3>연결 · Hera Link</h3>
+      <h3 id="sec-link">연결 · Hera Link</h3>
       <label className="row">
         <span className="grow">
           <b>맥과 마우스·키보드·파일 함께 쓰기</b>
@@ -386,6 +392,23 @@ function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, p
         <button onClick={() => onImport().then(() => setMsg('Deskflow 설정을 가져왔어요 (이름·배치·인증서)'), (e) => setMsg(String(e)))}>Deskflow 설정 가져오기</button>
         {msg && <small>{msg}</small>}
       </div>
+    </>
+  )
+}
+
+/** '상단 공간 확보' (기본 끔): store `appbar.on` → Rust 가 AppBar 로 맨 위 28px 예약/해제 */
+function Reserve() {
+  const [on, setOn] = useValue('appbar.on', false)
+  return (
+    <>
+      <h3>상단 공간 확보</h3>
+      <label className="row">
+        <span className="grow">
+          <b>맥 메뉴막대처럼 위쪽 28px 비우기</b>
+          <small>켜면 최대화한 창이 그 아래에서 시작해 노치·알림이 앱을 가리지 않아요. 대신 화면이 28px 줄어요. 끄면(기본) 노치 120×6 만 가리고 나머지 클릭은 그대로 통과해요.</small>
+        </span>
+        <input type="checkbox" className="switch" checked={on} onChange={(e) => setOn(e.target.checked)} />
+      </label>
     </>
   )
 }

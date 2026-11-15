@@ -14,13 +14,13 @@ mod ripple;
 #[cfg(windows)]
 mod shell;
 #[cfg(windows)]
-mod taskbar;
+mod appbar;
 #[cfg(windows)]
 mod watch;
 #[cfg(not(windows))]
 mod stub;
 #[cfg(not(windows))]
-use stub::{clip, icons, launch, ocr, shell, taskbar, watch};
+use stub::{appbar, clip, icons, launch, ocr, shell, watch};
 mod holidays;
 mod link;
 mod link_files;
@@ -29,6 +29,7 @@ mod link_sync;
 mod team;
 pub mod mcp; // AI 연결(MCP) — docs/mcp.md
 mod ui;
+mod float;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -36,17 +37,10 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 
-// 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
-/// 높이 = 독 178 + 위 여유 72 (자동 숨김 작업 표시줄이 올라오면 독이 창 안에서 스프링으로 그만큼 올라간다 — 창 이동 없음)
-const DOCK: (f64, f64) = (960.0, 250.0);
-/// 독 창 최대 폭 (실행 중 앱이 늘면 줄이 길어진다) — 작업 영역 폭으로 제한
-const DOCK_MAX_W: f64 = 1600.0;
-/// v2 앱 묶음 팝오버가 열린 동안 독 창을 위로 키운 높이 (팝오버 3줄 + 작업 표시줄 여유). 내용은 CSS 로 하단 고정이라 그대로.
-const DOCK_TALL: f64 = 640.0;
-static DOCK_IS_TALL: AtomicBool = AtomicBool::new(false);
-const ISLAND: (f64, f64) = (440.0, 144.0);
+// 논리 px. 창은 최대 크기 고정, 모양은 CSS (노치 120×6 · 알약 · 허브 400×~430) — 클릭 통과는 watch 루프의 히트 rect.
+const ISLAND: (f64, f64) = (460.0, 560.0);
 const PANEL: (f64, f64) = (384.0, 540.0);
 const PALETTE: (f64, f64) = (596.0, 460.0);
 /// C3 팔레트 단축키 (Open Question 2 — Win+K 는 OS 예약, Alt+Space 는 PowerToys 와 충돌)
@@ -74,18 +68,15 @@ fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) 
     Ok(win)
 }
 
-/// 주 모니터 작업 영역 기준 배치 (독 = 하단 중앙, 아일랜드 = 상단 중앙). DPI/작업 영역 변경 시 재호출.
+/// 배치: 아일랜드 = 주 모니터 맨 위 가운데 (작업 영역이 아니라 모니터 — '상단 공간 확보'를 켜도 노치는 그 띠 안). DPI/작업 영역 변경 시 재호출.
 pub(crate) fn place(app: &AppHandle) {
     let Ok(Some(m)) = app.primary_monitor() else { return };
     let (s, wa) = (m.scale_factor(), *m.work_area());
-    let (x, y, w, h) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
-    let dock_h = if DOCK_IS_TALL.load(Ordering::Relaxed) { DOCK_TALL } else { DOCK.1 };
-    let dock_w = DOCK_MAX_W.min(w / s);
-    for (label, (lw, lh)) in [("dock", (dock_w, dock_h)), ("island", ISLAND)] {
-        let Some(win) = app.get_webview_window(label) else { continue };
-        let top = if label == "island" { y } else { y + h - lh * s };
-        ui::set_bounds(&win, (x + (w - lw * s) / 2.0).round() as i32, top.round() as i32, (lw * s).round() as i32, (lh * s).round() as i32);
+    let (mx, my, mw) = (m.position().x as f64, m.position().y as f64, m.size().width as f64);
+    if let Some(win) = app.get_webview_window("island") {
+        ui::set_bounds(&win, (mx + (mw - ISLAND.0 * s) / 2.0).round() as i32, my.round() as i32, (ISLAND.0 * s).round() as i32, (ISLAND.1 * s).round() as i32);
     }
+    let (x, y, w, h) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
     if let Some(win) = app.get_webview_window("panel") {
         let _ = win.set_position(PhysicalPosition::new(
             (x + w - (PANEL.0 + 24.0) * s).round() as i32,
@@ -99,11 +90,21 @@ fn toggle(app: &AppHandle, tab: &str) -> tauri::Result<()> {
     if app.get_webview_window("panel").is_some() {
         return app.emit_to("panel", "panel-close", ());
     }
+    open_panel(app, tab)
+}
+
+/// 패널 열기 (열려 있으면 그 탭·섹션으로). tab = todo|calendar|library|snippets|settings, 설정은 `settings&sec=team|link` 처럼 섹션까지.
+pub(crate) fn open_panel(app: &AppHandle, tab: &str) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("panel") {
+        app.emit_to("panel", "panel-tab", tab)?;
+        w.show()?;
+        return w.set_focus();
+    }
     let mut b = builder(app, "panel", format!("index.html?surface=panel&tab={tab}"), PANEL)
         .shadow(true) // Win11: 라운드 코너 + 그림자
         .disable_drag_drop_handler(); // B0-4: panel 은 HTML5 드롭(URL)
-    if let Some(dock) = app.get_webview_window("dock") {
-        b = b.parent(&dock)?; // 소유 창(owner = TOOLWINDOW 독) → Alt+Tab 에서 제외
+    if let Some(island) = app.get_webview_window("island") {
+        b = b.parent(&island)?; // 소유 창(owner = TOOLWINDOW 아일랜드) → Alt+Tab 에서 제외
     }
     let win = b.build()?;
     // 독의 '패널 열림' 점: 생성/파괴를 이벤트로 (localStorage 공유 대체)
@@ -121,13 +122,6 @@ fn toggle(app: &AppHandle, tab: &str) -> tauri::Result<()> {
     win.set_focus()
 }
 
-/// v3: 떠 있는 턴테이블 창은 없어졌다 (LP 는 독 상자 → Island). 독에서 LP 를 끄는 동안 위치를 Island 창에 전달한다.
-/// phase = start | move | end, (x, y) = 화면 좌표(논리 px), Island 가 자기 플래터 위인지 판단하고 end 에서 놓기 처리.
-#[tauri::command]
-fn lp_drag(app: AppHandle, phase: String, x: f64, y: f64, record_id: String) -> Result<(), String> {
-    app.emit_to("island", "lp-drag", serde_json::json!({ "phase": phase, "x": x, "y": y, "recordId": record_id })).map_err(|e| e.to_string())
-}
-
 /// C3 팔레트: 시작 시 숨김 상태로 1회 생성해 두고 단축키마다 보이기/숨기기.
 /// 결정(측정): 단축키마다 생성하면 invoke→첫 페인트 p50 240 / p95 309ms 로 150ms 초과 → 숨김 유지(+~10MB, idle 합 ≤150MB 안).
 /// 열기 직전 포그라운드 창을 기억했다가 Esc 로 닫으면 돌려준다.
@@ -140,8 +134,14 @@ fn palette_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 }
 
 fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
+    show_palette(app, None)
+}
+
+/// 팔레트 보이기. q = 처음 검색어 (허브 '스니펫' = ";"). 이미 보이면(q 없음) 닫기.
+fn show_palette(app: &AppHandle, q: Option<String>) -> tauri::Result<()> {
     let win = match app.get_webview_window("palette") {
-        Some(w) if w.is_visible()? => return close_palette_win(app, true),
+        Some(w) if w.is_visible()? && q.is_none() => return close_palette_win(app, true),
+        Some(w) if w.is_visible()? => return app.emit_to("palette", "palette-open", q),
         Some(w) => w,
         None => palette_window(app)?,
     };
@@ -158,7 +158,7 @@ fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
     let w = win.clone();
     app.run_on_main_thread(move || ui::toolwindow(&w))?;
     win.set_focus()?; // 전역 단축키(WM_HOTKEY)를 받은 직후라 전면 전환이 허용된다
-    app.emit_to("palette", "palette-open", ())
+    app.emit_to("palette", "palette-open", q)
 }
 
 fn close_palette_win(app: &AppHandle, restore: bool) -> tauri::Result<()> {
@@ -172,7 +172,10 @@ fn close_palette_win(app: &AppHandle, restore: bool) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-async fn palette(app: AppHandle) -> Result<(), String> {
+async fn palette(app: AppHandle, q: Option<String>) -> Result<(), String> {
+    if q.is_some() {
+        return show_palette(&app, q).map_err(|e| e.to_string());
+    }
     toggle_palette(&app).map_err(|e| e.to_string())
 }
 
@@ -201,13 +204,6 @@ async fn activate(keys: Vec<String>) -> Result<(), String> {
 #[tauri::command]
 fn power() -> Option<(u8, bool)> {
     watch::power()
-}
-
-/// v2 앱 묶음 팝오버: 열기 전 독 창을 위로 키우고, 닫힘 애니메이션 뒤 되돌린다 (히트 rect 는 JS 가 다시 보낸다)
-#[tauri::command]
-fn dock_tall(app: AppHandle, tall: bool) {
-    DOCK_IS_TALL.store(tall, Ordering::Relaxed);
-    place(&app);
 }
 
 /// v2 클립보드 기록 (메모리에만)
@@ -293,9 +289,11 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
     // 높이 -1px: 모니터를 꽉 채운 최상위 창은 셸이 '전체화면 앱'으로 판정해(QUNS_BUSY) 독을 숨기게 된다
     let size = PhysicalSize::new(size.width, size.height.saturating_sub(1));
     let win = overlay(app, "fx", &format!("&fx={kind}"), (size.width as f64 / s, size.height as f64 / s))?;
-    win.on_window_event(|e| {
+    let h = app.clone();
+    win.on_window_event(move |e| {
         if let WindowEvent::Destroyed = e {
             watch::remove_overlay("fx");
+            let _ = h.emit("fx-closed", ()); // LP 플레이어 판 돌아옴 · Island 재생 중 알약 끔
         }
     });
     let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
@@ -303,11 +301,10 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         let _ = win.destroy();
         return r;
     }
-    for l in ["dock", "island"] {
-        if let Some(w) = app.get_webview_window(l) {
-            ui::raise(&w);
-        }
+    if let Some(w) = app.get_webview_window("island") {
+        ui::raise(&w);
     }
+    let _ = app.emit("fx-open", kind);
     // 안전망: 웹뷰가 멈춰 onDone 이 안 와도 40초 뒤 파괴 (그 사이 새 효과가 열렸으면 그대로)
     let (h, gen) = (app.clone(), FX_GEN.fetch_add(1, Ordering::Relaxed) + 1);
     std::thread::spawn(move || {
@@ -391,10 +388,8 @@ pub(crate) fn notes_sync(app: &AppHandle) {
                         }
                     });
                     let _ = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
-                    for l in ["dock", "island"] {
-                        if let Some(w) = app.get_webview_window(l) {
-                            ui::raise(&w); // 메모는 독·아일랜드 아래
-                        }
+                    if let Some(w) = app.get_webview_window("island") {
+                        ui::raise(&w); // 메모는 아일랜드 아래
                     }
                 }
                 Err(e) => eprintln!("notes window: {e}"),
@@ -469,7 +464,7 @@ fn ocr_save(app: AppHandle, text: String) -> Result<String, String> {
     let path = link_files::safe_name(&dir, &format!("화면 글자 {ts}.txt"));
     std::fs::write(&path, text.replace('\n', "\r\n").as_bytes()).map_err(|e| e.to_string())?;
     let p = path.display().to_string();
-    let _ = app.emit_to("dock", "shelf-add", p.clone());
+    let _ = app.emit_to("island", "shelf-add", p.clone());
     Ok(p)
 }
 
@@ -515,23 +510,6 @@ fn team_dial(app: AppHandle, ip: String) -> Result<(), String> {
 #[tauri::command]
 async fn fx(app: AppHandle, kind: String) -> Result<(), String> {
     open_fx(&app, &kind).map_err(|e| e.to_string())
-}
-
-/* ── 작업 표시줄 대체 (shell.rs / taskbar.rs) ── */
-#[tauri::command]
-fn windows_list() -> Vec<shell::Win> {
-    shell::list()
-}
-
-#[tauri::command]
-async fn win_click(hwnd: isize) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || shell::click(hwnd)).await.map_err(|e| e.to_string())?
-}
-
-/// 자동 숨김 작업 표시줄이 펼쳐져 있으면 그 높이(물리 px), 아니면 0. 변화는 'taskbar-lift' 이벤트.
-#[tauri::command]
-fn taskbar_lift() -> i32 {
-    shell::lift()
 }
 
 /* ── Hera Link (link.rs 엔진 · link_files.rs 파일 채널) ── */
@@ -585,20 +563,44 @@ async fn link_send(app: AppHandle, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || link::send_file(&app, &path)).await.map_err(|e| e.to_string())?
 }
 
+/// 허브(레이아웃 A) 아이콘: 떠 있는 창이 아닌 것들. 나머지(할 일·달력·채팅·터미널·최근 복사·선반·LP)는 float_open.
 #[tauri::command]
-fn win_close(hwnd: isize) -> Result<(), String> {
-    shell::close(hwnd)
+async fn hub_action(app: AppHandle, kind: String) -> Result<(), String> {
+    let e = |e: tauri::Error| e.to_string();
+    match kind.as_str() {
+        "notes" => {
+            let s = app.store("hera.json").map_err(|e| e.to_string())?;
+            let shown = s.get("notes.shown").and_then(|v| v.as_bool()).unwrap_or(true);
+            s.set("notes.shown", !shown);
+            Ok(())
+        }
+        "ocr" => tauri::async_runtime::spawn_blocking(move || ocr_open(&app)).await.map_err(|e| e.to_string())?,
+        "snippets" => show_palette(&app, Some(";".into())).map_err(e),
+        "team" => open_panel(&app, "settings&sec=team").map_err(e),
+        "link" => open_panel(&app, "settings&sec=link").map_err(e),
+        "settings" => open_panel(&app, "settings").map_err(e),
+        "palette" => show_palette(&app, Some(String::new())).map_err(e),
+        _ => Err(format!("unknown hub action {kind}")),
+    }
 }
 
+/// '상단 공간 확보' 스위치 (store `appbar.on` 변경으로도 맞춰진다 — 이 커맨드는 즉시 반영용)
 #[tauri::command]
-async fn shell_key(kind: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || shell::key(&kind)).await.map_err(|e| e.to_string())?
+fn appbar_set(app: AppHandle, on: bool) {
+    appbar::set(&app, on);
 }
 
-/// 창 목록 팝오버의 DWM 썸네일 (호출한 창 = 독에 그린다). 빈 목록 = 모두 해제.
+/// LP 플레이어: 효과 레코드를 내림 → 효과 창 닫기 (JS 가 사라짐 애니메이션 후 파괴, 3초 안전망)
 #[tauri::command]
-fn thumbs(window: WebviewWindow, list: Vec<(isize, [f64; 4])>) -> Result<usize, String> {
-    Ok(shell::thumbs(ui::hwnd(&window), list))
+fn fx_stop(app: AppHandle) {
+    let _ = app.emit_to("fx", "fx-close", ());
+    let h = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if let Some(w) = h.get_webview_window("fx") {
+            let _ = w.destroy();
+        }
+    });
 }
 
 #[tauri::command]
@@ -700,8 +702,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
-            ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
-            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
+            float::float_open, float::float_close, float::float_pin, hub_action, appbar_set, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
@@ -725,21 +727,24 @@ pub fn run() {
                 s.set("dock.pinned", serde_json::json!(["calc", "notepad", "github"]));
                 s.set("seeded", true);
             }
-            // 작업 표시줄은 건드리지 않는다. 이전 빌드가 숨긴 채 남겼다면 1회 되살림.
-            taskbar::recover();
             let h = app.handle();
-            let dock = overlay(h, "dock", "", DOCK)?;
+            // 상단 공간 확보(AppBar): 지난 실행이 못 돌려준 예약부터 정리 → 설정이 켜져 있으면 다시 등록
+            appbar::cleanup_stale(h);
+            if s.get("appbar.on").and_then(|v| v.as_bool()).unwrap_or(false) {
+                appbar::set(h, true);
+            }
             let island = overlay(h, "island", "", ISLAND)?;
             place(h);
-            for w in [&dock, &island] {
+            {
                 let h = h.clone();
-                w.on_window_event(move |e| {
+                island.on_window_event(move |e| {
                     if let WindowEvent::ScaleFactorChanged { .. } = e {
                         place(&h);
+                        appbar::refresh(&h);
                     }
                 });
-                w.show()?;
             }
+            island.show()?;
             watch::start(h.clone());
             clip::start(h.clone());
             shell::start(h.clone());
@@ -780,9 +785,12 @@ pub fn run() {
             {
                 use tauri::Listener;
                 let a = h.clone();
-                listen_store(h, move |k, _| {
+                listen_store(h, move |k, v| {
                     if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
                         notes_sync(&a);
+                    }
+                    if k == "appbar.on" {
+                        appbar::set(&a, v.and_then(|v| v.as_bool()).unwrap_or(false));
                     }
                 });
                 let a = h.clone();
@@ -830,6 +838,7 @@ pub fn run() {
                         let _ = auto.set_checked(a.is_enabled().unwrap_or(false));
                     }
                     "quit" => {
+                        appbar::release(app); // 상단 예약은 꼭 돌려준다
                         // 디바운스(100ms) 대기 중인 쓰기를 즉시 저장 (플러그인도 Exit 에서 저장하지만 순서 보장용)
                         if let Ok(s) = app.store("hera.json") {
                             let _ = s.save();
@@ -841,8 +850,13 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running hera");
+        .build(tauri::generate_context!())
+        .expect("error while building hera")
+        .run(|app, e| {
+            if let tauri::RunEvent::Exit = e {
+                appbar::release(app); // 어떤 경로로 끝나도 상단 예약 해제
+            }
+        });
 }
 
 #[cfg(test)]

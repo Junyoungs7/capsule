@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { reducedMotion, shape, usePresence } from './Dock'
+import { reducedMotion, shape, usePresence } from './Tile'
 import { isTauri, ocrRegion, ocrSave, setClip } from '../data/api'
 
 /* v3 화면 글자 복사: 화면 어둡게 → 십자선으로 영역 드래그(움직이는 점선 + 크기) → 놓으면 스캔 줄이 훑고 → 결과 카드.

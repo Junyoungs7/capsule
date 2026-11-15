@@ -5,6 +5,7 @@ import './styles/lp.css'
 import './styles/v2.css'
 import './styles/v3.css'
 import './styles/team.css'
+import './styles/island.css'
 import { Desktop } from './mockup/Desktop'
 
 // ?surface=dock|island|panel|palette|ascii|fx|all (fx: &fx=snow|rain|leaves|sunset|moon)

@@ -1,11 +1,11 @@
 // B4 programmatic check against the release build (works in a locked session).
-// node .omc/verify/b4-alarms.mjs   — backs up and restores %APPDATA%\dev.hera.dock\hera.json
+// ISOLATED build only (identifier dev.hera.islandtest — see island-cdp.mjs). node .omc/verify/b4-alarms.mjs   — backs up and restores %APPDATA%\dev.hera.islandtest\hera.json
 import { execSync, spawn } from 'node:child_process'
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { page, storeSet } from './cdp.mjs'
 
 const exe = 'src-tauri/target/release/hera.exe'
-const file = `${process.env.APPDATA}/dev.hera.dock/hera.json`
+const file = `${process.env.APPDATA}/dev.hera.islandtest/hera.json`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const ok = (c, m) => console.log(`${c ? 'PASS' : 'FAIL'} ${m}`) || (process.exitCode ||= c ? 0 : 1)
 const iso = (dt) => new Date(Date.now() + dt).toISOString()
@@ -13,7 +13,7 @@ let app
 const start = async () => {
   app = spawn(exe, [], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9333' }, stdio: 'ignore' })
   await sleep(6000)
-  return [await page('island'), await page('dock')]
+  return [await page('island'), await page('palette')]
 }
 const stop = async () => (await sleep(300), execSync(`taskkill /F /PID ${app.pid}`, { stdio: 'ignore' }), await sleep(1500)) // hard kill after the 100ms save debounce
 // tray '종료' flush (save before exit) needs a tray click → manual step in b4b5-manual.ps1
@@ -36,7 +36,7 @@ try {
   await sleep(500)
   ok(store()['todo:missed']?.done === true, '완료 marks the todo done (store flushed)')
 
-  // added peek from another window (dock page writes, island reacts)
+  // added peek from another window (palette page writes, island reacts)
   await dock.evaluate(storeSet('todo:peek', { id: 'peek', title: '미리보기', due: iso(3_600_000), done: false, source: 'local' }))
   await sleep(400)
   ok((await mode(isl)) === 'preview', `island peeks when a todo is added elsewhere`)

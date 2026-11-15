@@ -1,37 +1,38 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
-  asciiStop, lpDrag as sendLpDrag, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
+  asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
+  floatOpen, fxStop, hubAction, storeSet, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
 } from '../data/api'
-import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS, stressWins } from '../data/mock'
-import { SHELF_MAX } from '../surfaces/Shelf'
+import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
-import { Dock } from '../surfaces/Dock'
 import { Island, type LinkView, type NextItem, type TeamNews } from '../surfaces/Island'
-import { setGroupCount, TeamDemo } from '../surfaces/Team'
-import { Panel, type Tab } from '../surfaces/Panel'
+import { CalendarFilter, setGroupCount, TeamDemo } from '../surfaces/Team'
+import { Panel, TodoTab, type Tab } from '../surfaces/Panel'
+import { Hub, type HubKind } from '../surfaces/Hub'
+import { ClipsList, FloatShell, ShelfList } from '../surfaces/Float'
+import { Player, type PlayerRec } from '../surfaces/Player'
+import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
 import { ASCII_RECORDS } from '../surfaces/Lp'
-import { V3Demo, V3Layer } from '../surfaces/Notes'
+import { newNote, setV3, useV3, V3Demo, V3Layer } from '../surfaces/Notes'
 import { Ocr } from '../surfaces/Ocr'
 import { reportHitRects } from '../data/api'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
-const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
 const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has((r.exe ?? r.target).toLowerCase())
 const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
-const key = (r: LpRecord) => (r.exe ?? r.target).toLowerCase()
-// 실행 중 앱 이름: 제목의 마지막 " - " 조각, 패키지 앱은 창 제목(예: 계산기), 그 외 exe 이름
-const winName = (w: Win) => (w.title.includes(' - ') ? w.title.split(' - ').pop()! : w.aumid ? w.title : titleOf(w.exe)) || titleOf(w.exe)
+export const SHELF_MAX = 4 // ponytail: 칸 4개, 넘치면 가장 오래된 것부터 뺀다 — 더 필요하면 목록
+const FLOATS: FloatKind[] = ['todo', 'calendar', 'chat', 'term', 'clips', 'shelf', 'lp']
 const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
+// Island-only: 독 없음 — island(노치·알림·허브) · float(기능 창 1개, ?f=) · panel · palette · ascii · fx · notes* · ocr.
 export function Desktop({ only }: { only?: string }) {
   const show = (s: string) => !only || only === s
   const [theme, setTheme] = useState(document.documentElement.dataset.theme)
@@ -39,7 +40,6 @@ export function Desktop({ only }: { only?: string }) {
   const [pinned, setPinned] = useValue<string[]>('dock.pinned', seedRecords.map((r) => r.id))
   const [todos, setTodos] = useItems('todo', seedTodos)
   const [events, setEvents] = useItems('event', seedEvents)
-  const dockRecords = pinned.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r)
 
   const addRecord = async (target: string, title = titleOf(target)) => {
     const id = crypto.randomUUID()
@@ -71,12 +71,11 @@ export function Desktop({ only }: { only?: string }) {
   // v2 앱 묶음 (group:<id>) — 독에는 레코드 뒤에 모두 표시
   const [groups, setGroups] = useItems<AppGroup>('group', seedGroups)
   const saveGroup = (g: AppGroup) => setGroups((gs) => (gs.some((x) => x.id === g.id) ? gs.map((x) => (x.id === g.id ? g : x)) : [...gs, g]))
-  const dockGroups = groups.map((group) => ({ group, recs: group.recordIds.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r) }))
 
   // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 팔레트 창 'clips' (폴링 없음)
   const [clips, setClips] = useState<Clip[]>(isTauri ? [] : seedClips)
   useEffect(() => {
-    if (!isTauri || (only !== 'palette' && only !== 'dock')) return // 팔레트 + 독(최근 복사 버튼)
+    if (!isTauri || (only !== 'palette' && only !== 'float')) return // 팔레트 + 떠 있는 '최근 복사' 창
     void clipList().then(setClips)
     return onEvent<Clip[]>('clips', setClips)
   }, [])
@@ -123,7 +122,7 @@ export function Desktop({ only }: { only?: string }) {
         }
       }),
     ]
-    if (only === 'dock') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])), onEvent<string>('shelf-add', (path) => shelveRef.current([path])))
+    if (only === 'island') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])), onEvent<string>('shelf-add', (path) => shelveRef.current([path])))
     // 한/영 칩: 이 PC 의 IME 변화(Rust WinEvent) 또는 맥이 알려 준 입력 소스
     if (only === 'island')
       offs.push(onEvent<{ source: 'ko' | 'en' }>('ime-state', (e) => {
@@ -155,7 +154,7 @@ export function Desktop({ only }: { only?: string }) {
   const [weatherOverride, setWeatherOverride] = useState<Weather | null>(null)
   const weather = weatherOverride ?? (isTauri ? liveWeather : fakeWeather(city))
   useEffect(() => {
-    if (!isTauri || only !== 'dock') return
+    if (!isTauri || only !== 'island') return
     let live = true, t = 0
     const tick = () => {
       // 실패하면 그대로 둔다 → 효과는 계절·시간대만으로
@@ -207,7 +206,6 @@ export function Desktop({ only }: { only?: string }) {
     return () => (clearTimeout(t), evs.forEach((e) => removeEventListener(e, mark)))
   }, [idleMs])
 
-  const [running, setRunning] = useState<Set<string>>(() => new Set())
   const [playing, setPlaying] = useState<RunningSession | null>(null)
   // 알림 큐: 앞에서부터 1개씩 표시 (전체화면 뒤 밀린 알림·여러 건 동시 발화)
   const [alerts, setAlerts] = useState<Notification[]>([])
@@ -218,19 +216,13 @@ export function Desktop({ only }: { only?: string }) {
   const showAlert = (a: AlertMsg) => (isTauri ? void sendAlert(a) : pushAlert(a))
 
   // B3 (Tauri): 실행 집합(2s) · 포그라운드(30Hz 변화 시) — watch 루프 이벤트. 늦게 뜬 창은 watch_state 로 즉시 동기화.
-  const [runKeys, setRunKeys] = useState<Set<string>>(() => new Set())
   const [fg, setFg] = useState<{ key: string; f: Fg; since: number } | null>(null)
-  const [remoteOpen, setRemoteOpen] = useState(false)
   useEffect(() => {
     if (!isTauri) return
     const onFg = (f: Fg) => setFg((cur) => (cur?.key === (f.aumid || f.exePath) ? cur : { key: f.aumid || f.exePath, f, since: Date.now() }))
-    const onRun = (keys: string[]) => setRunKeys(new Set(keys))
-    void watchState().then(([f, keys]) => (f && onFg(f), onRun(keys)))
-    void panelOpen().then(setRemoteOpen)
+    void watchState().then(([f]) => f && onFg(f))
     const offs = [
       onEvent('foreground', onFg),
-      onEvent('running', onRun),
-      onEvent<boolean>('panel-state', setRemoteOpen),
       onEvent<AlertMsg>('hera-alert', pushAlert),
     ]
     if (only === 'island')
@@ -244,43 +236,10 @@ export function Desktop({ only }: { only?: string }) {
       )
     return () => offs.forEach((off) => off())
   }, [])
-  // 작업 표시줄 대체: 실행 중 앱 창 (독 창만). 독에 고정된 레코드와 같은 앱은 실행 점만, 나머지는 구분선 뒤에 앱별로.
-  const [wins, setWins] = useState<Win[]>(() => (STRESS ? stressWins() : []))
   useEffect(() => void (STRESS && setGroupCount(12)), [])
-  useEffect(() => {
-    if (!isTauri || only !== 'dock') return
-    void windowsList().then(setWins)
-    return onEvent<Win[]>('windows', setWins)
-  }, [])
-  const runApps = useMemo(() => {
-    const pinnedKeys = new Set(dockRecords.filter((r) => r.kind === 'single').map(key))
-    const m = new Map<string, Win[]>()
-    for (const w of wins) if (!w.keys.some((k) => pinnedKeys.has(k))) m.set(w.key, [...(m.get(w.key) ?? []), w])
-    return [...m.values()].map((ws) => {
-      const w = ws[0]
-      const rec: LpRecord = { id: 'run:' + w.key, title: winName(w), target: w.aumid ? `shell:AppsFolder\\${w.aumid}` : w.exe, kind: 'single', cover: '#64748B', glyph: 'text' }
-      return { rec, wins: ws }
-    })
-  }, [wins, dockRecords])
-  // 깜빡임(주의): 레코드 id · 'run:<키>' — 창이 맨 앞으로 오면 Rust 가 지운다
-  const attention = useMemo(() => {
-    const keys = new Set(wins.filter((w) => w.flash).flatMap((w) => w.keys))
-    const ids = new Set(dockRecords.filter((r) => r.kind === 'single' && keys.has(key(r))).map((r) => r.id))
-    for (const a of runApps) if (a.wins.some((w) => w.flash)) ids.add(a.rec.id)
-    return ids
-  }, [wins, dockRecords, runApps])
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
-  // 살아 있는 레코드 id: 단일 = 실행 집합에 대상이 있음, 세트 = 멤버 중 하나라도 (독 실행 점·Island LP 회전 공용)
-  const aliveIds = useMemo(() => {
-    const ids = new Set(records.filter((r) => matches(r, runKeys)).map((r) => r.id))
-    for (const r of records) if (r.kind === 'set' && r.targets?.some((id) => ids.has(id))) ids.add(r.id)
-    return ids
-  }, [records, runKeys])
   const members = (r: LpRecord) => (r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r])
 
-  // LP → Island (턴테이블 대체): 독 우클릭 'Island에 올리기' · 크레이트에서 끌어 놓기 = 실행.
-  // 시안: 실행하면 playing 이 그 레코드 → Island nowPlaying 의 LP 가 돈다. 실제 앱: 포그라운드가 그 앱이 되면 Island 가 받는다.
-  const onCue = (r: LpRecord) => (r.kind === 'ascii' ? playAscii(r) : void run(r))
   // 아스키 LP: 전체화면 아스키가 Island 자리에서 커진다. Island 는 '아스키 재생 중' + 정지.
   const playAscii = (r: LpRecord) => {
     const scene = !r.scene || r.scene === 'auto' ? pickScene(clock) : r.scene
@@ -288,17 +247,19 @@ export function Desktop({ only }: { only?: string }) {
     if (isTauri) return void openAscii(from && [from.left + screenX, from.top + screenY, from.width, from.height], scene)
     setAscii({ open: true, from, saver: false, scene, lp: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
   }
-  const [lpDrag, setLpDrag] = useState<'off' | 'drag' | 'over'>('off')
-  // 실제 앱: 독(LP 끌기) → Rust → Island 창 · 아스키 창 열림/닫힘 → Island '아스키 재생 중' · Hera Team 변경 소식 → Island
+  // LP 플레이어로 튼 화면 효과 → Island '재생 중' 알약 (효과 창 수명을 따른다)
+  const [fxPlaying, setFxPlaying] = useState<string | null>(null)
+  // 실제 앱: 아스키·효과 창 열림/닫힘 → Island '재생 중' · Hera Team 변경 소식 → Island
   useEffect(() => {
     if (!isTauri || only !== 'island') return
     const offs = [
-      onEvent<{ phase: 'off' | 'drag' | 'over' }>('lp-drag', (e) => setLpDrag(e.phase)),
       onEvent<{ scene: SceneId | null; saver: boolean }>('ascii-open', (e) => {
         const sc = e.scene ?? pickScene(new Date())
         if (!e.saver) setAscii({ open: true, from: null, saver: false, scene: sc, lp: `${SCENES[sc].name}${e.scene ? '' : ' · 자동'}` })
       }),
       onEvent('ascii-closed', () => setAscii((a) => ({ ...a, open: false }))),
+      onEvent<string>('fx-open', (k) => setFxPlaying(`${FX_LABEL[k as FxKind] ?? k} · 화면 효과`)),
+      onEvent('fx-closed', () => setFxPlaying(null)),
       onEvent<{ group: string; by: string; action: string; title: string }>('team-news', (e) =>
         setNews((n) => ({ who: e.by, group: e.group, what: e.action === 'delete' ? '항목 삭제' : e.title ? '항목 변경' : '변경', detail: e.title, n: (n?.n ?? 0) + 1 })),
       ),
@@ -324,17 +285,30 @@ export function Desktop({ only }: { only?: string }) {
   // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
   const [apps, setApps] = useState<[string, string][]>([])
   const [palN, setPalN] = useState(0)
+  const [palQ, setPalQ] = useState('') // 처음 검색어 (허브 '스니펫' = ';')
   useEffect(() => {
     if (!isTauri || only !== 'palette') return
     let loaded = false
-    return onEvent('palette-open', () => {
-      document.querySelector<HTMLInputElement>('.palette-input input')?.focus()
+    return onEvent<string | null>('palette-open', (q) => {
+      if (q != null) (setPalQ(q), setPalN((n) => n + 1)) // 다시 마운트해 그 검색어로
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.palette-input input')?.focus())
       // 실패(타임아웃 등)하면 다음 열기에 다시 시도
       if (!loaded) (loaded = true), void startApps().then(setApps, (e) => ((loaded = false), console.error('start_apps', e)))
     })
   }, [])
 
-  const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(only === 'panel' ? { open: true, tab: (new URLSearchParams(location.search).get('tab') as Tab) ?? 'todo' } : null)
+  const [panel, setPanel] = useState<{ open: boolean; tab: Tab; sec?: string } | null>(() => {
+    const q = new URLSearchParams(location.search)
+    return only === 'panel' ? { open: true, tab: (q.get('tab') as Tab) ?? 'todo', sec: q.get('sec') ?? undefined } : null
+  })
+  // 이미 열린 패널에 허브가 다른 탭·섹션을 요청 ("settings&sec=team")
+  useEffect(() => {
+    if (!isTauri || only !== 'panel') return
+    return onEvent<string>('panel-tab', (t) => {
+      const q = new URLSearchParams('tab=' + t)
+      setPanel({ open: true, tab: (q.get('tab') as Tab) ?? 'todo', sec: q.get('sec') ?? undefined })
+    })
+  }, [])
   const [palette, setPalette] = useState(only === 'palette')
 
   useEffect(() => {
@@ -355,12 +329,10 @@ export function Desktop({ only }: { only?: string }) {
     setTheme(t)
   }
 
-  const ids = (r: LpRecord) => (r.kind === 'set' ? r.targets ?? [] : [r.id])
 
   // C2: 세트는 순서대로 실행 (앞 앱의 실행 요청이 끝난 뒤 다음)
   const run = async (r: LpRecord) => {
     if (!isTauri) {
-      setRunning((s) => new Set([...s, ...ids(r)]))
       setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() })
     }
     for (const m of members(r)) await launch(m.target).catch((e) => showAlert({ title: `${m.title} 실행 실패`, body: String(e) }))
@@ -395,13 +367,6 @@ export function Desktop({ only }: { only?: string }) {
     const t = todos.find((x) => !x.done)
     pushAlert(t ? { title: t.title, body: t.due ? `마감 시각이 되었어요 · ${hm(t.due)}` : '할 일을 확인할 시간이에요', key: `todo:${t.id}` } : { title: '디자인 리뷰 10분 전', body: '회의실 B · 16:00' })
   }
-  const switchApp = () => {
-    const singles = records.filter((r) => r.kind === 'single')
-    const i = singles.findIndex((r) => r.id === playing?.recordId)
-    const r = singles[(i + 1) % singles.length]
-    if (!r) return
-    setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() - (3 + Math.floor(Math.random() * 18)) * 60_000 })
-  }
   // 완료 = 할 일 done (일정은 닫기만 — 발화 집합이 재발화를 막는다). 다시 알림 = snooze 를 지금 +10분으로.
   const ack = (patch: (x: { id: string }) => object) => {
     const [kind, id] = alert?.key?.split(/:(.*)/) ?? []
@@ -412,6 +377,75 @@ export function Desktop({ only }: { only?: string }) {
   }
   const done = () => ack((x) => ('done' in x ? { done: true } : {}))
   const snooze = () => ack(() => ({ snooze: new Date(Date.now() + 600_000).toISOString() }))
+
+  /* ── Island-only: 허브(노치 아래) · 떠 있는 기능 창 ── */
+  const [hub, setHub] = useState(false)
+  const [hubRect, setHubRect] = useState<DOMRect | null>(null)
+  const [dragNear, setDragNear] = useState(false)
+  const [mockFloats, setMockFloats] = useState<FloatKind[]>([])
+  const { notes: notesShown } = useV3()
+  const dwell = useRef(0)
+  const onHover = (on: boolean, type: string) => {
+    clearTimeout(dwell.current)
+    if (on && type === 'mouse') dwell.current = window.setTimeout(() => setHub(true), 300)
+  }
+  const [, tickClock] = useState(0) // 노치·알약 시계 (30초마다)
+  useEffect(() => {
+    if (only && only !== 'island') return
+    const t = setInterval(() => tickClock((n) => n + 1), 30_000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    if (!isTauri || only !== 'island') return
+    // 실제 앱: 아일랜드 창은 클릭 통과라 바깥 클릭을 못 본다 → watch 루프가 알려 줌 · 파일을 끌고 위쪽 가운데로 오면 드롭존
+    const offs = [onEvent('island-outside', () => setHub(false)), onEvent<boolean>('drag-near', setDragNear)]
+    return () => offs.forEach((off) => off())
+  }, [])
+  useEffect(() => {
+    if (!hub || isTauri) return
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.hub, .island-shape') && setHub(false)
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setHub(false)
+    addEventListener('pointerdown', down, true)
+    addEventListener('keydown', key)
+    return () => (removeEventListener('pointerdown', down, true), removeEventListener('keydown', key))
+  }, [hub])
+  const openFloat = (f: FloatKind) => (isTauri ? void floatOpen(f).catch((e) => showAlert({ title: '창을 열 수 없어요', body: String(e) })) : setMockFloats((fs) => [...fs.filter((x) => x !== f), f]))
+  const pick = (k: HubKind) => {
+    setHub(false)
+    if ((FLOATS as string[]).includes(k)) return openFloat(k as FloatKind)
+    if (isTauri) return void hubAction(k as 'notes').catch((e) => showAlert({ title: '열 수 없어요', body: String(e) }))
+    if (k === 'notes') return setV3({ notes: !notesShown })
+    if (k === 'ocr') return setV3({ ocr: true })
+    if (k === 'snippets') return setPalette(true)
+    openPanel('settings')
+  }
+  // 허브 '+ 새 메모': 실제 앱은 메모 창이 따로라 store 에 쓰고 note.edit 로 편집 상태를 알린다
+  const addNote = () => {
+    setHub(false)
+    if (!isTauri) return (setV3({ notes: true }), void setTimeout(() => newNote(), 60))
+    const id = crypto.randomUUID()
+    storeSet(`note:${id}`, { id, text: '', color: 0, x: Math.round(innerWidth / 2 - 105), y: 160, w: 210, h: 140, pinned: false })
+    storeSet('notes.shown', true)
+    storeSet('note.edit', id)
+    setTimeout(() => storeSet('note.edit', null), 3000)
+  }
+  const nextLabel = next ? `${next.at ? hm(next.at) + ' ' : ''}${next.title}` : undefined
+  const openTodos = todos.filter((t) => !t.done).length
+  const floatBody = (f: FloatKind) =>
+    f === 'todo' ? <TodoTab todos={todos} setTodos={setTodos} onAdded={peekIsland} />
+    : f === 'calendar' ? <><div className="float-tools"><CalendarFilter /></div><MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={peekIsland} /></>
+    : f === 'clips' ? <ClipsList clips={clips} onCopy={copyClip} />
+    : f === 'shelf' ? (
+      <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
+        onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
+    )
+    : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
+    : <p className="float-empty">준비 중이에요.</p>
+  const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
+  // 시안: LP 플레이어가 실제 창 대신 이 페이지에서 재생
+  const mockPlay = (r: PlayerRec) =>
+    r.kind === 'fx' ? setFx((f) => ({ kind: r.arg as FxKind, n: (f?.n ?? 0) + 1 })) : setAscii({ open: true, from: null, saver: false, scene: r.arg === 'auto' ? pickScene(clock) : (r.arg as SceneId), lp: `${r.title} · 아스키` })
+  const mockStop = (r: PlayerRec) => (r.kind === 'fx' ? setFx(null) : setAscii((a) => ({ ...a, open: false })))
 
   return (
     <div className="desktop" data-only={only ?? 'all'} data-real={isTauri} data-ascii={ascii.open}>
@@ -426,12 +460,12 @@ export function Desktop({ only }: { only?: string }) {
             </header>
             <div className="demo-btns">
               <button onClick={fireAlert}>알림 발생</button>
-              <button onClick={switchApp}>앱 전환</button>
+              <button onClick={() => setHub((h) => !h)}>허브 열기</button>
               <button onClick={() => (panel?.open ? closePanel() : openPanel('todo'))}>패널</button>
               <button onClick={() => setPalette(true)}>검색 <kbd>Ctrl K</kbd></button>
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
             </div>
-            <p>하단 가운데 점에 마우스를 올리면 독이 펼쳐져요.</p>
+            <p>맨 위 가운데 얇은 노치를 누르거나 0.3초 올려 두면 허브가 펼쳐져요. 앱은 작업 표시줄·시작·Ctrl K.</p>
             <header className="demo-sub">
               <b>v2</b>
               <small>{clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} {clock.getHours()}시 · {seasonOf(clock)} · {city} {weather?.text}</small>
@@ -492,23 +526,20 @@ export function Desktop({ only }: { only?: string }) {
         <Island
           alert={alert}
           next={next}
-          playing={isTauri ? fg && { recordId: fgRec?.id ?? '', title: fgRec?.title ?? appName(fg.f), startedAt: fg.since } : playing}
-          playingRec={
-            isTauri
-              ? fg ? fgRec ?? { id: 'fg', title: appName(fg.f), target: fg.f.aumid ? `shell:AppsFolder\\${fg.f.aumid}` : fg.f.exePath, kind: 'single', cover: '#64748B', glyph: 'text' } : undefined
-              : records.find((r) => r.id === playing?.recordId)
-          }
+          playing={null}
           peek={peek}
-          alive={isTauri ? !!fgRec && aliveIds.has(fgRec.id) : !!playing && ids(records.find((r) => r.id === playing.recordId) ?? { id: playing.recordId, kind: 'single' } as LpRecord).some((id) => running.has(id))}
-          lp={lpDrag}
-          ascii={ascii.open && ascii.lp ? ascii.lp : null}
+          ascii={ascii.open && ascii.lp ? ascii.lp : fxPlaying ?? (!isTauri && fx && !only ? `${FX_LABEL[fx.kind]} · 화면 효과` : null)}
           onAscii={() => playAscii(ASCII_RECORDS[0])}
-          onAsciiStop={() => (isTauri ? void asciiStop() : setAscii((a) => ({ ...a, open: false })))}
+          onAsciiStop={() => (ascii.open ? (isTauri ? void asciiStop() : setAscii((a) => ({ ...a, open: false }))) : isTauri ? void fxStop() : setFx(null))}
           news={news}
           onDone={done}
           onSnooze={snooze}
-          onOpen={() => openPanel('todo')}
-          onDropFiles={(paths) => dropFiles(paths, true)}
+          onOpen={() => setHub((h) => !h)}
+          onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
+          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => pick('shelf') }}
+          onHover={onHover}
+          forceDrop={dragNear}
+          extraRect={hub ? hubRect : null}
           link={linkView}
           onSendFiles={sendToPeer}
           onPair={(ok) => void linkPair(ok)}
@@ -516,40 +547,23 @@ export function Desktop({ only }: { only?: string }) {
           onChip={filesPeer ? () => void linkAmbient({ kind: 'ascii', action: peerAscii ? 'stop' : 'start' }).then(() => setPeerAscii((v) => !v)) : undefined}
         />
       )}
-      {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
-      {show('dock') && (
-        <Dock
-          records={dockRecords}
-          running={isTauri ? aliveIds : running}
-          panelOpen={remotePanel ? remoteOpen : !!panel?.open}
-          onLaunch={run}
-          onPanel={() => (remotePanel || panel?.open ? closePanel() : openPanel('library'))}
-          onDropFiles={dropFiles}
-          onCue={onCue}
-          library={records}
-          onRemoveRecord={(r) => removeRecord(r.id)}
-          onLibrary={() => openPanel('library')}
-          onLpDrag={(s) => (setLpDrag(s), void sendLpDrag(s))}
-          shelf={shelf}
-          onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
-          onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
-          onShelfSend={filesPeer ? (f) => sendToPeer([f.path]) : undefined}
-          peerName={filesPeer ?? undefined}
-          groups={dockGroups}
-          clips={clips}
-          onCopy={copyClip}
-          runApps={runApps}
-          attention={attention}
-          onWinClick={(w) => void winClick(w.hwnd).catch((e) => showAlert({ title: '창을 열 수 없어요', body: String(e) }))}
-          onWinClose={(w) => void winClose(w.hwnd).catch(() => {})}
-          onPin={(r) => void addRecord(r.target, r.title)}
-          onKey={(k) => void shellKey(k).catch((e) => showAlert({ title: '키를 보내지 못했어요', body: String(e) }))}
-        />
+      {show('island') && (
+        <Hub open={hub} next={next} todos={openTodos} onPick={pick} onNewNote={addNote} onRect={setHubRect}
+          onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))}
+          badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null }} />
       )}
+      {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
+      {only === 'float' && floatQ && <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell>}
+      {!only && mockFloats.map((f, i) => (
+        <div key={f} className="mock-float" style={{ left: 340 + i * 36, top: 90 + i * 30 }}>
+          <FloatShell f={f} mock onClose={() => setMockFloats((fs) => fs.filter((x) => x !== f))}>{floatBody(f)}</FloatShell>
+        </div>
+      ))}
       {panel && show('panel') && (
         <Panel
           open={panel.open}
           tab={panel.tab}
+          sec={panel.sec}
           onTab={(tab) => setPanel({ open: true, tab })}
           onClose={closePanel}
           onClosed={panelClosed}
@@ -594,6 +608,7 @@ export function Desktop({ only }: { only?: string }) {
       {palette && show('palette') && (
         <Palette
           key={palN}
+          initialQ={palQ}
           records={records}
           todos={todos}
           apps={apps}
@@ -620,6 +635,7 @@ export function Desktop({ only }: { only?: string }) {
         />
       )}
       {fx && show('fx') && <Fx key={fx.n} kind={fx.kind} onDone={() => (isTauri ? void closeSelf() : setFx(null))} />}
+      {only === 'fx' && <FxCloser />}
     </div>
   )
 }
@@ -682,4 +698,10 @@ function NotesWindow({ records, fgId }: { records: LpRecord[]; fgId?: string }) 
       <V3Layer records={records} fgId={mine ? fgId : undefined} anchor={anchor && new DOMRect(anchor.x + ox / sc, anchor.y + oy / sc, anchor.width, anchor.height)} />
     </div>
   )
+}
+
+/** 효과 창: LP 플레이어에서 판을 내리면 'fx-close' → 바로 닫기 (Rust 가 3초 안전망으로 파괴) */
+function FxCloser() {
+  useEffect(() => onEvent('fx-close', () => void closeSelf()), [])
+  return null
 }

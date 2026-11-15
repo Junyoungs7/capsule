@@ -103,21 +103,6 @@ pub mod shell {
     pub fn list() -> Vec<Win> {
         vec![]
     }
-    pub fn click(_: isize) -> Result<(), String> {
-        Err(super::NA.into())
-    }
-    pub fn close(_: isize) -> Result<(), String> {
-        Err(super::NA.into())
-    }
-    pub fn key(_: &str) -> Result<(), String> {
-        Err(super::NA.into())
-    }
-    pub fn thumbs(_: isize, _: Vec<(isize, [f64; 4])>) -> usize {
-        0
-    }
-    pub fn lift() -> i32 {
-        0
-    }
 }
 
 pub mod ocr {
@@ -131,6 +116,11 @@ pub mod ocr {
     pub fn clear() {}
 }
 
-pub mod taskbar {
-    pub fn recover() {}
+/// 맥: 메뉴막대가 이미 위쪽을 차지한다 → '상단 공간 확보'는 없음 (docs/mac-port.md)
+pub mod appbar {
+    use tauri::AppHandle;
+    pub fn cleanup_stale(_: &AppHandle) {}
+    pub fn set(_: &AppHandle, _: bool) {}
+    pub fn refresh(_: &AppHandle) {}
+    pub fn release(_: &AppHandle) {}
 }

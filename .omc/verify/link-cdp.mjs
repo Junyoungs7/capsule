@@ -10,7 +10,7 @@ const inv = (cmd, args = {}) => `window.__TAURI_INTERNALS__.invoke(${JSON.string
 const ok = (name, cond, extra = '') => console.log(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`)
 const file = process.env.HERA_LINK_SEND // (인자로 주면 cdp.mjs 의 CLI 가 반응한다)
 
-const dock = await page('dock')
+const dock = await page('island') // Island-only: 독 없음 — 선반·받은 파일은 아일랜드가 맡는다
 const island = await page('island')
 let [st, files] = await dock.evaluate(inv('link_status'))
 ok('link off by default', st.state === 'off' && files === null, `(${st.state})`)
@@ -46,8 +46,8 @@ if (file) {
   const peer = r.out.match(/"kind":"peer","state":"pairing","name":"[^"]*","code":"(\d+)"/)?.[1]
   ok('both sides derived the same code', peer && peer === code.replace(' ', ''), `(mac ${peer})`)
   await sleep(800)
-  const shelf = await dock.evaluate(`[...document.querySelectorAll('.shelf-file')].map(b => b.getAttribute('aria-label')).join(', ')`)
-  ok('received file is on the dock shelf', /열기/.test(shelf), `(${shelf})`)
+  const shelf = await dock.evaluate(`(async () => { const I = window.__TAURI_INTERNALS__; const rid = await I.invoke('plugin:store|get_store', { path: 'hera.json' }); return (await I.invoke('plugin:store|entries', { rid })).filter(([k]) => k.startsWith('shelf:')).map(([, v]) => v.path).join(', ') })()`)
+  ok('received file is on the shelf (island)', shelf.length > 0, `(${shelf})`)
   // 3b: 맥 모니터 보고 → 배치에 반영, 동기화된 할 일, 상대 화면 효과(달·별) 창, Hera 가 보낸 동기화 스냅숏
   const [mons] = await dock.evaluate(inv('link_plan'))
   ok('Mac monitors from the link appear in the layout', mons.filter((m) => m.mac).map((m) => m.id).join(',') === 'TestMac A,TestMac B', `(${mons.map((m) => (m.mac ? 'mac:' : 'pc:') + m.id).join(' ')})`)

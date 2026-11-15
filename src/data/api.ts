@@ -198,29 +198,23 @@ export const dragOut = (path: string) => invoke('drag_out', { path })
 // 클립보드 기록 (Rust 메모리에만, 변화는 팔레트 창에 'clips') / 고른 항목을 다시 클립보드에
 export const clipList = () => invoke<Clip[]>('clips')
 export const setClip = (text: string) => invoke('set_clip', { text })
-// 앱 묶음 팝오버: 독 창을 위로 키우기/되돌리기
-export const dockTall = (tall: boolean) => invoke('dock_tall', { tall })
 // 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
 export const openAscii = (from: [number, number, number, number] | null, scene?: string) => invoke('ascii', { from, scene })
 export const openFx = (kind: string) => invoke('fx', { kind })
 // 호출한 창 파괴 (패널·아스키·효과 공용 — Rust close_panel 은 호출 창을 닫는다)
 export const closeSelf = () => invoke('close_panel')
 
-/* ── 작업 표시줄 대체: 실행 중 앱 창 (Rust shell.rs 가 창 이벤트로 'windows' emit) ── */
-export type Win = { hwnd: number; key: string; keys: string[]; title: string; exe: string; aumid: string; min: boolean; flash: boolean }
-export const windowsList = () => invoke<Win[]>('windows_list')
-// 자동 숨김 작업 표시줄이 펼쳐진 높이(물리 px, 숨김·항상 보임 = 0). 변화 = 'taskbar-lift' 이벤트
-export const taskbarLift = () => invoke<number>('taskbar_lift')
-// 클릭: 최소화면 복원 / 맨 앞이면 최소화 / 아니면 앞으로
-export const winClick = (hwnd: number) => invoke('win_click', { hwnd })
-export const winClose = (hwnd: number) => invoke('win_close', { hwnd })
-// 시작 · 숨은 트레이 · 빠른 설정 · 알림 센터
-export const shellKey = (kind: 'start' | 'tray' | 'quick' | 'notify') => (isTauri ? invoke('shell_key', { kind }) : Promise.resolve(console.info('[hera] key', kind)))
-// 창 목록 팝오버 DWM 썸네일: [hwnd, [x, y, w, h] 독 창 기준 CSS px] → 물리 px 로 보냄. 빈 배열 = 해제
-export const thumbs = (list: [number, DOMRect][]) =>
-  isTauri ? invoke<number>('thumbs', { list: list.map(([h, r]) => [h, [r.x, r.y, r.width, r.height].map((v) => v * devicePixelRatio)]) }) : Promise.resolve(0)
+/* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
+export type FloatKind = 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'lp'
+export const floatOpen = (f: FloatKind) => invoke('float_open', { f })
+export const floatClose = () => invoke('float_close')
+export const floatPin = (on: boolean) => invoke('float_pin', { on })
+// 떠 있는 창이 아닌 허브 아이콘: 메모(펼침 토글) · OCR · 스니펫(팔레트 ';') · Team/Link/설정(패널 섹션) · 팔레트
+export const hubAction = (kind: 'notes' | 'ocr' | 'snippets' | 'team' | 'link' | 'settings' | 'palette') => invoke('hub_action', { kind })
+export const appbarSet = (on: boolean) => invoke('appbar_set', { on })
+export const fxStop = () => invoke('fx_stop')
 
-/* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files', 받은 파일 'link-received'(독) ── */
+/* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files', 받은 파일 'link-received'(아일랜드) ── */
 export type LinkCfg = {
   me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number
   keymap: string; keyRows: [string, string][]; ime: string; autoSaverMin: number; locator: boolean
@@ -249,8 +243,6 @@ export type Ambient = { kind: 'ascii' | 'saver' | 'fx'; fx?: 'snow' | 'rain' | '
 export const linkAmbient = (a: Ambient) => invoke('link_ambient', { kind: a.kind, fx: a.fx ?? null, action: a.action })
 
 /* ── v3 실제 앱 연결 ── */
-// LP 끌기 상태를 Island 창에 (독과 Island 는 다른 창)
-export const lpDrag = (phase: 'off' | 'drag' | 'over') => (isTauri ? invoke('lp_drag', { phase, x: 0, y: 0, recordId: '' }) : Promise.resolve())
 export const asciiStop = () => invoke('ascii_stop')
 export const ocrStart = () => invoke('ocr_start')
 export const ocrRegion = (r: { x: number; y: number; w: number; h: number }) => invoke<[string, string]>('ocr_region', r)

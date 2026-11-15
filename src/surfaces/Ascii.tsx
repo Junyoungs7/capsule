@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
-import { reducedMotion, usePresence } from './Dock'
+import { reducedMotion, usePresence } from './Tile'
 
 /* ── v2 아스키 아트: 글자로 짠 3D ──
    물체 표면을 여러 나라 말 문구로 덮는다. 카메라는 수평이라 화면의 한 줄 = 물체의 한 높이 →

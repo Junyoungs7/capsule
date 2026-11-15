@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
 import type { LpRecord } from '../data/types'
 import { isTauri, onStore, storeGet, storeSet, useItems } from '../data/api'
-import { Tile, reducedMotion, usePresence } from './Dock'
+import { Tile, reducedMotion, usePresence } from './Tile'
 import { Ocr } from './Ocr'
 import type { Tab } from './Panel'
 import { Avatar, groupOf } from './Team'
@@ -46,30 +46,10 @@ if (EMPTY) seedNotes.length = 0
 
 const CHECK = /^- \[( |x)\] ?/i
 
-/* ── 독 아이템: 메모 전체 접기/펼치기 ── */
-export function NotesDockItem() {
-  const { notes } = useV3()
-  return (
-    <button className="dock-slot dock-notes" data-running={notes} onClick={() => setV3({ notes: !notes })} aria-pressed={notes} aria-label={notes ? '메모 모두 접기' : '메모 펼치기'}>
-      <span className="icon-mag">
-        <span className="icon-bounce">
-          <span className="tile tile-note">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4.5h14v9.5l-5 5.5H5z" /><path d="M14 19.5V14h5" /><path d="M8.5 9h7M8.5 12h4" /></svg>
-          </span>
-        </span>
-      </span>
-      <span className="dock-label">메모</span>
-      <span className="dock-dot" />
-    </button>
-  )
-}
-
-// 접힘 목표: 독이 펼쳐져 있으면 메모 아이콘, 아니면 독 점(하단 가운데)
+// 접힘 목표: 화면 맨 위 가운데 노치 (메모 창은 모니터 전체 — 노치는 다른 창이라 위치만 안다)
 function dockTarget() {
-  const dock = document.querySelector<HTMLElement>('.dock')
-  const icon = dock?.dataset.open === 'true' && document.querySelector('.dock-notes')
-  const r = (icon || dock)?.getBoundingClientRect()
-  return r ? { x: r.left + r.width / 2, y: icon ? r.top + r.height / 2 : r.bottom - 10 } : { x: innerWidth / 2, y: innerHeight }
+  const isl = document.querySelector('.island-shape')?.getBoundingClientRect()
+  return isl ? { x: isl.left + isl.width / 2, y: isl.top + isl.height / 2 } : { x: innerWidth / 2, y: 0 }
 }
 
 /* ── 앱 메모 자리: 붙은 앱 창(anchor) 옆 ──────────────────────────────
@@ -141,6 +121,9 @@ function MockWindow({ rec, rect }: { rec?: LpRecord; rect: DOMRect }) {
 
 /* ── 레이어 (시안: 가짜 바탕화면 위) ── */
 // anchor = 지금 앞에 있는 앱 창 rect (실제 앱에서 넘겨줌). 없으면 시안은 가짜 창을 그려 그 옆에 붙인다.
+// 허브 시안: 바깥(허브 '새 메모'·'앱 메모')에서 메모 만들기
+let addReq: ((appId?: string, text?: string, group?: string, by?: string) => void) | null = null
+export const newNote = (appId?: string, text?: string, group?: string, by?: string) => addReq?.(appId, text, group, by)
 export function V3Layer({ records, fgId, anchor }: { records: LpRecord[]; fgId?: string; anchor?: DOMRect }) {
   const { notes: shown, ocr } = useV3()
   const [notes, setNotes] = useItems<Note>('note', seedNotes)
@@ -150,13 +133,21 @@ export function V3Layer({ records, fgId, anchor }: { records: LpRecord[]; fgId?:
   const layer = useRef<HTMLDivElement>(null)
 
   const patch = (id: string, p: Partial<Note>) => setNotes((all) => all.map((n) => (n.id === id ? { ...n, ...p } : n)))
-  const add = (from?: Note) => {
+  const add = (from?: Note, appId?: string, text = '', group?: string, by?: string) => {
     const id = crypto.randomUUID()
-    setNotes((all) => [...all, { id, text: '', color: from ? (from.color + 1) % 6 : 0, x: (from?.x ?? 420) + 28, y: (from?.y ?? 140) + 28, w: 210, h: 140, pinned: false }])
+    setNotes((all) => [...all, { id, color: from ? (from.color + 1) % 6 : appId ? 3 : 0, x: (from?.x ?? 420) + 28, y: (from?.y ?? 140) + 28, w: appId ? 248 : 210, h: appId ? 150 : 140, pinned: false, appId, text, group, by }])
     setFront(id)
     setFresh(id)
     setV3({ notes: true })
   }
+  addReq = (appId, text, group, by) => add(undefined, appId, text, group, by)
+  // 실제 앱: 허브 '+ 새 메모' 는 아일랜드 창이 store 에 메모를 쓰고 `note.edit` = id → 메모 창이 그 메모를 바로 편집 상태로
+  useEffect(() => {
+    if (!isTauri) return
+    const edit = (id: unknown) => typeof id === 'string' && id && (setFront(id), setFresh(id))
+    void storeGet<string>('note.edit').then(edit)
+    return onStore((k, v) => k === 'note.edit' && edit(v))
+  }, [])
   const say = (msg: string) => setToast((t) => ({ msg, n: (t?.n ?? 0) + 1 }))
 
   // 시안 단축키: Ctrl+Alt+T = 화면 글자 복사 (실제 앱 = Rust 전역 단축키)

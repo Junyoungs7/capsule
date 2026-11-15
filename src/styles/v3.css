@@ -6,9 +6,6 @@
 .demo-btns.v3 button:last-child { grid-column: auto; }
 .demo-btns.v3 kbd { padding: 2px 4px; font-size: 9.5px; }
 
-/* ── 독 아이템 '메모' ── */
-.tile-note { --c: #d9a521; }
-
 /* ── 포스트잇 ── */
 /* 레이어는 쌓임 맥락을 만들지 않는다 → 메모별 z-index 가 독(30)·패널(35)과 섞인다 */
 .note-pos { position: fixed; left: 0; top: 0; }
