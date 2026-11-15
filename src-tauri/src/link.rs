@@ -121,7 +121,8 @@ pub fn settings_ini(c: &Cfg, conf: &Path, cert: &Path) -> String {
 pub enum LogEv {
     Connected { name: String },
     Disconnected { name: String },
-    Switch { from: String, to: String },
+    /// at = 로그의 "at x,y" (들어간 화면의 좌표)
+    Switch { from: String, to: String, at: Option<(i32, i32)> },
     Fingerprint { fp: String },
     Untrusted,
     Error { msg: String },
@@ -136,7 +137,8 @@ pub fn parse_line(line: &str) -> Option<LogEv> {
     let (level, msg) = line.split_once("] ").map(|(_, r)| r).unwrap_or(line).split_once(": ")?;
     let has = |p: &str| msg.contains(p);
     if has("switch from \"") || has("jump from \"") {
-        return Some(LogEv::Switch { from: quoted(msg, 0), to: quoted(msg, 1) });
+        let at = msg.rsplit_once(" at ").and_then(|(_, xy)| xy.trim().split_once(',')).and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)));
+        return Some(LogEv::Switch { from: quoted(msg, 0), to: quoted(msg, 1), at });
     }
     if has("has connected") || has("accepted client connection") {
         return Some(LogEv::Connected { name: quoted(msg, 0) });
@@ -529,10 +531,11 @@ fn on_log(app: &AppHandle, ev: LogEv) {
     match &ev {
         LogEv::Connected { name } => set(app, |s| (s.state = "connected".into(), s.peer = if name.is_empty() { s.peer.clone() } else { name.clone() }, s.detail.clear()).2),
         LogEv::Disconnected { .. } => set(app, |s| (s.state = "waiting".into(), s.on_peer = false).1),
-        LogEv::Switch { to, .. } => {
+        LogEv::Switch { to, at, .. } => {
             let on_peer = *to != me;
             set(app, |s| (s.on_peer = on_peer, s.state = "connected".into()).1);
             let _ = app.emit("link-switch", json!({ "to": to, "onPeer": on_peer }));
+            crossing(app, on_peer, *at);
         }
         LogEv::Fingerprint { fp } => STATUS.lock().unwrap().fingerprint = fp.clone(),
         LogEv::Untrusted => {
@@ -543,10 +546,253 @@ fn on_log(app: &AppHandle, ev: LogEv) {
     }
 }
 
+/* ── 넘어감: 파란 물결 · crossed 알림 · 한/영 가로채기 · 자동 화면보호기 시계 ── */
+static LAST_SWITCH: Mutex<Option<Instant>> = Mutex::new(None);
+static SAVER_SENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 이 PC 경계 상자 [l, t, r, b] (물리 px)
+fn desk_bbox() -> [f64; 4] {
+    crate::watch::monitors().iter().fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, (_, r, _, _)| [b[0].min(r[0]), b[1].min(r[1]), b[2].max(r[0] + r[2]), b[3].max(r[1] + r[3])])
+}
+
+fn crossing(app: &AppHandle, on_peer: bool, at: Option<(i32, i32)>) {
+    *LAST_SWITCH.lock().unwrap() = Some(Instant::now());
+    SAVER_SENT.store(false, std::sync::atomic::Ordering::Relaxed);
+    let bb = desk_bbox();
+    if on_peer {
+        // 떠남: 지금 커서(가장자리) 자리에 옅은 물결, 맥에는 들어간 좌표로 진한 물결을 그리게
+        #[cfg(windows)]
+        {
+            let (x, y) = cursor();
+            crate::ripple::show(x, y, Some(ll::nearest_side(bb, x as f64, y as f64)), crate::ripple::Kind::Leave);
+            if read_cfg(app).1.ime != "off" {
+                crate::shell::ime_forward(true);
+            }
+        }
+        send(json!({ "t": "crossed", "enter": true, "x": at.map(|a| a.0), "y": at.map(|a| a.1) }));
+    } else {
+        #[cfg(windows)]
+        {
+            crate::shell::ime_forward(false);
+            if let Some((x, y)) = at {
+                crate::ripple::show(x, y, Some(ll::nearest_side(bb, x as f64, y as f64)), crate::ripple::Kind::Enter);
+            }
+        }
+        send(json!({ "t": "crossed", "enter": false }));
+    }
+    let _ = (app, bb);
+}
+
+#[cfg(windows)]
+fn cursor() -> (i32, i32) {
+    let mut p = windows::Win32::Foundation::POINT::default();
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p);
+    }
+    (p.x, p.y)
+}
+
+/// 파일 채널로 제어 메시지 (연결 없으면 조용히 무시)
+pub fn send(v: Value) {
+    if let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) {
+        std::thread::spawn(move || {
+            let _ = c.send(v);
+        });
+    }
+}
+
+/// 상대 PC 에 아스키·화면보호기·효과 켜기/끄기
+pub fn ambient(kind: &str, fx: Option<&str>, action: &str) -> Result<(), String> {
+    let c = CONN.lock().unwrap().clone().filter(|c| c.is_ready()).ok_or("맥과 연결되어 있지 않아요")?;
+    c.send(json!({ "t": "ambient", "kind": kind, "fx": fx, "action": action })).map_err(|e| e.to_string())
+}
+
+/// 상대가 보낸 ambient 를 이 PC 에서 (아스키 창·효과 창은 lib.rs 의 열기 함수)
+fn on_ambient(app: &AppHandle, m: &Value) {
+    let (kind, action) = (m["kind"].as_str().unwrap_or(""), m["action"].as_str().unwrap_or("start"));
+    let h = app.clone();
+    let fx = m["fx"].as_str().unwrap_or("snow").to_string();
+    let kind = kind.to_string();
+    let start = action == "start";
+    tauri::async_runtime::spawn(async move {
+        let r = match (kind.as_str(), start) {
+            ("ascii", true) => crate::open_ascii(&h, false, None),
+            ("saver", true) => crate::open_ascii(&h, true, None),
+            ("fx", true) => crate::open_fx(&h, &fx),
+            ("ascii" | "saver", false) => h.get_webview_window("ascii").map_or(Ok(()), |w| w.destroy()),
+            ("fx", false) => h.get_webview_window("fx").map_or(Ok(()), |w| w.destroy()),
+            _ => Ok(()),
+        };
+        if let Err(e) = r {
+            eprintln!("ambient: {e}");
+        }
+    });
+}
+
+/// 접속 직후: 내 모니터 · 키 매핑 · 할 일/일정 전체
+fn hello_after_ready(app: &AppHandle) {
+    let mons: Vec<Value> = crate::watch::monitors().into_iter().map(|(id, r, s, p)| json!({ "id": id, "rect": r, "scale": s, "primary": p })).collect();
+    send(json!({ "t": "monitors", "list": mons }));
+    let c = read_cfg(app).1;
+    send(json!({ "t": "keymap", "preset": c.keymap, "rows": c.key_rows, "ime": c.ime }));
+    send(json!({ "t": "sync", "items": sync_snapshot(app) }));
+}
+
+fn on_msg(app: &AppHandle, m: &Value) {
+    match m["t"].as_str().unwrap_or("") {
+        "monitors" => {
+            let list: Vec<MacMon> = m["list"].as_array().into_iter().flatten().filter_map(|x| Some(MacMon { id: x["id"].as_str()?.to_string(), rect: serde_json::from_value(x["rect"].clone()).ok()? })).collect();
+            if !list.is_empty() && list != mac_monitors(app) {
+                if let Ok(s) = app.store("hera.json") {
+                    s.set("link.macMonitors", serde_json::to_value(&list).unwrap_or(Value::Null));
+                }
+                apply(); // 엔진 링크 다시 생성
+                update_edges(app);
+            }
+            let _ = app.emit("link-monitors", ());
+        }
+        "ambient" => on_ambient(app, m),
+        "sync" => sync_apply(app, m["items"].clone()),
+        // 맥이 알려 준 지금 입력 소스 → Island 칩
+        "ime" if m["action"] == "state" => {
+            let _ = app.emit_to("island", "ime-state", json!({ "source": m["source"], "from": "mac" }));
+        }
+        "crossed" => {
+            // 맥이 서버일 때(미래) 대비: 들어옴/나감 물결
+            #[cfg(windows)]
+            if let (Some(x), Some(y)) = (m["x"].as_i64(), m["y"].as_i64()) {
+                let bb = desk_bbox();
+                let kind = if m["enter"] == true { crate::ripple::Kind::Enter } else { crate::ripple::Kind::Leave };
+                crate::ripple::show(x as i32, y as i32, Some(ll::nearest_side(bb, x as f64, y as f64)), kind);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 연결된 가장자리 구간에 끌어 놓기 띠 (파일 채널이 준비됐을 때만)
+pub fn update_edges(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        let segs = if files_connected().is_some() { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
+        crate::edge::set(segs);
+    }
+    let _ = app;
+}
+
+/// 가장자리 띠에 놓은 파일 → 맥으로 (via edge) + 그 자리에 물결
+#[cfg(windows)]
+fn edge_drop(app: &AppHandle, files: Vec<String>, mac_side: String, pos: f64, pt: (i32, i32)) {
+    let side = ll::nearest_side(desk_bbox(), pt.0 as f64, pt.1 as f64);
+    crate::ripple::show(pt.0, pt.1, Some(side), crate::ripple::Kind::Leave);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) else { return };
+        for f in files {
+            let _ = c.send_file_meta(Path::new(&f), &sink(&app), json!({ "via": "edge", "edge": mac_side, "pos": pos }));
+        }
+    });
+}
+
+/* ── 할 일·일정 동기화 (link_sync) ── */
+use crate::link_sync as ls;
+static META: Mutex<Option<ls::Meta>> = Mutex::new(None);
+static APPLYING: Mutex<Vec<(String, Option<Value>)>> = Mutex::new(Vec::new());
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+
+fn with_meta<R>(app: &AppHandle, f: impl FnOnce(&mut ls::Meta) -> R) -> R {
+    let mut g = META.lock().unwrap();
+    let m = g.get_or_insert_with(|| app.store("hera.json").ok().and_then(|s| s.get("sync.meta")).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default());
+    let r = f(m);
+    ls::gc(m, now_ms());
+    if let Ok(s) = app.store("hera.json") {
+        s.set("sync.meta", serde_json::to_value(&*m).unwrap_or(Value::Null));
+    }
+    r
+}
+
+fn personal(scope: &str) -> bool {
+    scope == "personal" // Hera Team: 그룹 scope 는 그룹 채널로 (아직 없음)
+}
+
+fn sync_snapshot(app: &AppHandle) -> Vec<ls::Item> {
+    let live: Vec<(String, Value)> = app.store("hera.json").map(|s| s.entries()).unwrap_or_default();
+    with_meta(app, |m| ls::snapshot(m, &live, personal))
+}
+
+/// 이 PC 에서 바뀐 할 일/일정 (store 변경 이벤트) → 메타 갱신 + 맥으로
+fn on_store_change(app: &AppHandle, key: &str, value: Option<Value>) {
+    if !ls::syncable(key) {
+        return;
+    }
+    {
+        // 내가 방금 적용한 원격 변경이면 되돌려 보내지 않는다
+        let mut a = APPLYING.lock().unwrap();
+        if let Some(i) = a.iter().position(|(k, v)| k == key && *v == value) {
+            a.remove(i);
+            return;
+        }
+    }
+    let at = now_ms();
+    let scope = ls::scope_of(value.as_ref());
+    with_meta(app, |m| m.insert(key.to_string(), (at, value.is_none())));
+    if personal(&scope) {
+        send(json!({ "t": "sync", "items": [ls::Item { key: key.into(), value, at, scope }] }));
+    }
+}
+
+fn sync_apply(app: &AppHandle, items: Value) {
+    let Ok(items) = serde_json::from_value::<Vec<ls::Item>>(items) else { return };
+    let todo = with_meta(app, |m| {
+        let t = ls::merge(m, &items, personal);
+        for i in &t {
+            m.insert(i.key.clone(), (i.at, i.value.is_none()));
+        }
+        t
+    });
+    let Ok(s) = app.store("hera.json") else { return };
+    for i in todo {
+        APPLYING.lock().unwrap().push((i.key.clone(), i.value.clone()));
+        match i.value {
+            Some(v) => s.set(i.key, v),
+            None => {
+                s.delete(i.key);
+            }
+        }
+    }
+}
+
 /// 감독 스레드: 켜짐 → (충돌 검사) → 준비 → 실행 → 죽으면 백오프 재시작. 꺼짐/설정 변경 → 우리 자식만 종료.
 pub fn start(app: AppHandle) {
     let (tx, rx) = channel::<()>();
     let _ = CTL.set(tx);
+    {
+        use tauri::Listener;
+        let a = app.clone();
+        app.listen_any("store://change", move |e| {
+            if let Ok(v) = serde_json::from_str::<Value>(e.payload()) {
+                if let Some(k) = v["key"].as_str() {
+                    on_store_change(&a, k, if v["exists"] == true { Some(v["value"].clone()) } else { None });
+                }
+            }
+        });
+    }
+    #[cfg(windows)]
+    {
+        let a = app.clone();
+        crate::shell::on_hangul(move || {
+            // 맥에 커서가 있을 때 한/영: 맥 Hera 가 입력 소스 전환 (또는 엔진으로 맥 전환 단축키 — 실험적)
+            match read_cfg(&a).1.ime.as_str() {
+                "hera" => send(json!({ "t": "ime", "action": "toggle" })),
+                m => send_switch_shortcut(m),
+            }
+        });
+        let a = app.clone();
+        crate::edge::on_drop(move |files, side, pos, pt| edge_drop(&a, files, side, pos, pt));
+    }
     std::thread::spawn(move || {
         let mut child: Option<(Child, Cfg, Instant)> = None;
         let mut backoff = 1u64;
@@ -594,6 +840,14 @@ pub fn start(app: AppHandle) {
                 Err(RecvTimeoutError::Disconnected) => return,
                 Ok(()) => continue, // 설정 다시 읽기
                 Err(RecvTimeoutError::Timeout) => {}
+            }
+            // 상대 PC 를 안 쓰면 자동 화면보호기: 커서가 이 PC 에 N분 머물면 1번 보냄
+            if cfg.auto_saver_min > 0 {
+                let st = status();
+                let idle = LAST_SWITCH.lock().unwrap().is_some_and(|t| t.elapsed() >= Duration::from_secs(cfg.auto_saver_min * 60));
+                if st.state == "connected" && !st.on_peer && idle && !SAVER_SENT.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let _ = ambient("saver", None, "start");
+                }
             }
             // 죽었나 → 백오프 재시작 (60초 이상 살았으면 백오프 초기화)
             if let Some((c, _, since)) = child.as_mut() {
@@ -651,8 +905,34 @@ fn sink(app: &AppHandle) -> lf::Sink {
                     let _ = trust(&app, fp);
                 }
             }
-            lf::Event::Received { path, .. } => {
+            lf::Event::Received { path, meta, .. } => {
                 let _ = app.emit_to("dock", "link-received", path.clone());
+                // 맥 가장자리로 끌어 보낸 파일: 이어진 PC 가장자리 그 자리에 진한 물결
+                #[cfg(windows)]
+                if meta["via"] == "edge" {
+                    if let (Some(side), Some(pos)) = (meta["edge"].as_str(), meta["pos"].as_f64()) {
+                        if let Some((x, y, wside)) = ll::mac_to_win(&plan(&app).1.segs, side, pos) {
+                            crate::ripple::show(x as i32, y as i32, Some(wside), crate::ripple::Kind::Enter);
+                        }
+                    }
+                }
+                let _ = meta;
+            }
+            lf::Event::Msg { msg } => on_msg(&app, msg),
+            lf::Event::Peer { state, .. } if state == "ready" => {
+                let a = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50)); // CONN 등록 뒤
+                    hello_after_ready(&a);
+                    update_edges(&a);
+                });
+            }
+            lf::Event::Peer { state, .. } if state == "closed" => {
+                let a = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(50));
+                    update_edges(&a);
+                });
             }
             lf::Event::Clip { text } => crate::clip::add_remote(text),
             _ => {}
@@ -735,6 +1015,23 @@ pub fn on_local_clip(text: &str) {
     });
 }
 
+/// 한/영 대체 방법: 맥 전환 단축키를 SendInput 으로 만들어 엔진이 맥으로 실어 보내게 (엔진이 주입 키를 넘기는지는 미확인 — 실험적)
+#[cfg(windows)]
+fn send_switch_shortcut(method: &str) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    let keys: &[VIRTUAL_KEY] = match method {
+        "capslock" => &[VK_CAPITAL],
+        "ctrl-space" => &[VK_CONTROL, VK_SPACE],
+        "cmd-space" => &[VK_LWIN, VK_SPACE], // 엔진 기본 매핑에서 Win = ⌘ (윈도우 습관 프리셋이면 Ctrl 쪽으로 바뀐다)
+        _ => return,
+    };
+    let ev = |vk: VIRTUAL_KEY, up: bool| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() }, ..Default::default() } } };
+    let inputs: Vec<INPUT> = keys.iter().map(|&k| ev(k, false)).chain(keys.iter().rev().map(|&k| ev(k, true))).collect();
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
 pub fn files_connected() -> Option<String> {
     CONN.lock().unwrap().as_ref().filter(|c| c.is_ready()).map(|c| c.peer_name.clone())
 }
@@ -782,8 +1079,9 @@ mod tests {
     #[test]
     fn log_parsing() {
         let p = |s: &str| parse_line(s);
-        assert_eq!(p(r#"[2026-11-15T12:03:00.851] INFO: switch from "DEV-PC" to "MacBook" at 1919,500"#), Some(LogEv::Switch { from: "DEV-PC".into(), to: "MacBook".into() }));
-        assert_eq!(p(r#"[t] INFO: jump from "MacBook" to "DEV-PC" at 5,5"#), Some(LogEv::Switch { from: "MacBook".into(), to: "DEV-PC".into() }));
+        assert_eq!(p(r#"[2026-11-15T12:03:00.851] INFO: switch from "DEV-PC" to "MacBook" at 1919,500"#), Some(LogEv::Switch { from: "DEV-PC".into(), to: "MacBook".into(), at: Some((1919, 500)) }));
+        assert_eq!(p(r#"[t] INFO: jump from "MacBook" to "DEV-PC" at 5,5"#), Some(LogEv::Switch { from: "MacBook".into(), to: "DEV-PC".into(), at: Some((5, 5)) }));
+        assert_eq!(p(r#"[t] INFO: switch from "A" to "B" at 0,-3"#), Some(LogEv::Switch { from: "A".into(), to: "B".into(), at: Some((0, -3)) }));
         assert_eq!(p("[t] INFO: accepted client connection"), Some(LogEv::Connected { name: String::new() }));
         assert_eq!(p(r#"[t] DEBUG: client "MacBook" has connected"#), Some(LogEv::Connected { name: "MacBook".into() }));
         assert_eq!(p(r#"[t] INFO: disconnecting client "MacBook""#), Some(LogEv::Disconnected { name: "MacBook".into() }));

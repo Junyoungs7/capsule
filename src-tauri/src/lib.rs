@@ -2,9 +2,13 @@
 #[cfg(windows)]
 mod clip;
 #[cfg(windows)]
+mod edge;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod launch;
+#[cfg(windows)]
+mod ripple;
 #[cfg(windows)]
 mod shell;
 #[cfg(windows)]
@@ -18,6 +22,7 @@ use stub::{clip, icons, launch, shell, taskbar, watch};
 mod link;
 mod link_files;
 mod link_layout;
+mod link_sync;
 mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -354,6 +359,7 @@ fn link_status() -> (link::Status, Option<String>) {
 fn link_apply(app: AppHandle) {
     link::apply();
     link::files_start(&app);
+    link::update_edges(&app);
 }
 
 #[tauri::command]
@@ -364,6 +370,18 @@ async fn link_import(app: AppHandle) -> Result<link::Cfg, String> {
 #[tauri::command]
 fn link_trust(app: AppHandle, fp: String) -> Result<(), String> {
     link::trust(&app, &fp)
+}
+
+/// 패널 배치 캔버스: 모든 모니터(PC·맥) + 변환된 엔진 링크 구간 + 표현 못 하는 배치 설명
+#[tauri::command]
+fn link_plan(app: AppHandle) -> (Vec<link_layout::Mon>, link_layout::Plan) {
+    link::plan(&app)
+}
+
+/// 상대 PC 에 아스키(ascii)·화면보호기(saver)·효과(fx) 켜기/끄기
+#[tauri::command]
+fn link_ambient(kind: String, fx: Option<String>, action: String) -> Result<(), String> {
+    link::ambient(&kind, fx.as_deref(), &action)
 }
 
 #[tauri::command]
@@ -497,7 +515,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
-            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send
+            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다

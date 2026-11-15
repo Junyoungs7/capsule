@@ -217,7 +217,10 @@ export const thumbs = (list: [number, DOMRect][]) =>
   isTauri ? invoke<number>('thumbs', { list: list.map(([h, r]) => [h, [r.x, r.y, r.width, r.height].map((v) => v * devicePixelRatio)]) }) : Promise.resolve(0)
 
 /* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files', 받은 파일 'link-received'(독) ── */
-export type LinkCfg = { me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number }
+export type LinkCfg = {
+  me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number
+  keymap: string; keyRows: [string, string][]; ime: string; autoSaverMin: number; locator: boolean
+}
 export type LinkStatus = { state: 'off' | 'starting' | 'waiting' | 'connected' | 'blocked' | 'error'; detail: string; peer: string; onPeer: boolean; fingerprint: string }
 export type LinkFilesEv =
   | { kind: 'peer'; state: 'pairing' | 'ready' | 'closed'; name: string; code: string }
@@ -233,3 +236,10 @@ export const linkTrust = (fp: string) => invoke('link_trust', { fp })
 export const linkPair = (ok: boolean) => invoke('link_pair', { ok })
 export const linkUnpair = () => invoke('link_unpair')
 export const linkSend = (path: string) => invoke('link_send', { path })
+
+/* ── Hera Link 3b: 모니터 배치 · 상대 PC 분위기 ── */
+export type LinkMon = { id: string; mac: boolean; rect: [number, number, number, number]; at: [number, number, number, number] }
+export type LinkSeg = { side: 'left' | 'right' | 'up' | 'down'; win: [number, number]; mac: [number, number]; edge: [number, number, number, number] }
+export const linkPlan = () => invoke<[LinkMon[], { segs: LinkSeg[]; limits: string[] }]>('link_plan')
+export type Ambient = { kind: 'ascii' | 'saver' | 'fx'; fx?: 'snow' | 'rain' | 'leaves' | 'sunset' | 'dawn' | 'moon'; action: 'start' | 'stop' }
+export const linkAmbient = (a: Ambient) => invoke('link_ambient', { kind: a.kind, fx: a.fx ?? null, action: a.action })

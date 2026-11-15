@@ -299,8 +299,12 @@ fn check_alarms(app: &AppHandle) {
     let old: Vec<String> = s.get("alarm.fired").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
     let mut fired: Vec<String> = old.iter().filter(|k| items.iter().any(|a| &a.fire_key() == *k)).cloned().collect();
+    // Hera Link: 알림은 커서가 있는 PC 에서만. 커서가 맥에 있으면 맥 Hera 가 울리고, 여기선 울린 것으로 표시만 (돌아와서 또 울리지 않게)
+    let here = !crate::link::status().on_peer;
     for a in due_alarms(now, &items, &old) {
-        let _ = app.emit_to("island", "alarm", a);
+        if here {
+            let _ = app.emit_to("island", "alarm", a);
+        }
         fired.push(a.fire_key());
     }
     if fired != old {
@@ -410,6 +414,50 @@ fn fx_trigger(prev: Option<(Tod, u8)>, cur: (Tod, u8), season: Option<&'static s
     }
 }
 
+/// 커서 찾기: 마우스를 빠르게 좌우(또는 위아래)로 흔들면 커서 둘레에 파란 물결.
+/// 30Hz 커서 표본으로 판정 (전역 저수준 훅 없음): 500ms 안에 방향 전환 ≥ 4번, 각 구간 이동 ≥ min_travel px, 발동 후 1.5초 쉼.
+#[derive(Default)]
+pub struct Shake {
+    pts: std::collections::VecDeque<(u64, i32, i32)>,
+    last_fire: Option<u64>,
+}
+
+impl Shake {
+    pub fn push(&mut self, t: u64, x: i32, y: i32, min_travel: i32) -> bool {
+        self.pts.push_back((t, x, y));
+        while self.pts.front().is_some_and(|p| p.0 > t || t - p.0 > 500) {
+            self.pts.pop_front();
+        }
+        if self.last_fire.is_some_and(|l| t.saturating_sub(l) < 1500) {
+            return false;
+        }
+        let rev = |axis: fn(&(u64, i32, i32)) -> i32| {
+            let (mut n, mut dir, mut run) = (0, 0i32, 0i32);
+            for w in self.pts.iter().collect::<Vec<_>>().windows(2) {
+                let d = axis(w[1]) - axis(w[0]);
+                if d == 0 {
+                    continue;
+                }
+                if dir != 0 && d.signum() != dir {
+                    if run.abs() >= min_travel {
+                        n += 1;
+                    }
+                    run = 0;
+                }
+                dir = d.signum();
+                run += d;
+            }
+            n
+        };
+        if rev(|p| p.1).max(rev(|p| p.2)) >= 4 {
+            self.last_fire = Some(t);
+            self.pts.clear();
+            return true;
+        }
+        false
+    }
+}
+
 /// 트레이 '날씨·계절 효과' 체크 항목 (패널에서 바꾸면 watch 루프가 맞춰 준다)
 pub struct FxMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
 
@@ -439,12 +487,19 @@ pub fn start(app: AppHandle) {
         let mut sky: Option<(Tod, u8)> = None;
         let mut season_shown = (0u16, 0u16);
         let mut fx_on: Option<bool> = None;
+        let mut shake = Shake::default();
+        let mut locator = true;
+        let t0 = Instant::now();
 
         loop {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             let lb = GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0;
+            // 커서 찾기 (커서가 이 PC 에 있을 때만 — 맥에 있으면 엔진이 커서를 붙잡아 둔다)
+            if locator && !hidden && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, 50) {
+                crate::ripple::show(pt.x, pt.y, None, crate::ripple::Kind::Locate);
+            }
             let overlays = OVERLAYS.lock().unwrap().clone();
             let rects: Vec<RECT> = overlays
                 .iter()
@@ -461,6 +516,8 @@ pub fn start(app: AppHandle) {
                 drag_out = false;
             }
             prev_lb = lb;
+            // Hera Link: 바깥에서 끌어오는 중이면 가장자리 띠를 받기 모드로 (근처일 때만)
+            crate::edge::tick(pt.x, pt.y, drag_out);
 
             let hits = HITS.lock().unwrap().clone();
             for (i, &(label, h)) in overlays.iter().enumerate() {
@@ -538,6 +595,7 @@ pub fn start(app: AppHandle) {
                 }
                 // 효과 이벤트: 시간대·날씨·계절 첫날 변화 → 효과 창 (스위치 켜짐 + 전체화면·잠금 아님일 때만)
                 if let Ok(s) = app.store("hera.json") {
+                    locator = s.get("locator.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
                     let on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
                     if fx_on != Some(on) {
                         fx_on = Some(on);
@@ -699,6 +757,34 @@ mod tests {
         assert_eq!(due_alarms(8_000 + 600_000, &snoozed, &fired).len(), 1);
         // 정각 경계 포함
         assert_eq!(due_alarms(20_000, &items[..1], &[]).len(), 1);
+    }
+
+    #[test]
+    fn shake_detector() {
+        // 30Hz 로 좌우 120px 를 약 70ms 마다 왕복 → 500ms 안에 방향 전환 4번 이상 → 발동
+        let shake_at = |s: &mut Shake, start: u64, amp: i32, half_period: u64| {
+            let mut fired = false;
+            for i in 0..30u64 {
+                let t = start + i * 33;
+                let phase = (t - start) / half_period;
+                let x = if phase.is_multiple_of(2) { 500 + amp } else { 500 - amp };
+                fired |= s.push(t, x, 300, 50);
+            }
+            fired
+        };
+        assert!(shake_at(&mut Shake::default(), 0, 120, 70));
+        // 느린 왕복(250ms마다)은 500ms 안에 전환이 모자라 안 됨
+        assert!(!shake_at(&mut Shake::default(), 0, 120, 250));
+        // 작은 떨림(±10px)은 이동 거리 부족
+        assert!(!shake_at(&mut Shake::default(), 0, 10, 70));
+        // 그냥 한 방향으로 쭉 이동은 안 됨
+        let mut s = Shake::default();
+        assert!(!(0..30).any(|i| s.push(i * 33, 100 + i as i32 * 40, 300, 50)));
+        // 발동 후 1.5초는 쉼, 그 뒤 다시 가능
+        let mut s = Shake::default();
+        assert!(shake_at(&mut s, 0, 120, 70));
+        assert!(!shake_at(&mut s, 400, 120, 70)); // 400~1357ms: 쉬는 중
+        assert!(shake_at(&mut s, 3000, 120, 70));
     }
 
     #[test]

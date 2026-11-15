@@ -31,6 +31,7 @@ rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"]
 # Windows 전용 (맥 등은 src/stub.rs 로 컴파일만 — docs/mac-port.md)
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
+windows-core = "0.62"
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",

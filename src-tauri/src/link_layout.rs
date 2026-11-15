@@ -152,6 +152,30 @@ pub fn plan(mons: &[Mon]) -> Plan {
     p
 }
 
+/// 점에서 가장 가까운 경계 상자 가장자리 (물결 방향)
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn nearest_side(bb: [f64; 4], x: f64, y: f64) -> &'static str {
+    let d = [(x - bb[0]).abs(), (bb[2] - 1.0 - x).abs(), (y - bb[1]).abs(), (bb[3] - 1.0 - y).abs()];
+    let i = (0..4).min_by(|&a, &b| d[a].partial_cmp(&d[b]).unwrap()).unwrap();
+    ["left", "right", "up", "down"][i]
+}
+
+/// 맥 가장자리 위치(맥 쪽 방향, 0..1) → 이어진 PC 가장자리의 화면 좌표와 PC 쪽 방향
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn mac_to_win(segs: &[Seg], mac_side: &str, pos: f64) -> Option<(f64, f64, &'static str)> {
+    let p = pos * 100.0;
+    let g = segs.iter().find(|g| opposite(&g.side) == mac_side && p >= g.mac.0 - 0.01 && p <= g.mac.1 + 0.01)?;
+    let f = ((p - g.mac.0) / (g.mac.1 - g.mac.0).max(0.01)).clamp(0.0, 1.0);
+    let e = g.edge;
+    let side: &'static str = match g.side.as_str() {
+        "left" => "left",
+        "right" => "right",
+        "up" => "up",
+        _ => "down",
+    };
+    Some(if e[2] == 0.0 { (e[0], e[1] + f * e[3], side) } else { (e[0] + f * e[2], e[1], side) })
+}
+
 fn kor(side: &str) -> &'static str {
     match side {
         "left" => "왼쪽",
@@ -268,6 +292,19 @@ mod tests {
         let p = plan(&mons);
         assert_eq!(p.segs.len(), 1);
         assert!(p.limits.iter().any(|l| l.contains("겹쳐")));
+    }
+
+    #[test]
+    fn edge_helpers() {
+        let bb = [0.0, 0.0, 3840.0, 1080.0];
+        assert_eq!(nearest_side(bb, 3839.0, 500.0), "right");
+        assert_eq!(nearest_side(bb, 0.0, 500.0), "left");
+        assert_eq!(nearest_side(bb, 1000.0, 1079.0), "down");
+        let p = plan(&[win("1", [0.0, 0.0, 1920.0, 1080.0], 1.0), mac("air", [0.0, 0.0, 1512.0, 982.0], [1920.0, 540.0])]);
+        // 맥 왼쪽 가장자리 27.5% (0~54.99 구간의 절반) → PC 오른쪽 가장자리 y = 540 + 270
+        let (x, y, side) = mac_to_win(&p.segs, "left", 0.27495).unwrap();
+        assert_eq!((x, y.round(), side), (1920.0, 810.0, "right"));
+        assert!(mac_to_win(&p.segs, "left", 0.9).is_none()); // 이어지지 않은 곳
     }
 
     #[test]

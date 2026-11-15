@@ -15,7 +15,7 @@ export type LinkView = {
   pair: { code: string; name: string } | null
   xfer: { dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null
 }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'swap' | 'pair' | 'xfer'
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'swap' | 'pair' | 'xfer' | 'ime'
 
 // 컨테이너(=창)는 최대 크기 고정, 상태별 모양은 고정 프리셋 → clip-path 스프링
 const SIZES: Record<Mode, [number, number, number]> = {
@@ -27,6 +27,7 @@ const SIZES: Record<Mode, [number, number, number]> = {
   swap: [196, 44, 22],
   pair: [404, 104, 30],
   xfer: [372, 68, 30],
+  ime: [68, 36, 18],
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
 
@@ -63,9 +64,11 @@ type Props = {
   link?: LinkView | null
   onSendFiles?: (paths: string[]) => void // 연결 중 드롭존 오른쪽 절반 = 맥으로 보내기
   onPair?: (ok: boolean) => void
+  ime?: { source: 'ko' | 'en'; n: number } | null // 한/영이 바뀐 직후 0.8초 '한'/'A' 칩
+  onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, link, onSendFiles, onPair }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, link, onSendFiles, onPair, ime, onChip }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -91,7 +94,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     return () => void off.then((f) => f())
   }, [])
   // 화면 전환 표시는 swap.n 이 바뀔 때만 (1.6초 — Desktop 이 지움)
-  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : link?.xfer ? 'xfer' : link?.swap ? 'swap' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : ime ? 'ime' : link?.xfer ? 'xfer' : link?.swap ? 'swap' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
@@ -152,7 +155,15 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       <div className="island-layer idle" style={{ width: link?.connected ? 156 : SIZES.idle[0], height: SIZES.idle[1] }} aria-hidden={mode !== 'idle'}>
         <span className="pulse" data-on={!!playing} />
         <span>{today}</span>
-        {link?.connected && <span className="link-chip" data-peer={link.swap?.onPeer ?? false} title={`${link.peer} 연결됨`}>{link.peer.slice(0, 6)}</span>}
+        {link?.connected && (
+          <button className="link-chip" data-peer={link.swap?.onPeer ?? false} onClick={(e) => (e.stopPropagation(), onChip?.())} title={`${link.peer} 연결됨 · 클릭: ${link.peer} 화면에 아스키 켜기/끄기`} tabIndex={mode === 'idle' ? 0 : -1}>
+            {link.peer.slice(0, 6)}
+          </button>
+        )}
+      </div>
+
+      <div className="island-layer ime" style={{ width: SIZES.ime[0], height: SIZES.ime[1] }} aria-hidden={mode !== 'ime'}>
+        <b key={ime?.n} data-src={ime?.source}>{ime?.source === 'ko' ? '한' : 'A'}</b>
       </div>
 
       <div className="island-layer swap" style={{ width: SIZES.swap[0], height: SIZES.swap[1] }} aria-hidden={mode !== 'swap'} data-dir={link?.swap?.onPeer ? 'out' : 'in'}>

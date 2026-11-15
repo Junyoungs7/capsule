@@ -52,6 +52,68 @@ static LIFT: AtomicI32 = AtomicI32::new(0);
 const T_REFRESH: usize = 1;
 const T_SAFETY: usize = 2;
 const T_LIFT: usize = 3;
+const WM_IME_HOOK: u32 = WM_APP + 1; // wParam 1 = 한/영 가로채기 켜기, 0 = 끄기
+static KB_HOOK: AtomicIsize = AtomicIsize::new(0);
+static IME_STATE: AtomicI32 = AtomicI32::new(-1);
+type ImeCb = Box<dyn Fn() + Send + Sync>;
+static ON_HANGUL: OnceLock<ImeCb> = OnceLock::new();
+
+/// 맥에 커서가 있는 동안 한/영(VK_HANGUL)을 가로채 넘길 곳 (link.rs 가 1번 등록)
+pub fn on_hangul(f: impl Fn() + Send + Sync + 'static) {
+    let _ = ON_HANGUL.set(Box::new(f));
+}
+
+/// 한/영 가로채기 켜기/끄기. 커서가 맥에 있는 동안만 켠다: 그때는 Deskflow 의 저수준 훅이 키를 삼켜 앱은 한/영을 못 본다.
+/// 우리 훅은 나중에 걸려 먼저 받는다 → VK_HANGUL 만 삼키고 나머지는 그대로 넘긴다. 윈도우로 돌아오면 바로 푼다.
+pub fn ime_forward(on: bool) {
+    let h = HOST.load(Ordering::Relaxed);
+    if h != 0 {
+        unsafe {
+            let _ = PostMessageW(Some(HWND(h as _)), WM_IME_HOOK, WPARAM(on as usize), LPARAM(0));
+        }
+    }
+}
+
+unsafe extern "system" fn kbproc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_HANGUL;
+    if code == HC_ACTION as i32 {
+        let k = &*(lp.0 as *const KBDLLHOOKSTRUCT);
+        if k.vkCode == VK_HANGUL.0 as u32 && k.flags.0 & LLKHF_INJECTED.0 == 0 {
+            if wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN {
+                std::thread::spawn(|| ON_HANGUL.get().map(|f| f())); // 훅 안에서는 오래 머물지 않는다
+            }
+            return LRESULT(1);
+        }
+    }
+    CallNextHookEx(None, code, wp, lp)
+}
+
+/// 앞 창의 한/영 상태 (0 = 영, 1 = 한, -1 = 모름) — IME 기본 창에 IMC_GETCONVERSIONMODE (IME_CMODE_NATIVE)
+fn ime_state() -> i32 {
+    use windows::Win32::UI::Input::Ime::ImmGetDefaultIMEWnd;
+    unsafe {
+        let fg = GetForegroundWindow();
+        let ime = ImmGetDefaultIMEWnd(fg);
+        if ime.is_invalid() {
+            return -1;
+        }
+        let mut r = 0usize;
+        // WM_IME_CONTROL(0x283), IMC_GETCONVERSIONMODE(1)
+        if SendMessageTimeoutW(ime, 0x283, WPARAM(1), LPARAM(0), SMTO_ABORTIFHUNG, 50, Some(&mut r)).0 == 0 {
+            return -1;
+        }
+        (r & 1) as i32
+    }
+}
+
+fn check_ime() {
+    let st = ime_state();
+    if st >= 0 && IME_STATE.swap(st, Ordering::Relaxed) != st {
+        if let Some(app) = APP.get() {
+            let _ = app.emit_to("island", "ime-state", serde_json::json!({ "source": if st == 1 { "ko" } else { "en" }, "from": "win" }));
+        }
+    }
+}
 const HSHELL_FLASH: u32 = 0x8006; // HSHELL_REDRAW | HSHELL_HIGHBIT
 const HSHELL_ACTIVATED: u32 = 4;
 const HSHELL_RUDEACTIVATED: u32 = 0x8004;
@@ -194,12 +256,18 @@ unsafe fn hook_tray() {
 }
 
 unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, h: HWND, obj: i32, child: i32, _: u32, _: u32) {
+    if ev == 0x8029 {
+        // EVENT_OBJECT_IME_CHANGE: 오는 객체가 제각각 → 60ms 뒤 앞 창 상태를 한 번 읽는다
+        SetTimer(Some(HWND(HOST.load(Ordering::Relaxed) as _)), 4, 60, None);
+        return;
+    }
     if obj != OBJID_WINDOW.0 || child != CHILDID_SELF as i32 || h.is_invalid() {
         return;
     }
     match ev {
         EVENT_SYSTEM_FOREGROUND => {
             unflash(h.0 as isize);
+            IME_STATE.store(-1, Ordering::Relaxed); // 새 앞 창: 칩은 다음 변화 때만
             schedule();
         }
         _ if GetAncestor(h, GA_ROOT) != h => {}
@@ -216,11 +284,28 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
                     refresh();
                 }
                 T_SAFETY => refresh(),
+                4 => {
+                    let _ = KillTimer(Some(h), 4);
+                    check_ime();
+                }
                 T_LIFT => {
                     let _ = KillTimer(Some(h), T_LIFT);
                     update_lift();
                 }
                 _ => {}
+            }
+            LRESULT(0)
+        }
+        WM_IME_HOOK => {
+            let cur = KB_HOOK.load(Ordering::Relaxed);
+            if wp.0 == 1 && cur == 0 {
+                let inst = windows::Win32::System::LibraryLoader::GetModuleHandleW(None).unwrap_or_default();
+                if let Ok(hk) = SetWindowsHookExW(WH_KEYBOARD_LL, Some(kbproc), Some(inst.into()), 0) {
+                    KB_HOOK.store(hk.0 as isize, Ordering::Relaxed);
+                }
+            } else if wp.0 == 0 && cur != 0 {
+                let _ = UnhookWindowsHookEx(HHOOK(cur as _));
+                KB_HOOK.store(0, Ordering::Relaxed);
             }
             LRESULT(0)
         }
@@ -281,6 +366,7 @@ pub fn start(app: AppHandle) {
             (EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE),
             (EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE),
             (EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED),
+            (0x8029, 0x8029), // EVENT_OBJECT_IME_CHANGE
         ] {
             SetWinEventHook(a, b, None, Some(on_event), 0, 0, flags);
         }

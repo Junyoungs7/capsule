@@ -33,9 +33,12 @@ pub enum Event {
     /// 새로 페어링됨 → 저장할 것 (pk hex, 상대 엔진 TLS 지문)
     Paired { pk: String, name: String, fp: String },
     Xfer { dir: String, id: u32, name: String, bytes: u64, size: u64 },
-    Received { id: u32, path: String },
+    /// meta = offer 의 부가 필드 (via: "edge" 면 화면 가장자리로 끌어 보낸 것, edge·pos)
+    Received { id: u32, path: String, meta: Value },
     Sent { id: u32, ok: bool, error: String },
     Clip { text: String },
+    /// 이 모듈이 모르는 메시지 (monitors · crossed · ambient · sync · ime · keymap …) — 위층(link.rs)이 처리
+    Msg { msg: Value },
 }
 
 pub type Sink = Arc<dyn Fn(Event) + Send + Sync>;
@@ -76,14 +79,38 @@ pub fn write_frame(w: &mut impl Write, payload: &[u8]) -> std::io::Result<()> {
 }
 
 pub fn read_frame(r: &mut impl Read) -> std::io::Result<Vec<u8>> {
+    read_frame_until(r, &AtomicBool::new(false))
+}
+
+/// 짧은 읽기 제한시간(소켓 read timeout)마다 closed 를 확인한다 — 프레임 중간이면 이어서 읽어 데이터는 잃지 않는다.
+/// (같은 소켓을 다른 핸들로 shutdown 해도 막힌 recv 가 안 깨는 경우가 있어, 닫기를 이 깃발로 확실히 끝낸다)
+fn read_full(r: &mut impl Read, buf: &mut [u8], closed: &AtomicBool) -> std::io::Result<()> {
+    use std::io::ErrorKind::*;
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..]) {
+            Ok(0) => return Err(UnexpectedEof.into()),
+            Ok(k) => n += k,
+            Err(e) if matches!(e.kind(), WouldBlock | TimedOut | Interrupted) => {
+                if closed.load(Ordering::Relaxed) {
+                    return Err(ConnectionAborted.into());
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+fn read_frame_until(r: &mut impl Read, closed: &AtomicBool) -> std::io::Result<Vec<u8>> {
     let mut len = [0u8; 4];
-    r.read_exact(&mut len)?;
+    read_full(r, &mut len, closed)?;
     let n = u32::from_be_bytes(len) as usize;
     if n > MAX_FRAME {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "frame too large"));
     }
     let mut v = vec![0u8; n];
-    r.read_exact(&mut v)?;
+    read_full(r, &mut v, closed)?;
     Ok(v)
 }
 
@@ -144,11 +171,12 @@ struct Rx {
     stream: BufReader<TcpStream>,
     aead: ChaCha20Poly1305,
     n: u64,
+    closed: Arc<AtomicBool>,
 }
 
 impl Rx {
     fn recv(&mut self) -> std::io::Result<(u8, Vec<u8>)> {
-        let ct = read_frame(&mut self.stream)?;
+        let ct = read_frame_until(&mut self.stream, &self.closed)?;
         let mut pt = self.aead.decrypt(Nonce::from_slice(&nonce(self.n)), ct.as_slice()).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "decrypt (bad key or tampered)"))?;
         self.n += 1;
         if pt.is_empty() {
@@ -167,11 +195,20 @@ pub struct Conn {
     next_id: AtomicU32,
     confirm: Mutex<Option<Sender<bool>>>,
     acks: Mutex<Vec<(u32, AckTx)>>,
+    closed: Arc<AtomicBool>,
 }
 
 impl Conn {
     fn json(&self, v: Value) -> std::io::Result<()> {
         self.tx.lock().unwrap().send(T_JSON, v.to_string().as_bytes())
+    }
+
+    /// 준비된 연결로 제어 메시지 1개 (monitors · crossed · ambient · sync · ime …)
+    pub fn send(&self, v: Value) -> std::io::Result<()> {
+        if !self.is_ready() {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "not ready"));
+        }
+        self.json(v)
     }
 
     pub fn is_ready(&self) -> bool {
@@ -190,12 +227,23 @@ impl Conn {
         self.json(json!({ "t": "clip", "text": text }))
     }
 
+    /// 닫기: 상대에게 bye (상대 읽기 루프가 바로 끝남) → 내 읽기 루프도 closed 깃발로 0.5초 안에 끝남 → 소켓 shutdown
     pub fn close(&self) {
+        if self.closed.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        // 핸드셰이크가 끝난 연결이면 bye (실패해도 상관없음)
+        let _ = self.json(json!({ "t": "bye" }));
         let _ = self.tx.lock().unwrap().stream.shutdown(std::net::Shutdown::Both);
     }
 
     /// 파일 보내기 (블로킹: 해시 → offer → chunk… → done → ack 대기). 진행은 sink 로.
     pub fn send_file(&self, path: &Path, sink: &Sink) -> Result<(), String> {
+        self.send_file_meta(path, sink, json!({}))
+    }
+
+    /// meta 는 offer 에 합쳐 보낸다 (예: {"via":"edge","edge":"right","pos":0.42})
+    pub fn send_file_meta(&self, path: &Path, sink: &Sink, meta: Value) -> Result<(), String> {
         if !self.is_ready() {
             return Err("연결이 준비되지 않았어요".into());
         }
@@ -209,7 +257,13 @@ impl Conn {
         let (ack_tx, ack_rx) = channel();
         self.acks.lock().unwrap().push((id, ack_tx));
         let io = |e: std::io::Error| e.to_string();
-        self.json(json!({ "t": "offer", "id": id, "name": name, "size": size, "sha256": sha })).map_err(io)?;
+        let mut offer = json!({ "t": "offer", "id": id, "name": name, "size": size, "sha256": sha });
+        if let (Some(o), Some(m)) = (offer.as_object_mut(), meta.as_object()) {
+            for (k, v) in m {
+                o.entry(k.clone()).or_insert(v.clone());
+            }
+        }
+        self.json(offer).map_err(io)?;
         let mut f = File::open(path).map_err(io)?;
         let (mut buf, mut sent, mut last) = (vec![0u8; CHUNK], 0u64, Instant::now());
         loop {
@@ -243,6 +297,7 @@ struct Incoming {
     hash: Sha256,
     got: u64,
     last: Instant,
+    meta: Value,
 }
 
 /// 받은 파일 이름 정리: 경로 구분자·예약 문자 제거, 같은 이름이 있으면 " (2)" …
@@ -283,7 +338,9 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let peer_fp = peer["fp"].as_str().unwrap_or("").to_string();
     let k = derive(server, &cfg.secret, &eph, &ppk, &peph);
     let tx = Tx { stream: wr, aead: ChaCha20Poly1305::new(Key::from_slice(&k.send)), n: 0 };
-    let mut rx = Rx { stream: rd, aead: ChaCha20Poly1305::new(Key::from_slice(&k.recv)), n: 0 };
+    let closed = Arc::new(AtomicBool::new(false));
+    stream.set_read_timeout(Some(Duration::from_millis(500)))?; // read_full 이 closed 를 보게
+    let mut rx = Rx { stream: rd, aead: ChaCha20Poly1305::new(Key::from_slice(&k.recv)), n: 0, closed: closed.clone() };
     let known = cfg.known_peer == Some(ppk);
     let (ctx, crx) = channel();
     let conn = Arc::new(Conn {
@@ -293,6 +350,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
         next_id: AtomicU32::new(1),
         confirm: Mutex::new(Some(ctx)),
         acks: Mutex::new(vec![]),
+        closed,
     });
     conn.json(json!({ "t": "state", "paired": known }))?;
     let (kind, body) = rx.recv()?;
@@ -368,6 +426,7 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
                     hash: Sha256::new(),
                     got: 0,
                     last: Instant::now(),
+                    meta: json!({ "via": m["via"], "edge": m["edge"], "pos": m["pos"] }),
                 });
             }
             "done" => {
@@ -381,8 +440,8 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
                 if ok {
                     let dest = safe_name(&cfg.downloads, &inc.name);
                     std::fs::rename(&inc.part, &dest)?;
+                    sink(Event::Received { id, path: dest.display().to_string(), meta: inc.meta });
                     conn.json(json!({ "t": "ack", "id": id, "ok": true }))?;
-                    sink(Event::Received { id, path: dest.display().to_string() });
                 } else {
                     let _ = std::fs::remove_file(&inc.part);
                     conn.json(json!({ "t": "ack", "id": id, "ok": false, "error": "hash mismatch" }))?;
@@ -398,7 +457,8 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
             }
             "clip" => sink(Event::Clip { text: m["text"].as_str().unwrap_or("").chars().take(64 * 1024).collect() }),
             "ping" => {}
-            _ => {} // 모르는 메시지는 무시 (앞으로의 확장)
+            "bye" => return Ok(()), // 상대가 닫음
+            _ => sink(Event::Msg { msg: m }), // 위층이 처리 (모르면 무시)
         }
     }
 }
@@ -579,7 +639,10 @@ mod tests {
 
         // 2) 맥 → 윈도우 파일
         let mac = conns.lock().unwrap().iter().rev().find(|(t, c)| *t == 'm' && c.is_ready()).unwrap().1.clone();
-        mac.send_file(&src, &sink_for('m')).unwrap();
+        mac.send_file_meta(&src, &sink_for('m'), json!({ "via": "edge", "edge": "left", "pos": 0.25 })).unwrap();
+        assert!(events.lock().unwrap().iter().any(|(t, e)| *t == 'w' && matches!(e, Event::Received { meta, .. } if meta["via"] == "edge" && meta["pos"] == 0.25)));
+        mac.send(json!({ "t": "ambient", "kind": "fx", "fx": "snow", "action": "start" })).unwrap();
+        assert!(wait_for(&|e| e.iter().any(|(t, e)| *t == 'w' && matches!(e, Event::Msg { msg } if msg["t"] == "ambient" && msg["fx"] == "snow"))));
         let got = events.lock().unwrap().iter().find_map(|(t, e)| if let (&'w', Event::Received { path, .. }) = (t, e) { Some(path.clone()) } else { None }).unwrap();
         assert_eq!(std::fs::read(&got).unwrap(), data);
         assert!(got.ends_with("photo.bin"));

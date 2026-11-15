@@ -3,7 +3,7 @@ import type { Clip, LpRecord, Todo } from '../data/types'
 import { isTauri } from '../data/api'
 import { Tile } from './Dock'
 
-type Item = { key: string; title: string; sub: string; rec?: LpRecord; target?: string; clip?: Clip }
+type Item = { key: string; title: string; sub: string; rec?: LpRecord; target?: string; clip?: Clip; run?: () => void }
 
 type Props = {
   records: LpRecord[]
@@ -15,6 +15,7 @@ type Props = {
   onClose: (restore: boolean) => void // restore = 이전 앱으로 포커스 반환 (Esc·바깥 클릭)
   clips: Clip[]
   onCopy: (c: Clip) => void
+  cmds?: { key: string; title: string; sub: string; run: () => void }[] // 명령 (Hera Link: 맥에 아스키 켜기 …)
 }
 
 const LIMIT = 30 // 목록 DOM 상한 (시작 메뉴 앱 300여 개)
@@ -25,7 +26,7 @@ const ago = (t: number) => {
 }
 
 // 실제 앱: Ctrl+Alt+K 전역 단축키(C3) → 팔레트 창. 시안: Ctrl+K. 검색은 단순 부분 일치.
-export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy }: Props) {
+export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy, cmds = [] }: Props) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const [copied, setCopied] = useState<string | null>(null)
@@ -42,6 +43,7 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
   const known = new Set(records.map((r) => r.target.toLowerCase()))
   const all: Item[] = [
     ...records.map((r) => ({ key: r.id, title: r.title, sub: r.kind === 'set' ? 'LP 세트' : r.target, rec: r })),
+    ...cmds,
     ...todos.filter((t) => !t.done).map((t) => ({ key: t.id, title: t.title, sub: '할 일' })),
     ...apps.filter(([, t]) => !known.has(t.toLowerCase())).map(([title, target]) => ({ key: target, title, sub: '시작 메뉴 앱', target })),
   ]
@@ -59,7 +61,8 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
       setTimeout(() => (onCopy(it.clip!), close(false)), 520)
       return
     }
-    if (it.rec) onRun(it.rec)
+    if (it.run) it.run()
+    else if (it.rec) onRun(it.rec)
     else if (it.target) onLaunch(it.target)
     else onOpenTodo()
     close(false)
@@ -101,7 +104,7 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
                 <b>{it.title}</b>
                 <small>{it.sub}</small>
               </span>
-              <kbd>{copied === it.key ? '복사됨 ✓' : it.clip ? '복사' : it.target || it.rec ? '실행' : '열기'}</kbd>
+              <kbd>{copied === it.key ? '복사됨 ✓' : it.clip ? '복사' : it.run ? '켜기' : it.target || it.rec ? '실행' : '열기'}</kbd>
             </li>
           </Fragment>))}
         </ul>

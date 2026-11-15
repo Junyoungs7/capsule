@@ -4,7 +4,8 @@ import { isTauri, startApps } from '../data/api'
 import { Tile } from './Dock'
 import { fmtWhen } from './Island'
 import type { Weather } from './Fx'
-import type { LinkCfg, LinkStatus } from '../data/api'
+import { useValue, type LinkCfg, type LinkStatus } from '../data/api'
+import { AmbientControls, KeyMapEditor, MonitorCanvas } from './LinkExtras'
 
 /** Hera Link 설정·상태 (Desktop 이 store·Rust 이벤트와 연결) */
 export type LinkPanel = {
@@ -21,7 +22,7 @@ export type LinkPanel = {
   onTrust: (fp: string) => void
   onUnpair: () => void
 }
-const LINK_DEFAULT: LinkCfg = { me: '', peer: 'MacBook', side: 'right', port: 24800, tls: true, doubleTap: false, filePort: 24810 }
+const LINK_DEFAULT: LinkCfg = { me: '', peer: 'MacBook', side: 'right', port: 24800, tls: true, doubleTap: false, filePort: 24810, keymap: 'habit', keyRows: [], ime: 'hera', autoSaverMin: 0, locator: true }
 const LINK_STATE: Record<LinkStatus['state'], string> = { off: '꺼짐', starting: '시작하는 중', waiting: '맥 기다리는 중', connected: '연결됨', blocked: '대기 — Deskflow 실행 중', error: '문제 있음' }
 import { moonName, moonPhase } from './Ascii'
 
@@ -373,7 +374,8 @@ function AppPicker({ onPick }: { onPick: (target: string, title: string) => void
 
 // Hera Link: 켜기 · 이름 · 맥 위치(이 PC 화면 기준 상하좌우) · 포트 · TLS · Deskflow 설정 가져오기 · 상태/지문/페어링
 function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, pair, onPair, onImport, onTrust, onUnpair }: LinkPanel) {
-  const c = cfg ?? LINK_DEFAULT
+  const c = { ...LINK_DEFAULT, ...cfg }
+  const [locator, setLocator] = useValue('locator.enabled', true)
   const [msg, setMsg] = useState('')
   const put = (patch: Partial<LinkCfg>) => setCfg({ ...c, ...patch })
   const st = status?.state ?? 'off'
@@ -409,18 +411,11 @@ function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, p
       )}
       <div className="row link-layout">
         <span className="grow">
-          <b>맥 위치</b>
-          <small>이 PC 화면의 어느 쪽으로 넘어가면 맥인지</small>
+          <b>모니터 배치</b>
+          <small>모니터마다 끌어서 어디로 넘어갈지 정해요</small>
         </span>
-        <div className="layout-grid" role="radiogroup" aria-label="맥 위치">
-          {(['top', 'left', 'right', 'bottom'] as const).map((side) => (
-            <button key={side} className={`slot ${side}`} role="radio" aria-checked={c.side === side} onClick={() => put({ side })} aria-label={{ top: '위', left: '왼쪽', right: '오른쪽', bottom: '아래' }[side]}>
-              {c.side === side ? 'Mac' : ''}
-            </button>
-          ))}
-          <span className="me">PC</span>
-        </div>
       </div>
+      <MonitorCanvas connected={!!filesPeer} />
       <div className="row link-fields">
         <label>이 PC<input value={c.me} placeholder="이 PC 이름" onChange={(e) => put({ me: e.target.value.trim() })} /></label>
         <label>맥<input value={c.peer} onChange={(e) => put({ peer: e.target.value.trim() })} /></label>
@@ -440,6 +435,21 @@ function LinkSettings({ on, setOn, cfg, setCfg, status, filesPeer, pairedName, p
         </span>
         {pairedName && <button onClick={onUnpair}>페어링 해제</button>}
       </div>
+      <h3>키 매핑</h3>
+      <KeyMapEditor c={c} put={put} />
+      {filesPeer && (
+        <>
+          <h3>{c.peer} 화면</h3>
+          <AmbientControls peer={c.peer || 'Mac'} autoMin={c.autoSaverMin} setAutoMin={(n) => put({ autoSaverMin: n })} />
+        </>
+      )}
+      <label className="row">
+        <span className="grow">
+          <b>마우스 흔들어 커서 찾기</b>
+          <small>빠르게 좌우로 흔들면 커서 둘레에 파란 물결</small>
+        </span>
+        <input type="checkbox" className="switch" checked={locator} onChange={(e) => setLocator(e.target.checked)} />
+      </label>
       <div className="link-actions">
         <button onClick={() => onImport().then(() => setMsg('Deskflow 설정을 가져왔어요 (이름·배치·인증서)'), (e) => setMsg(String(e)))}>Deskflow 설정 가져오기</button>
         {msg && <small>{msg}</small>}

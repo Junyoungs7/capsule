@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   activate, clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
-  linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
+  linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
   setTurntable, shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
+import { AMBIENT } from '../surfaces/LinkExtras'
 import { Dock } from '../surfaces/Dock'
 import { Island, type LinkView, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
@@ -89,6 +90,9 @@ export function Desktop({ only }: { only?: string }) {
   const [pair, setPair] = useState<{ code: string; name: string } | null>(null)
   const [xfer, setXfer] = useState<{ dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null>(null)
   const [swap, setSwap] = useState<{ onPeer: boolean; n: number } | null>(null)
+  const [ime, setIme] = useState<{ source: 'ko' | 'en'; n: number } | null>(null)
+  const imeTimer = useRef(0)
+  const [peerAscii, setPeerAscii] = useState(false)
   const swapTimer = useRef(0)
   const xferTimer = useRef(0)
   const shelveRef = useRef<(paths: string[]) => void>(() => {})
@@ -114,6 +118,13 @@ export function Desktop({ only }: { only?: string }) {
       }),
     ]
     if (only === 'dock') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])))
+    // 한/영 칩: 이 PC 의 IME 변화(Rust WinEvent) 또는 맥이 알려 준 입력 소스
+    if (only === 'island')
+      offs.push(onEvent<{ source: 'ko' | 'en' }>('ime-state', (e) => {
+        setIme((s) => ({ source: e.source, n: (s?.n ?? 0) + 1 }))
+        clearTimeout(imeTimer.current)
+        imeTimer.current = window.setTimeout(() => setIme(null), 800)
+      }))
     return () => offs.forEach((off) => off())
   }, [])
   const linkView: LinkView | null = link && link.state !== 'off' ? { connected: link.state === 'connected', peer: link.peer || linkCfg?.peer || 'Mac', files: !!filesPeer, swap, pair, xfer } : pair || xfer || swap ? { connected: !isTauri, peer: pair?.name ?? 'MacBook', files: !isTauri || !!filesPeer, swap, pair, xfer } : null
@@ -454,6 +465,8 @@ export function Desktop({ only }: { only?: string }) {
           link={linkView}
           onSendFiles={sendToPeer}
           onPair={(ok) => void linkPair(ok)}
+          ime={ime}
+          onChip={filesPeer ? () => void linkAmbient({ kind: 'ascii', action: peerAscii ? 'stop' : 'start' }).then(() => setPeerAscii((v) => !v)) : undefined}
         />
       )}
       {show('dock') && (
@@ -538,6 +551,7 @@ export function Desktop({ only }: { only?: string }) {
           onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
           clips={clips}
           onCopy={copyClip}
+          cmds={filesPeer ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : []}
         />
       )}
       {show('ascii') && (

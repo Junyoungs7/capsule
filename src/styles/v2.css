@@ -334,7 +334,53 @@
 .link-actions { display: flex; align-items: center; gap: 8px; margin: 0 4px; }
 .link-actions small { color: var(--text-2); }
 
+
+/* ── Hera Link 3b: 모니터 배치 · 키 매핑 · 상대 PC · 한/영 칩 ── */
+.mon-wrap { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
+.mon-canvas { position: relative; align-self: center; border-radius: 12px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; touch-action: none; }
+.mon { position: absolute; display: grid; place-items: center; border-radius: 4px; font-size: 10px; font-weight: 650; color: var(--text-2); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); user-select: none; }
+.mon[data-mac='true'] { color: #fff; background: linear-gradient(160deg, #3a8bff, #1f5fd0); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); cursor: grab; transition: transform 160ms var(--ease-out), box-shadow 160ms; }
+.mon[data-drag='true'] { cursor: grabbing; transform: scale(1.03); box-shadow: 0 6px 18px rgba(10, 90, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.4); z-index: 2; }
+.mon span { overflow: hidden; max-width: 92%; text-overflow: ellipsis; white-space: nowrap; }
+.mon-link { position: absolute; border-radius: 2px; background: #5ab0ff; box-shadow: 0 0 8px #3c9aff; animation: fade 200ms ease-out; z-index: 3; pointer-events: none; }
+.mon-hint, .mon-limit { font-size: 11px; color: var(--text-2); }
+.mon-limit { color: #d9822b; }
+.mon-sizes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); }
+.mon-sizes label { display: flex; align-items: center; gap: 3px; }
+.mon-sizes input { width: 52px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+.keymap { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.presets button { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 0; border-radius: 10px; text-align: left; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 160ms, background 160ms; }
+.presets button[aria-checked='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.presets b { font-size: 12.5px; }
+.presets small { font-size: 10.5px; line-height: 1.3; color: var(--text-2); }
+.key-rows { display: flex; flex-direction: column; gap: 4px; }
+.key-row { display: flex; align-items: center; gap: 6px; }
+.key-row .cap { min-width: 92px; padding: 6px 8px; border: 0; border-radius: 8px; font-weight: 600; background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.key-row .cap[data-on='true'] { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); animation: attn-dot 700ms ease-in-out infinite alternate; }
+.key-row select, .ime-row select { padding: 5px 6px; border: 0; border-radius: 8px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+.kbd-row { display: flex; gap: 4px; padding: 8px; border-radius: 12px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
+.kbd { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 7px; background: var(--seg); box-shadow: inset 0 -2px 0 var(--line-strong); }
+.kbd[data-wide='true'] { flex: 2.4; }
+.kbd b { font-size: 11px; }
+.kbd small { font-size: 9.5px; color: var(--text-2); white-space: nowrap; }
+.kbd[data-changed='true'] small { color: var(--accent); font-weight: 650; }
+.ambient { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
+.amb-btns { display: flex; flex-wrap: wrap; gap: 5px; }
+.amb-btns button { padding: 6px 11px; border: 0; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line); }
+.amb-btns button:hover { color: var(--accent); }
+.ambient > small { color: var(--text-2); font-size: 11px; }
+/* Island: 클릭되는 연결 칩, 한/영 칩 */
+.island button.link-chip { border: 0; cursor: default; }
+.island button.link-chip:hover { background: rgba(80, 160, 255, 0.35); color: #fff; }
+.island[data-mode='ime'] .ime { opacity: 1; transform: translate(-50%, 0); transition: opacity 160ms 60ms, transform var(--dur-bouncy) var(--spring-bouncy); }
+.ime { justify-content: center; }
+.ime b { font: 700 16px/1 var(--font-display); color: #fff; animation: ime-pop 420ms var(--spring-bouncy) both; }
+.ime b[data-src='ko'] { color: #7fd0ff; }
+@keyframes ime-pop { from { opacity: 0; transform: scale(0.5); } }
+
 @media (prefers-reduced-motion: reduce) {
+  .ime b, .mon[data-mac='true'] { animation: none; transition: none; }
   .swap b, .island[data-xfer] .island-shape, .island[data-xfer] .file-ico { animation: none; }
   .dock-slot[data-attention='true'] .icon-bounce { animation: none; }
   .folder-pop, .folder-pop[data-show='true'] { transform: translateX(-50%); }
