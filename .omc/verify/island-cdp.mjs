@@ -21,6 +21,8 @@ const until = async (f, ms = 5000) => {
 
 ok('no dock window', !(await has('surface=dock')))
 const island = await page('island')
+await until(() => island.evaluate(`document.querySelector('.island').dataset.mode === 'idle' && !document.querySelector('.hub')`), 8000) // 앞 시험의 알림이 사라질 때까지
+await sleep(1200) // 모양 스프링이 끝날 때까지
 
 // 1. idle = 120×6 notch at the very top centre
 const notch = await island.evaluate(`(() => { const r = document.querySelector('.island-shape').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: r.top, cx: Math.round(r.left + r.width / 2), vw: innerWidth, sy: screenY, mode: document.querySelector('.island').dataset.mode } })()`)

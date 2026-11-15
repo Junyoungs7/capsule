@@ -14,6 +14,7 @@ import { Hub, type HubKind } from '../surfaces/Hub'
 import { ClipsList, FloatShell, ShelfList } from '../surfaces/Float'
 import { Player, type PlayerRec } from '../surfaces/Player'
 import { ChatWindow, type Msg as ChatMsg } from '../surfaces/Chat'
+import { TermWindow } from '../surfaces/Term'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
@@ -302,6 +303,25 @@ export function Desktop({ only }: { only?: string }) {
     void teamState().then((t) => setMeTeam({ name: t.name, pk: t.pk }), () => {})
     return onEvent<ChatMsg>('chat-msg', showMsg)
   }, [])
+  // 한 줄 알림 (터미널 완료 ✓ / 실패 ✕ · 아라로 넘기는 중 …)
+  const [flash, setFlash] = useState<{ text: string; n: number; icon?: 'ok' | 'fail' | 'spin' } | null>(null)
+  const flashT = useRef(0)
+  const say = (text: string, icon?: 'ok' | 'fail' | 'spin', ms = 2200) => {
+    setFlash((f) => ({ text, icon, n: (f?.n ?? 0) + 1 }))
+    clearTimeout(flashT.current)
+    flashT.current = window.setTimeout(() => setFlash(null), ms)
+  }
+  // 터미널: 실행 중 = 노치 초록 점 · 알약 '터미널 · 실행 중', 창을 안 보는 동안 끝나면 완료/실패
+  const [termRun, setTermRun] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isTauri || only !== 'island') return
+    const offs = [
+      onEvent<{ running: boolean; cmd: string }>('term-state', (e) => setTermRun(e.running ? e.cmd || '명령' : null)),
+      onEvent<{ ok: boolean; cmd: string; ms: number; focused: boolean }>('term-done', (e) => !e.focused && e.ms >= 1000 && say(`${e.ok ? '완료' : '실패'} · ${e.cmd}`, e.ok ? 'ok' : 'fail', 2600)),
+      onEvent<{ text: string; icon?: 'ok' | 'fail' | 'spin'; ms?: number }>('island-flash', (e) => say(e.text, e.icon, e.ms)),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
   // 채팅 창이 열려 있으면 노치 드롭존 오른쪽 = '채팅에 보내기' (Rust float-opened/float-closed)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatGroup] = useValue<string>('chat.group', '')
@@ -477,6 +497,7 @@ export function Desktop({ only }: { only?: string }) {
         onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
     )
     : f === 'chat' ? <ChatWindow setEvents={setEvents} />
+    : f === 'term' ? <TermWindow />
     : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
     : <p className="float-empty">준비 중이에요.</p>
   const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
@@ -575,7 +596,8 @@ export function Desktop({ only }: { only?: string }) {
           onSnooze={snooze}
           onOpen={() => setHub((h) => !h)}
           onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
-          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => pick('shelf'), badge: chatUnread }}
+          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => pick('shelf'), badge: chatUnread, busy: termRun ? `터미널 · ${termRun}` : undefined }}
+          flash={flash}
           onHover={onHover}
           forceDrop={dragNear}
           msg={msg}
@@ -593,7 +615,7 @@ export function Desktop({ only }: { only?: string }) {
       {show('island') && (
         <Hub open={hub} next={next} todos={openTodos} onPick={pick} onNewNote={addNote} onRect={setHubRect}
           onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))}
-          badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null, chat: chatUnread || null }} />
+          badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null, chat: chatUnread || null, term: termRun ? '●' : null }} />
       )}
       {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
       {only === 'float' && floatQ && <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell>}

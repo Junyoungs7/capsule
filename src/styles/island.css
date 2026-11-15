@@ -235,3 +235,24 @@
 
 
 .settings .hint { margin: 2px 4px 10px; font-size: 11.5px; line-height: 1.5; color: var(--text-2); }
+
+/* ── 미니 터미널 (떠 있는 창) ── */
+.term { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; transform-origin: 100% 50%; }
+.term[data-handoff='true'] { animation: term-out 520ms cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+@keyframes term-out { 60% { opacity: 0.6; } to { opacity: 0.25; transform: translateX(40px) scale(0.6, 0.75); } }
+.float[data-f='term'] .float-body { overflow: hidden; }
+.term-head { display: flex; align-items: center; gap: 8px; flex: none; }
+.term-crumbs { display: flex; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; font: 12px/1 'Cascadia Mono', Consolas, monospace; color: var(--text-2); }
+.term-crumbs span + span::before { content: '›'; margin: 0 6px; color: var(--text-3); }
+.term-crumbs span:last-child { color: var(--text); }
+.term-run { display: flex; align-items: center; gap: 6px; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: var(--accent); }
+.term-opt { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-2); }
+.term-ara { flex: none; padding: 6px 12px; border: 0; border-radius: 99px; font: 600 12px/1 inherit; color: var(--on-accent); background: var(--accent); cursor: pointer; transition: transform 160ms var(--spring-bouncy); }
+.term-ara:active { transform: scale(0.95); }
+.term-ara:disabled { opacity: 0.6; cursor: progress; }
+.term-out { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; border-radius: 12px; background: rgba(12, 14, 20, 0.04); box-shadow: inset 0 0 0 1px var(--line); }
+[data-theme='dark'] .term-out { background: rgba(0, 0, 0, 0.35); }
+.term-out .xterm { height: 100%; }
+.term-out .xterm-viewport { background: transparent !important; }
+.term-err { margin: 0; font-size: 11.5px; color: #dc2626; }
+.term-legend { margin: 0; font-size: 10.5px; color: var(--text-3); }

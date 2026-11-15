@@ -30,6 +30,7 @@ mod team;
 pub mod mcp; // AI 연결(MCP) — docs/mcp.md
 mod ui;
 mod float;
+mod term;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -642,6 +643,38 @@ fn shelf_add(app: AppHandle, path: String) -> Result<(), String> {
     app.emit_to("island", "shelf-add", path).map_err(|e| e.to_string())
 }
 
+/* ── 미니 터미널 (term.rs: ConPTY 셸 1개, 창과 따로 산다) ── */
+#[tauri::command]
+fn term_start(app: AppHandle, cols: u16, rows: u16) -> Result<String, String> {
+    term::start(&app, cols, rows)
+}
+
+#[tauri::command]
+fn term_write(app: AppHandle, data: String) -> Result<(), String> {
+    term::write(&app, &data)
+}
+
+#[tauri::command]
+fn term_resize(cols: u16, rows: u16) {
+    term::resize(cols, rows)
+}
+
+#[tauri::command]
+fn term_kill() {
+    term::kill()
+}
+
+#[tauri::command]
+fn term_state() -> term::TermState {
+    term::state()
+}
+
+/// '아라에서 이어서 하기' → 이어 간 폴더
+#[tauri::command]
+async fn term_to_ara(with_cmd: bool) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || term::to_ara(with_cmd)).await.map_err(|e| e.to_string())?
+}
+
 /// '상단 공간 확보' 스위치 (store `appbar.on` 변경으로도 맞춰진다 — 이 커맨드는 즉시 반영용)
 #[tauri::command]
 fn appbar_set(app: AppHandle, on: bool) {
@@ -761,7 +794,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
-            float::float_open, float::float_close, float::float_pin, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            float::float_open, float::float_close, float::float_pin, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
@@ -913,6 +946,7 @@ pub fn run() {
         .run(|app, e| {
             if let tauri::RunEvent::Exit = e {
                 appbar::release(app); // 어떤 경로로 끝나도 상단 예약 해제
+                term::kill(); // 터미널 셸도 함께 정리
             }
         });
 }

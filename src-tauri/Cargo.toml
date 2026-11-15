@@ -28,6 +28,7 @@ hkdf = "0.12"
 sha2 = "0.10"
 getrandom = "0.3"
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+portable-pty = "0.9"
 
 # Windows 전용 (맥 등은 src/stub.rs 로 컴파일만 — docs/mac-port.md)
 [target.'cfg(windows)'.dependencies]
