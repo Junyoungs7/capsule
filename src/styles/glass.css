@@ -207,9 +207,9 @@ kbd {
   pointer-events: none;
 }
 /* 실제 앱(단일 표면 창): 창 뒤는 OS Acrylic 이 블러·틴트 — 웹뷰는 창 밖을 굴절시킬 수 없으니 렌즈를 뺀다.
-   림 빛·광택·안쪽 판·동심원 모서리가 그대로 남아 같은 재질로 읽힌다. */
-.desktop:not([data-only='all']) :is(.panel, .palette)::after { backdrop-filter: none; }
-.desktop:not([data-only='all']) .note { backdrop-filter: none; }
+   림 빛·광택·안쪽 판·동심원 모서리가 그대로 남아 같은 재질로 읽힌다. data-real = isTauri (?surface=… 미리보기도 같은 모습). */
+:is(.desktop[data-real='true'], .desktop:not([data-only='all'])) :is(.panel, .palette)::after { backdrop-filter: none; }
+:is(.desktop[data-real='true'], .desktop:not([data-only='all'])) .note { backdrop-filter: none; }
 /* 실제 앱(투명 창): 창 밖은 블러할 수 없으니 backdrop-filter 를 끈다 (합성 비용 0, 틴트만) */
 .desktop:not([data-only='all']) .glass-card { backdrop-filter: none; }
 

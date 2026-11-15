@@ -329,7 +329,7 @@ export function Desktop({ only }: { only?: string }) {
   const snooze = () => ack(() => ({ snooze: new Date(Date.now() + 600_000).toISOString() }))
 
   return (
-    <div className="desktop" data-only={only ?? 'all'}>
+    <div className="desktop" data-only={only ?? 'all'} data-real={isTauri}>
       <GlassDefs />
       {!only && (
         <>
