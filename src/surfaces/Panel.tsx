@@ -33,7 +33,7 @@ type Props = {
   setFxOn: (on: boolean) => void
   city: string
   setCity: (c: string) => void
-  weather: Weather
+  weather: Weather | null // 실제 앱: 받기 전·실패 = null
   idleMin: number
   setIdleMin: (m: number) => void
   onFxNow: () => void
@@ -304,7 +304,7 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
       <form className="row" onSubmit={(e) => (e.preventDefault(), save())}>
         <span className="grow">
           <b>도시</b>
-          <small>{city} · {weather.text} {weather.temp}° · 달 {moonName(f)}{isTauri ? '' : ' (시안: 가짜 날씨)'}</small>
+          <small>{city} · {weather ? `${weather.text} ${weather.temp}°` : '날씨 정보 없음'} · 달 {moonName(f)}{isTauri ? '' : ' (시안: 가짜 날씨)'}</small>
         </span>
         <input className="city" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="도시 이름" />
       </form>

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TransitionEvent } from 'react'
 import type { AppGroup, LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { iconFor, isTauri, onEvent, power, reportHitRects, wallpaper } from '../data/api'
+import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, wallpaper } from '../data/api'
 import { Shelf } from './Shelf'
 import { AsciiWidget, type SceneId } from './Ascii'
 
@@ -117,13 +117,38 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     ring.current!.style.clipPath = s.ring
   }
 
+  // 히트 rect: 평소 = .dock-hit, 묶음 팝오버가 열린 동안(실제 앱) = 키운 창 전체 (바깥 클릭은 팝오버 닫기로 한 번 먹는다).
+  // 창 크기가 바뀌면 .dock-hit 의 클라이언트 위치도 바뀌므로 resize 때 다시 보낸다.
+  const report = useRef(() => {})
+  report.current = () => reportHitRects('dock', [folder && isTauri ? new DOMRect(0, 0, innerWidth, innerHeight) : hit.current!.getBoundingClientRect()])
   useLayoutEffect(() => {
     m.current = null
     paint(0, false)
     // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
     hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
-    reportHitRects('dock', [hit.current!.getBoundingClientRect()])
-  }, [open, records.length, shelf.length, groups.length])
+    report.current()
+  }, [open, records.length, shelf.length, groups.length, folder])
+  useEffect(() => {
+    if (!isTauri) return
+    const f = () => report.current()
+    addEventListener('resize', f)
+    return () => removeEventListener('resize', f)
+  }, [])
+
+  // v2 묶음 팝오버(실제 앱): 독 창(178px)을 위로 키운 뒤 열고, 닫힘 애니메이션(≈260ms)이 끝나면 되돌린다. 내용은 하단 고정이라 그대로.
+  const tall = useRef(false)
+  const folderNow = useRef(folder)
+  folderNow.current = folder
+  const openFolder = async (id: string | null) => {
+    reset()
+    if (id && isTauri && !tall.current) await dockTall((tall.current = true)).catch(() => {})
+    setFolder(id)
+  }
+  useEffect(() => {
+    if (folder || !tall.current) return
+    const t = window.setTimeout(() => folderNow.current || void dockTall((tall.current = false)), 320)
+    return () => clearTimeout(t)
+  }, [folder])
 
   useEffect(() => () => (clearTimeout(closeTimer.current), cancelAnimationFrame(frame.current)), [])
 
@@ -261,7 +286,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
             recs={recs}
             running={running}
             open={folder === group.id}
-            onToggle={(o) => (reset(), setFolder(o ? group.id : null))}
+            onToggle={(o) => void openFolder(o ? group.id : null)}
             onClose={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
             onLaunch={onLaunch}
           />
@@ -289,7 +314,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
 }
 
 /* v2 앱 묶음(독 폴더): 슬롯 = 2×2 미니 격자, 클릭 → 독 위 격자 팝오버 (슬롯에서 스프링으로 커짐/작아짐).
-   실제 앱: 팝오버가 독 창(높이 178) 위로 넘친다 → 독 창 높이를 키우거나 팝오버 창이 필요 (Rust, 시안 승인 후). */
+   실제 앱: 팝오버는 독 창(178px) 위로 넘치므로 열린 동안 독 창을 위로 키운다 (Dock 의 openFolder). */
 function Folder({ group, recs, running, open, onToggle, onClose, onLaunch }: {
   group: AppGroup
   recs: LpRecord[]

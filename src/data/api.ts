@@ -2,6 +2,7 @@ import { useEffect, useState, type SetStateAction } from 'react'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
 import { load as loadStore, type Store } from '@tauri-apps/plugin-store'
+import type { Clip } from './types'
 
 // 단일 모듈: Tauri 가 있으면 invoke/스토어/이벤트, 없으면(시안) mock + localStorage.
 export const isTauri = '__TAURI_INTERNALS__' in window
@@ -188,3 +189,15 @@ export function onEvent<T = unknown>(name: string, cb: (payload: T) => void) {
 
 /** 선반 파일을 밖으로 끌어내기 (네이티브 OLE 드래그 시작) */
 export const dragOut = (path: string) => invoke('drag_out', { path })
+
+/* ── v2 ── */
+// 클립보드 기록 (Rust 메모리에만, 변화는 팔레트 창에 'clips') / 고른 항목을 다시 클립보드에
+export const clipList = () => invoke<Clip[]>('clips')
+export const setClip = (text: string) => invoke('set_clip', { text })
+// 앱 묶음 팝오버: 독 창을 위로 키우기/되돌리기
+export const dockTall = (tall: boolean) => invoke('dock_tall', { tall })
+// 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
+export const openAscii = (from: [number, number, number, number]) => invoke('ascii', { from })
+export const openFx = (kind: string) => invoke('fx', { kind })
+// 호출한 창 파괴 (패널·아스키·효과 공용 — Rust close_panel 은 호출 창을 닫는다)
+export const closeSelf = () => invoke('close_panel')

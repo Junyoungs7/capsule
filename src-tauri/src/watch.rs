@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::core::BOOL;
@@ -17,9 +17,10 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
 use windows::Win32::System::Threading::{GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+use windows::Win32::System::SystemInformation::{GetLocalTime, GetTickCount};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON};
 use windows::Win32::UI::Shell::{
-    SHQueryUserNotificationState, QUERY_USER_NOTIFICATION_STATE, QUNS_BUSY, QUNS_PRESENTATION_MODE,
+    SHQueryUserNotificationState, QUERY_USER_NOTIFICATION_STATE, QUNS_BUSY, QUNS_NOT_PRESENT, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -293,6 +294,82 @@ fn check_alarms(app: &AppHandle) {
     }
 }
 
+/// 전체화면 앱·발표 중 (2s 갱신) — 효과 창은 이때 만들지 않는다
+pub static FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+/// v2 자리 비움 화면보호기: 입력 없이 idle_min 분 지남 + 막힘(전체화면·잠금) 아님 + 아스키 창 없음. 0분 = 끔.
+/// 재무장은 따로 없다 — 닫힘은 입력으로만 일어나고 입력이 idle 을 0 으로 되돌린다.
+fn saver_due(idle_ms: u32, idle_min: u64, blocked: bool, open: bool) -> bool {
+    idle_min > 0 && !blocked && !open && idle_ms as u64 >= idle_min * 60_000
+}
+
+/// v2 효과 시간대. ponytail: 고정 시각(새벽 5–8, 노을 17–19, 밤 19–5) — 계절별 일출·일몰이 필요하면 Open-Meteo daily sunrise/sunset 로
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Tod {
+    Day,
+    Dawn,
+    Sunset,
+    Night,
+}
+
+fn tod(hour: u16) -> Tod {
+    match hour {
+        5..=7 => Tod::Dawn,
+        17..=18 => Tod::Sunset,
+        19..=23 | 0..=4 => Tod::Night,
+        _ => Tod::Day,
+    }
+}
+
+/// 날씨 글자(JS 가 store `fx.weather` 에 씀) → 0 맑음/흐림, 1 비, 2 눈
+fn wet(text: &str) -> u8 {
+    match text {
+        "비" => 1,
+        "눈" => 2,
+        _ => 0,
+    }
+}
+
+/// 계절 첫날 효과 (가을 = 단풍, 겨울 = 눈). 봄·여름은 맞는 효과가 없어 없음.
+fn season_fx(month: u16, day: u16) -> Option<&'static str> {
+    match (month, day) {
+        (9, 1) => Some("leaves"),
+        (12, 1) => Some("snow"),
+        _ => None,
+    }
+}
+
+/// 효과 이벤트 판정: 날씨 변화(비·눈 시작) > 계절 첫날(하루 1회, 미표시면 대기) > 시간대 변화. 시작 직후(prev 없음)엔 계절만.
+fn fx_trigger(prev: Option<(Tod, u8)>, cur: (Tod, u8), season: Option<&'static str>) -> Option<&'static str> {
+    let Some((pt, pw)) = prev else { return season };
+    if cur.1 != pw && cur.1 != 0 {
+        return Some(if cur.1 == 1 { "rain" } else { "snow" });
+    }
+    if season.is_some() {
+        return season;
+    }
+    if cur.0 == pt {
+        return None;
+    }
+    match cur.0 {
+        Tod::Dawn => Some("dawn"),
+        Tod::Sunset => Some("sunset"),
+        Tod::Night => Some("moon"),
+        Tod::Day => None,
+    }
+}
+
+/// 트레이 '날씨·계절 효과' 체크 항목 (패널에서 바꾸면 watch 루프가 맞춰 준다)
+pub struct FxMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
+
+fn last_input() -> u32 {
+    let mut li = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    unsafe {
+        let _ = GetLastInputInfo(&mut li);
+    }
+    li.dwTime
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED); // SHGetPropertyStoreForWindow — 이 루프 전용 스레드라 아파트 혼용 없음
@@ -306,6 +383,11 @@ pub fn start(app: AppHandle) {
         let mut wa = work_area();
         let mut slow = Instant::now();
         let mut pow = power();
+        let mut saver: Option<u32> = None; // 화면보호기로 연 아스키 창: 열 때의 마지막 입력 시각
+        let mut saver_closing: Option<Instant> = None;
+        let mut sky: Option<(Tod, u8)> = None;
+        let mut season_shown = (0u16, 0u16);
+        let mut fx_on: Option<bool> = None;
 
         loop {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
@@ -365,10 +447,73 @@ pub fn start(app: AppHandle) {
                 }
             }
 
+            // 화면보호기: 열린 뒤 입력(마우스·키)이 있으면 닫기 — 창이 포커스가 없어도 키를 잡는다. JS 가 닫힘 애니메이션 후 파괴.
+            if let Some(at) = saver {
+                if last_input() != at {
+                    saver = None;
+                    saver_closing = Some(Instant::now());
+                    let _ = app.emit_to("ascii", "ascii-close", ());
+                }
+            }
+
             // ── 2s ──
             if slow.elapsed() >= Duration::from_secs(2) {
                 slow = Instant::now();
-                let full = SHQueryUserNotificationState().map(fullscreen).unwrap_or(false);
+                let qs = SHQueryUserNotificationState().ok();
+                let full = qs.is_some_and(fullscreen);
+                let away = qs == Some(QUNS_NOT_PRESENT); // 잠금·화면보호기·사용자 전환
+                FULLSCREEN.store(full, Ordering::Relaxed);
+                // 화면보호기 열기/정리. 잠기면 바로 파괴(메모리 0), 닫기 요청 후 3초 지나도 남아 있으면 파괴.
+                if let Some(w) = app.get_webview_window("ascii") {
+                    if (away && saver.is_some()) || saver_closing.is_some_and(|t| t.elapsed() > Duration::from_secs(3)) {
+                        let _ = w.destroy();
+                        saver = None;
+                        saver_closing = None;
+                    }
+                } else {
+                    saver_closing = None;
+                    saver = None;
+                    let idle_min = app.store("hera.json").ok().and_then(|s| s.get("ascii.idleMin")).and_then(|v| v.as_u64()).unwrap_or(10);
+                    let li = last_input();
+                    if saver_due(GetTickCount().wrapping_sub(li), idle_min, full || away, false) {
+                        saver = Some(li);
+                        let h = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = crate::open_ascii(&h, true, None) {
+                                eprintln!("ascii saver: {e}");
+                            }
+                        });
+                    }
+                }
+                // 효과 이벤트: 시간대·날씨·계절 첫날 변화 → 효과 창 (스위치 켜짐 + 전체화면·잠금 아님일 때만)
+                if let Ok(s) = app.store("hera.json") {
+                    let on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                    if fx_on != Some(on) {
+                        fx_on = Some(on);
+                        if let Some(m) = app.try_state::<FxMenu>() {
+                            let _ = m.0.set_checked(on);
+                        }
+                    }
+                    let lt = GetLocalTime();
+                    let w = s.get("fx.weather");
+                    let cur = (tod(lt.wHour), wet(w.as_ref().and_then(|w| w["text"].as_str()).unwrap_or_default()));
+                    let today = (lt.wMonth, lt.wDay);
+                    let season = season_fx(lt.wMonth, lt.wDay).filter(|_| season_shown != today);
+                    if let Some(kind) = fx_trigger(sky, cur, season) {
+                        if on && !full && !away && app.get_webview_window("fx").is_none() {
+                            if season == Some(kind) {
+                                season_shown = today;
+                            }
+                            let h = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = crate::open_fx(&h, kind) {
+                                    eprintln!("fx: {e}");
+                                }
+                            });
+                        }
+                    }
+                    sky = Some(cur);
+                }
                 if full != hidden {
                     hidden = full;
                     for &(_, h) in &overlays {
@@ -507,6 +652,39 @@ mod tests {
         assert_eq!(due_alarms(8_000 + 600_000, &snoozed, &fired).len(), 1);
         // 정각 경계 포함
         assert_eq!(due_alarms(20_000, &items[..1], &[]).len(), 1);
+    }
+
+    #[test]
+    fn saver_rules() {
+        let min = 60_000;
+        assert!(saver_due(10 * min, 10, false, false));
+        assert!(!saver_due(10 * min - 1, 10, false, false)); // 아직
+        assert!(!saver_due(99 * min, 0, false, false)); // 0분 = 끔
+        assert!(!saver_due(99 * min, 10, true, false)); // 전체화면·잠금
+        assert!(!saver_due(99 * min, 10, false, true)); // 이미 아스키 창
+    }
+
+    #[test]
+    fn fx_rules() {
+        assert_eq!((tod(4), tod(5), tod(8), tod(17), tod(19), tod(0)), (Tod::Night, Tod::Dawn, Tod::Day, Tod::Sunset, Tod::Night, Tod::Night));
+        let day = (Tod::Day, 0);
+        // 시작 직후: 시간대·날씨로는 안 뜸, 계절 첫날만
+        assert_eq!(fx_trigger(None, (Tod::Sunset, 1), None), None);
+        assert_eq!(fx_trigger(None, day, Some("leaves")), Some("leaves"));
+        assert_eq!(fx_trigger(Some(day), day, None), None);
+        // 시간대 변화
+        assert_eq!(fx_trigger(Some(day), (Tod::Sunset, 0), None), Some("sunset"));
+        assert_eq!(fx_trigger(Some((Tod::Sunset, 0)), (Tod::Night, 0), None), Some("moon"));
+        assert_eq!(fx_trigger(Some((Tod::Night, 0)), (Tod::Dawn, 0), None), Some("dawn"));
+        assert_eq!(fx_trigger(Some((Tod::Dawn, 0)), day, None), None);
+        // 날씨: 비·눈 '시작' 만 (그침은 없음), 날씨가 시간대보다 먼저
+        assert_eq!(fx_trigger(Some(day), (Tod::Sunset, 2), None), Some("snow"));
+        assert_eq!(fx_trigger(Some((Tod::Day, 2)), (Tod::Day, 1), None), Some("rain"));
+        assert_eq!(fx_trigger(Some((Tod::Day, 1)), day, None), None);
+        // 계절 첫날은 시간대보다 먼저 (보여 줄 때까지 계속 나온다 — 호출자가 보여 준 뒤 끔)
+        assert_eq!(fx_trigger(Some(day), (Tod::Sunset, 0), Some("snow")), Some("snow"));
+        assert_eq!((season_fx(9, 1), season_fx(12, 1), season_fx(3, 1), season_fx(9, 2)), (Some("leaves"), Some("snow"), None, None));
+        assert_eq!((wet("비"), wet("눈"), wet("흐림"), wet("")), (1, 2, 0, 0));
     }
 
     #[test]

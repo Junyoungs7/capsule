@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
-import { reportHitRects } from '../data/api'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { isTauri, reportHitRects } from '../data/api'
 import { Tile } from './Dock'
 import { labelVars } from './Turntable'
 
@@ -52,8 +53,21 @@ type Props = {
 export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
-  // 실제 앱: island 창 네이티브 드롭(onDragDropEvent) + 클릭 통과 폴러가 외부 드래그 중 idle rect 를 받게 (Rust, 시안 승인 후).
+  // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
+  // (idle 알약 위로 오면 통과 해제 → 'enter' → drop 모양으로 커지고 그 rect 를 보고).
   const [drag, setDrag] = useState(false)
+  const drop = useRef(onDropFiles)
+  drop.current = onDropFiles
+  useEffect(() => {
+    if (!isTauri) return
+    const off = getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload
+      if (p.type === 'enter' || p.type === 'over') return setDrag(true)
+      setDrag(false)
+      if (p.type === 'drop' && p.paths.length) drop.current(p.paths)
+    })
+    return () => void off.then((f) => f())
+  }, [])
   const mode: Mode = drag ? 'drop' : alert ? 'alert' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {

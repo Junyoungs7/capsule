@@ -3,7 +3,7 @@ import { reducedMotion } from './Dock'
 import { isNight, moonPhase, seasonOf } from './Ascii'
 
 /* ── v2 전체화면 효과: 캔버스 2D 1장, 입자 ≤150, 30fps, 25초 뒤 페이드아웃 → 언마운트(onDone).
-   실제 앱: 투명·클릭 통과 전체화면 창을 그때만 만들고 끝나면 파괴 (Rust, 시안 승인 후). */
+   실제 앱: 투명·클릭 통과 전체화면 창(surface=fx)을 Rust 가 그때만 만들고, onDone 에서 창을 파괴. */
 export type FxKind = 'snow' | 'rain' | 'leaves' | 'dawn' | 'sunset' | 'moon'
 export const FX_LABEL: Record<FxKind, string> = { snow: '눈', rain: '비', leaves: '단풍', dawn: '새벽', sunset: '노을', moon: '달·별' }
 // 하늘 효과는 바탕화면에 덧칠하지 않고 하늘을 통째로 그린다(불투명도 85%) → 어떤 바탕화면이든 같은 그림. 눈·비·단풍은 투명 오버레이.
@@ -11,16 +11,32 @@ const SKY = new Set<FxKind>(['dawn', 'sunset', 'moon'])
 const DUR = 25_000
 const FADE_OUT = 2_500
 
-// 시안 = 가짜 날씨 (네트워크 없음). 실제 앱 = Open-Meteo 30분 1회.
+// 시안 = 가짜 날씨 (네트워크 없음). 실제 앱 = Open-Meteo 30분 1회 (독 창이 받아 store `fx.weather` 에 — Rust 효과 판정·패널 표시 공용).
 export type Weather = { text: '맑음' | '구름 조금' | '흐림' | '비' | '눈'; temp: number }
 export const fakeWeather = (city: string): Weather => {
   const n = [...city].reduce((a, c) => a + c.charCodeAt(0), 0)
   return { text: (['맑음', '구름 조금', '흐림', '비', '눈'] as const)[n % 5], temp: 2 + (n % 14) }
 }
-/** '지금 보기': 날씨 > 시간대 > 계절 순으로 고른다 */
-export function pickFx(d: Date, w: Weather): FxKind {
-  if (w.text === '비') return 'rain'
-  if (w.text === '눈') return 'snow'
+// WMO 날씨 코드 → 글자 (비: 이슬비·비·소나기·뇌우, 눈: 눈·눈 소나기)
+const wmo = (c: number): Weather['text'] =>
+  c === 0 ? '맑음' : c <= 2 ? '구름 조금' : c <= 48 ? '흐림' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? '눈' : '비'
+const geo = new Map<string, [number, number]>()
+/** 실제 앱: Open-Meteo (키 없음). 보내는 것은 도시 이름(지오코딩)과 좌표뿐. */
+export async function fetchWeather(city: string): Promise<Weather> {
+  let c = geo.get(city)
+  if (!c) {
+    const g = (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=ko&name=${encodeURIComponent(city)}`).then((r) => r.json())).results?.[0]
+    if (!g) throw new Error(`도시를 찾지 못했어요: ${city}`)
+    geo.set(city, (c = [g.latitude, g.longitude]))
+  }
+  const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c[0]}&longitude=${c[1]}&current=temperature_2m,weather_code`).then((r) => r.json())
+  return { text: wmo(w.current.weather_code), temp: Math.round(w.current.temperature_2m) }
+}
+
+/** '지금 보기': 날씨 > 시간대 > 계절 순으로 고른다 (날씨 모름 = 시간대·계절만) */
+export function pickFx(d: Date, w: Weather | null): FxKind {
+  if (w?.text === '비') return 'rain'
+  if (w?.text === '눈') return 'snow'
   const h = d.getHours()
   if (h >= 5 && h < 8) return 'dawn'
   if (h >= 17 && h < 19) return 'sunset'

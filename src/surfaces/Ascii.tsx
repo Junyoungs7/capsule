@@ -549,7 +549,8 @@ export function AsciiWidget({ id, live, onOpen }: { id: SceneId; live: boolean; 
 }
 
 /** 전체화면: from(위젯 rect) 이 있으면 그 자리에서 확대/그 자리로 축소, 없으면(화면보호기) 부드러운 페이드+약간 축소. */
-export function AsciiFull({ open, id, from, saver, caption, onClose }: { open: boolean; id: SceneId; from: DOMRect | null; saver: boolean; caption: string; onClose: () => void }) {
+/** onClosed = 닫힘 애니메이션이 끝남 (실제 앱: 아스키 창 파괴) */
+export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }: { open: boolean; id: SceneId; from: DOMRect | null; saver: boolean; caption: string; onClose: () => void; onClosed?: () => void }) {
   const p = usePresence<HTMLDivElement>(open)
   const close = useRef(onClose)
   close.current = onClose
@@ -576,7 +577,7 @@ export function AsciiFull({ open, id, from, saver, caption, onClose }: { open: b
       className="ascii-full"
       data-zoom={!!z}
       style={{ ...z, '--bg': SCENES[id].bg } as CSSProperties}
-      onTransitionEnd={p.onTransitionEnd}
+      onTransitionEnd={(e) => (p.onTransitionEnd(e), e.target === e.currentTarget && e.propertyName === 'opacity' && !open && onClosed?.())}
       onClick={onClose}
       role="dialog"
       aria-label={`아스키 아트 전체화면 · ${SCENES[id].name}`}

@@ -6,7 +6,9 @@
     "island",
     "panel",
     "turntable",
-    "palette"
+    "palette",
+    "ascii",
+    "fx"
   ],
   "permissions": [
     "core:default",

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  activate, closePalette, closePanelWindow, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, panelOpen, sendAlert, setTurntable, startApps, titleOf, togglePanel,
-  useItems, useValue, watchState, type AlertMsg, type Fg,
+  activate, clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
+  setTurntable, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
@@ -12,7 +12,7 @@ import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
-import { FX_LABEL, Fx, fakeWeather, pickFx, type FxKind } from '../surfaces/Fx'
+import { FX_LABEL, Fx, fakeWeather, fetchWeather, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
 const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
@@ -63,9 +63,16 @@ export function Desktop({ only }: { only?: string }) {
   const saveGroup = (g: AppGroup) => setGroups((gs) => (gs.some((x) => x.id === g.id) ? gs.map((x) => (x.id === g.id ? g : x)) : [...gs, g]))
   const dockGroups = groups.map((group) => ({ group, recs: group.recordIds.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r) }))
 
-  // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener 이벤트(폴링 없음)
-  const [clips, setClips] = useState<Clip[]>(seedClips)
+  // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 팔레트 창 'clips' (폴링 없음)
+  const [clips, setClips] = useState<Clip[]>(isTauri ? [] : seedClips)
+  useEffect(() => {
+    if (!isTauri || only !== 'palette') return
+    void clipList().then(setClips)
+    return onEvent<Clip[]>('clips', setClips)
+  }, [])
   const copyClip = (c: Clip) => {
+    // 실제 앱: Rust 가 클립보드에 넣으면 리스너가 다시 받아 맨 앞으로 올린다
+    if (isTauri) return void setClip(c.text).catch((e) => showAlert({ title: '복사하지 못했어요', body: String(e) }))
     void navigator.clipboard?.writeText(c.text).catch(() => {})
     setClips((cs) => [{ ...c, at: Date.now() }, ...cs.filter((x) => x.id !== c.id)].slice(0, 20))
   }
@@ -75,21 +82,39 @@ export function Desktop({ only }: { only?: string }) {
   const clock = demoNow ?? new Date()
   const scene = pickScene(clock)
 
-  // v2 효과: 스위치·도시는 저장, 날씨는 시안 = 가짜(네트워크 없음)
-  const [fxOn, setFxOn] = useValue('fx.on', true)
+  // v2 효과: 스위치·도시는 저장 (스위치는 트레이와 공유, Rust 가 판정). 날씨: 시안 = 가짜, 실제 앱 = 독 창이 30분마다 받아 store 에.
+  const [fxOn, setFxOn] = useValue('fx.enabled', true)
   const [city, setCity] = useValue('fx.city', '서울')
-  const [weatherOverride, setWeatherOverride] = useState<ReturnType<typeof fakeWeather> | null>(null)
-  const weather = weatherOverride ?? fakeWeather(city)
+  const [liveWeather, setLiveWeather] = useValue<Weather | null>('fx.weather', null)
+  const [weatherOverride, setWeatherOverride] = useState<Weather | null>(null)
+  const weather = weatherOverride ?? (isTauri ? liveWeather : fakeWeather(city))
+  useEffect(() => {
+    if (!isTauri || only !== 'dock') return
+    let live = true, t = 0
+    const tick = () => {
+      // 실패하면 그대로 둔다 → 효과는 계절·시간대만으로
+      fetchWeather(city).then((w) => live && setLiveWeather(w), (e) => console.warn('weather', e))
+      t = window.setTimeout(tick, 30 * 60_000)
+    }
+    tick()
+    return () => ((live = false), clearTimeout(t))
+  }, [city])
   const [fx, setFx] = useState<{ kind: FxKind; n: number } | null>(() => {
     const k = new URLSearchParams(location.search).get('fx') as FxKind | null
     return only === 'fx' ? { kind: k && k in FX_LABEL ? k : pickFx(new Date(), fakeWeather('서울')), n: 0 } : null
   })
-  const playFx = (kind: FxKind) => setFx((f) => ({ kind, n: (f?.n ?? 0) + 1 }))
+  const playFx = (kind: FxKind) => (isTauri ? void openFx(kind) : setFx((f) => ({ kind, n: (f?.n ?? 0) + 1 })))
   // 자동 이벤트(날씨 변화·노을·달 뜸·계절 첫날)는 스위치가 켜져 있을 때만. 시안 = 데모 바에서 바꾸면 발생
   const event = (kind: FxKind | null) => kind && fxOn && playFx(kind)
 
   // v2 아스키 전체화면: from = 위젯 rect(확대 출발점), saver = 자리 비움 화면보호기
-  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; saver: boolean }>({ open: only === 'ascii', from: null, saver: false })
+  // 실제 앱: 아스키 창(surface=ascii)을 Rust 가 연다 — ?saver=1 화면보호기, ?from=x,y,w,h 위젯 화면 rect
+  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; saver: boolean }>(() => {
+    const q = new URLSearchParams(location.search), f = q.get('from')?.split(',').map(Number)
+    return { open: only === 'ascii', from: f?.length === 4 ? new DOMRect(f[0], f[1], f[2], f[3]) : null, saver: q.get('saver') === '1' }
+  })
+  // 화면보호기: watch 루프가 입력(키 포함)을 감지하면 'ascii-close'
+  useEffect(() => (isTauri && only === 'ascii' ? onEvent('ascii-close', () => setAscii((a) => ({ ...a, open: false }))) : undefined), [])
   const [idleMin, setIdleMin] = useValue('ascii.idleMin', 10)
   const [idleDemo, setIdleDemo] = useState(false) // 시안: 대기 시간을 5초로
   const idleMs = idleDemo ? 5_000 : idleMin * 60_000
@@ -280,7 +305,7 @@ export function Desktop({ only }: { only?: string }) {
             <p>하단 가운데 점에 마우스를 올리면 독이 펼쳐져요.</p>
             <header className="demo-sub">
               <b>v2</b>
-              <small>{clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} {clock.getHours()}시 · {seasonOf(clock)} · {city} {weather.text}</small>
+              <small>{clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} {clock.getHours()}시 · {seasonOf(clock)} · {city} {weather?.text}</small>
             </header>
             <div className="demo-btns v2">
               {(Object.keys(FX_LABEL) as FxKind[]).map((k) => (
@@ -300,7 +325,7 @@ export function Desktop({ only }: { only?: string }) {
             </div>
             <div className="demo-seg" role="group" aria-label="날씨">
               {(['맑음', '비', '눈'] as const).map((w) => (
-                <button key={w} aria-pressed={weather.text === w} onClick={() => (setWeatherOverride({ text: w, temp: w === '눈' ? -2 : 9 }), event(w === '비' ? 'rain' : w === '눈' ? 'snow' : null))}>{w}</button>
+                <button key={w} aria-pressed={weather?.text === w} onClick={() => (setWeatherOverride({ text: w, temp: w === '눈' ? -2 : 9 }), event(w === '비' ? 'rain' : w === '눈' ? 'snow' : null))}>{w}</button>
               ))}
             </div>
             <div className="demo-btns v2">
@@ -354,7 +379,7 @@ export function Desktop({ only }: { only?: string }) {
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
           groups={dockGroups}
           scene={scene}
-          onAscii={(from) => setAscii({ open: true, from, saver: false })}
+          onAscii={(from) => (isTauri ? void openAscii([from.left + screenX, from.top + screenY, from.width, from.height]) : setAscii({ open: true, from, saver: false }))}
         />
       )}
       {panel && show('panel') && (
@@ -410,9 +435,10 @@ export function Desktop({ only }: { only?: string }) {
           saver={ascii.saver}
           caption={`${clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(clock)}`}
           onClose={() => setAscii((a) => ({ ...a, open: false }))}
+          onClosed={isTauri ? () => void closeSelf() : undefined}
         />
       )}
-      {fx && show('fx') && <Fx key={fx.n} kind={fx.kind} onDone={() => setFx(null)} />}
+      {fx && show('fx') && <Fx key={fx.n} kind={fx.kind} onDone={() => (isTauri ? void closeSelf() : setFx(null))} />}
     </div>
   )
 }
