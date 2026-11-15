@@ -288,7 +288,8 @@ export function GhostLayer({ ghost, render, notch, onDetachDrop, onDone }: {
       // 흡수: 창 자리 → 노치로 지니
       place(r0.left, r0.top, 1)
       const tgt = n ?? new DOMRect(innerWidth / 2 - 60, 0, 120, 6)
-      const [cx, cy] = [tgt.left + tgt.width / 2 - r0.width / 2, tgt.top - r0.height / 2 + 3]
+      // transform-origin = 위 가운데 → 끝 위치 = 노치 위 가운데 (위로 빠져나가지 않게)
+      const [cx, cy] = [tgt.left + tgt.width / 2 - r0.width / 2, tgt.top]
       const content = el.querySelector<HTMLElement>('.ghost-body')
       const a = el.animate(
         rm

@@ -10,7 +10,7 @@ const has = async (q) => (await (await fetch(`http://127.0.0.1:${PORT}/json`)).j
 const emit = (event, payload) => `window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: ${JSON.stringify(event)}, payload: ${JSON.stringify(payload)} })`
 const island = await page('island')
 const shot = async (name) => {
-  const r = await island.send('Page.captureScreenshot', { format: 'png', clip: { x: 360, y: 0, width: 1200, height: 760, scale: 0.75 } })
+  const r = await island.send('Page.captureScreenshot', { format: 'png' }) // 아일랜드 창 전체 (유령이 움직이는 동안 = 모니터 전체)
   writeFileSync(`${out}/${name}.png`, Buffer.from(r.result.data, 'base64'))
 }
 await island.evaluate(`document.querySelector('.hub')?.dataset.show === 'true' || document.querySelector('.island').click()`)

@@ -24,6 +24,7 @@ const frames = (p) => p.evaluate(`(() => { const f = (window.__heraFrames || [])
 
 ok('no dock window', !(await has('surface=dock')))
 const island = await page('island')
+await island.evaluate(`dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`) // 앞 시험이 열어 둔 허브 접기
 await until(() => island.evaluate(`document.querySelector('.island').dataset.mode === 'idle' && !document.querySelector('.hub')`), 8000)
 await sleep(1200)
 
@@ -35,6 +36,9 @@ ok('island window = small top-centre band while idle', notch.vw <= 690 && notch.
 // 2. tap → hub A
 await island.evaluate(`document.querySelector('.island').click()`)
 ok('hub opens on tap', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.show === 'true'`)))
+// 앞 시험이 흡수한 화면이 있으면 그 화면으로 열린다 → ‹ 로 첫 화면
+await island.evaluate(`document.querySelector('.hub')?.dataset.view !== 'home' && document.querySelector('.hub-back')?.click()`)
+await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'home'`), 2000)
 const hub = await island.evaluate(`({ n: document.querySelectorAll('.hub-icon').length, labels: [...document.querySelectorAll('.hub-label')].map((x) => x.textContent) })`)
 ok('13 labelled icons', hub.n === 13 && hub.labels.join(',') === '메모,할 일,달력,채팅,터미널,최근 복사,선반,OCR,스니펫,LP,Team,Link,설정', hub.labels.join(','))
 
