@@ -2,6 +2,7 @@
 name = "hera"
 version = "0.1.0"
 edition = "2021"
+default-run = "hera" # src/bin/hera-mcp.rs (AI 연결 MCP) 가 두 번째 바이너리
 
 [lib]
 name = "hera_lib"
@@ -68,6 +69,9 @@ windows = { version = "0.62", features = [
   "Graphics_Imaging",
   "Media_Ocr",
   "Storage_Streams",
+  "Win32_System_Pipes", # mcp.rs
+  "Win32_System_IO", # mcp.rs (ConnectNamedPipe)
+  "Win32_Security_Authorization", # mcp.rs
 ] }
 
 [profile.release]

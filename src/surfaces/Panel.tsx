@@ -25,6 +25,7 @@ export type LinkPanel = {
 const LINK_DEFAULT: LinkCfg = { me: '', peer: 'MacBook', side: 'right', port: 24800, tls: true, doubleTap: false, filePort: 24810, keymap: 'habit', keyRows: [], ime: 'hera', autoSaverMin: 0, locator: true }
 const LINK_STATE: Record<LinkStatus['state'], string> = { off: '꺼짐', starting: '시작하는 중', waiting: '맥 기다리는 중', connected: '연결됨', blocked: '대기 — Deskflow 실행 중', error: '문제 있음' }
 import { moonName, moonPhase } from './Ascii'
+import { McpSettings } from './Mcp' // AI 연결(MCP)
 
 export type Tab = 'todo' | 'calendar' | 'library' | 'settings'
 const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['settings', '설정']]
@@ -331,6 +332,7 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
       </form>
       <button className="primary now" onClick={onFxNow}>지금 보기</button>
       {link && <LinkSettings {...link} />}
+      <McpSettings /> {/* AI 연결(MCP) — Mcp.tsx */}
       <h3>아스키 아트</h3>
       <label className="row">
         <span className="grow">

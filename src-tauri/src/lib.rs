@@ -27,6 +27,7 @@ mod link_files;
 mod link_layout;
 mod link_sync;
 mod team;
+pub mod mcp; // AI 연결(MCP) — docs/mcp.md
 mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -223,12 +224,17 @@ async fn set_clip(text: String) -> Result<(), String> {
 /// v2 아스키 전체화면 창: 필요할 때 생성, 닫으면 JS 가 닫힘 애니메이션 후 파괴 (안 보일 때 메모리 0).
 /// saver = 자리 비움 화면보호기(포커스 안 뺏음, 입력은 watch 루프가 감지). from = 위젯의 화면 rect(논리 px) → 그 자리에서 확대.
 pub(crate) fn open_ascii(app: &AppHandle, saver: bool, from: Option<[f64; 4]>) -> tauri::Result<()> {
+    open_ascii_scene(app, saver, from, None)
+}
+
+/// scene = xmas|city|autumn|calm (없으면 계절·시간대 자동) — 아스키 창이 ?scene= 으로 받는다
+pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 4]>, scene: Option<&str>) -> tauri::Result<()> {
     if app.get_webview_window("ascii").is_some() {
         return Ok(());
     }
     let Some(m) = app.primary_monitor()? else { return Ok(()) };
     let (pos, size, s) = (*m.position(), *m.size(), m.scale_factor());
-    let q = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default();
+    let q = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default() + &scene.map(|s| format!("&scene={s}")).unwrap_or_default();
     let win = builder(app, "ascii", format!("index.html?surface=ascii&saver={}{q}", saver as u8), (size.width as f64 / s, size.height as f64 / s))
         .shadow(false)
         .focusable(!saver)
@@ -654,7 +660,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
-            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient
+            shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -699,6 +706,7 @@ pub fn run() {
             link::start(h.clone());
             team::app::start(h); // 그룹이 있을 때만 포트·비콘
             link::files_start(h);
+            mcp::start(h.clone()); // AI 연결(MCP): 파이프 대기 (꺼져 있으면 호출을 거절)
             // 팔레트는 부가 기능 — 실패해도 시작은 계속 (첫 단축키 때 다시 만든다)
             if let Err(e) = palette_window(h) {
                 eprintln!("palette window: {e}");

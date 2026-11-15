@@ -13,7 +13,8 @@ import { Island, type LinkView, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
-import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
+import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
+import { AsciiFull, pickScene, SCENES, seasonOf, type SceneId } from '../surfaces/Ascii'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
@@ -135,7 +136,9 @@ export function Desktop({ only }: { only?: string }) {
   // v2 시간·계절 (시안 데모 바에서 바꿔 볼 수 있음) → 아스키 장면·효과 선택
   const [demoNow, setDemoNow] = useState<Date | null>(null)
   const clock = demoNow ?? new Date()
-  const scene = pickScene(clock)
+  // 아스키 창: ?scene= 으로 장면 지정 (AI 연결 start_ascii(scene) 등), 없으면 계절·시간대
+  const urlScene = new URLSearchParams(location.search).get('scene') as SceneId | null
+  const scene = only === 'ascii' && urlScene && urlScene in SCENES ? urlScene : pickScene(clock)
 
   // v2 효과: 스위치·도시는 저장 (스위치는 트레이와 공유, Rust 가 판정). 날씨: 시안 = 가짜, 실제 앱 = 독 창이 30분마다 받아 store 에.
   const [fxOn, setFxOn] = useValue('fx.enabled', true)
@@ -469,6 +472,7 @@ export function Desktop({ only }: { only?: string }) {
           onChip={filesPeer ? () => void linkAmbient({ kind: 'ascii', action: peerAscii ? 'stop' : 'start' }).then(() => setPeerAscii((v) => !v)) : undefined}
         />
       )}
+      {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
       {show('dock') && (
         <Dock
           records={dockRecords}
