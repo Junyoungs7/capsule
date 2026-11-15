@@ -264,10 +264,6 @@ export function Desktop({ only }: { only?: string }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // 시안 전용: 글라스 A(정제) / B(과감한 Liquid Glass) 비교 — ?glass=b 로도 시작
-  const [glass, setGlass] = useState(() => new URLSearchParams(location.search).get('glass') ?? 'a')
-  useEffect(() => void (document.documentElement.dataset.glass = glass), [glass])
-
   const toggleTheme = () => {
     const t = theme === 'dark' ? 'light' : 'dark'
     document.documentElement.dataset.theme = t
@@ -349,11 +345,6 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={() => (panel?.open ? closePanel() : openPanel('todo'))}>패널</button>
               <button onClick={() => setPalette(true)}>검색 <kbd>Ctrl K</kbd></button>
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
-            </div>
-            <div className="demo-seg" role="group" aria-label="글라스">
-              {(['a', 'b'] as const).map((g) => (
-                <button key={g} aria-pressed={glass === g} onClick={() => setGlass(g)}>글라스 {g.toUpperCase()}</button>
-              ))}
             </div>
             <p>하단 가운데 점에 마우스를 올리면 독이 펼쳐져요.</p>
             <header className="demo-sub">

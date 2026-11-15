@@ -22,12 +22,15 @@
   height: 100%;
   border-radius: 18px;
   color: var(--text);
-  /* 물든 리퀴드 글라스: 색 틴트 + 맑은 시트(글자 대비용) + 얕은 블러 (정적 레이어). 그림자도 메모 색으로 물든다. */
+  /* 물든 리퀴드 글라스 한 장: 안쪽 판 없이 메모 자체를 조금 짙은 틴트로 채워 글자 대비(AA)를 낸다.
+     얇은 림(--spec) + 얕은 블러, 렌즈 없음 (정적 레이어). 그림자도 메모 색으로 물든다. */
+  --note-base: color-mix(in srgb, var(--glass-plate) 84%, transparent);
+  --text-2: color-mix(in srgb, var(--text) 82%, transparent); /* 메모 안 보조 글자: 틴트 위에서도 AA */
   background:
     var(--glass-sheen),
-    linear-gradient(160deg, color-mix(in srgb, var(--nc) 36%, transparent), color-mix(in srgb, var(--nc) 16%, transparent)),
-    color-mix(in srgb, var(--glass-strong) 72%, transparent);
-  backdrop-filter: var(--blur);
+    linear-gradient(160deg, color-mix(in srgb, var(--nc) 40%, transparent), color-mix(in srgb, var(--nc) 22%, transparent)),
+    var(--note-base);
+  backdrop-filter: blur(6px) saturate(180%) brightness(1.04);
   box-shadow:
     var(--spec),
     inset 0 0 0 1px color-mix(in srgb, var(--nc) 30%, transparent),
@@ -36,10 +39,12 @@
   transform-origin: 50% 50%;
 }
 [data-theme='dark'] .note {
+  --note-base: var(--glass-plate);
+  --text-2: color-mix(in srgb, var(--text) 82%, transparent);
   background:
     var(--glass-sheen),
     linear-gradient(160deg, color-mix(in srgb, var(--nc) 30%, transparent), color-mix(in srgb, var(--nc) 14%, transparent)),
-    var(--glass-strong);
+    var(--note-base);
 }
 .note[data-pinned='true']::after {
   content: '';

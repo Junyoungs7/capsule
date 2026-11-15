@@ -1,4 +1,4 @@
-/* Hera 글라스 토큰 + 표면 스타일 — Liquid Glass (2025) 언어.
+/* Hera 글라스 토큰 + 표면 스타일 — Liquid Glass (2025) 언어. (시안 A/B 비교 후 B 확정)
    재질: 블러는 얕게(9px), 우윳빛 채움은 줄이고, 깊이는 렌즈(가장자리 굴절) + 빛(스펙큘러 림·안쪽 광)으로 낸다.
    규칙: backdrop-filter 는 정적 레이어에만, 블러 반경·변위는 애니메이션하지 않는다.
    SVG 변위 렌즈(url(#hera-lens))는 작은 요소에만 (GlassDefs). 큰 표면은 블러 + 림 빛만.
@@ -11,8 +11,8 @@
   --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Malgun Gothic', sans-serif;
 
   /* 모서리: 바깥 카드 → 안쪽 = 바깥 − 여백 (동심원) */
-  --r-card: 24px;
-  --r-inner: 12px; /* 카드 24 − 여백 12 */
+  --r-card: 28px;
+  --r-inner: 16px; /* 카드 28 − 여백 12 */
   --r-pill: 999px;
 
   --bg: #e8eef5;
@@ -24,7 +24,7 @@
   --glass-strong: rgba(244, 247, 252, 0.68);
   --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.06) 26%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.14));
   /* 1px 림(독 링): 위가 가장 밝고, 아래 가장자리도 빛을 받는다 */
-  --rim: linear-gradient(180deg, #fff, rgba(255, 255, 255, 0.5) 22%, rgba(255, 255, 255, 0.16) 64%, rgba(255, 255, 255, 0.6));
+  --rim: linear-gradient(180deg, #fff, rgba(255, 255, 255, 0.6) 30%, rgba(255, 255, 255, 0.28) 70%, rgba(255, 255, 255, 0.8));
   --edge: rgba(255, 255, 255, 0.34);
   --edge-top: rgba(255, 255, 255, 0.95);
   /* 스펙큘러: 왼쪽 위 밝은 얇은 림 + 오른쪽 아래 약한 반사 + 안쪽 광 + 아주 옅은 색수차(빨강↖ 파랑↘) */
@@ -44,9 +44,9 @@
   /* 그림자: 넓고 부드럽게 + 색 있는 주변광(청록·청) */
   --shadow: 0 0 0 0.5px rgba(14, 30, 60, 0.1), 0 1px 2px rgba(14, 30, 60, 0.06), 0 14px 34px -14px rgba(28, 64, 120, 0.3), 0 36px 72px -32px rgba(16, 96, 130, 0.28);
   /* 강조: 채움은 선명한 민트, 글자로 쓸 때는 짙은 톤 (유리 위 4.5:1 이상) */
-  --accent: #00b377;
+  --accent: #00c785;
   --accent-text: #005c3c;
-  --accent-soft: rgba(0, 179, 119, 0.16);
+  --accent-soft: rgba(0, 199, 133, 0.18);
   --on-accent: #032617;
   --alert: #f2551d;
   --warn: var(--warn);
@@ -55,6 +55,24 @@
   --blur: blur(9px) saturate(180%) brightness(1.04);
   /* 시안 데모 카드 전용: 뒤의 표면이 얕은 블러로 번져 보이지 않게 짙게 */
   --glass-dense: rgba(244, 247, 252, 0.88);
+  /* 큰 표면(패널·팔레트): 아주 맑은 유리 + 테두리 렌즈 띠, 글자는 안쪽 판(--glass-plate)이 받친다 */
+  --glass-clear: rgba(250, 252, 255, 0.1);
+  --glass-plate: rgba(246, 248, 252, 0.76);
+  --sheen-strong:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0, rgba(255, 255, 255, 0.16) 16%, rgba(255, 255, 255, 0) 34%),
+    radial-gradient(120% 55% at 18% 0%, rgba(255, 255, 255, 0.28), transparent 60%);
+  --spec-strong:
+    inset 1.5px 2px 0 -0.5px #fff,
+    inset -1px -1.5px 0 -0.5px rgba(255, 255, 255, 0.65),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
+    inset 0 0 24px -6px rgba(255, 255, 255, 0.5),
+    inset 4px 0 6px -4px rgba(255, 80, 140, 0.3),
+    inset -4px 0 6px -4px rgba(60, 140, 255, 0.34);
+  --shadow-float: 0 0 0 0.5px rgba(14, 30, 60, 0.12), 0 4px 10px -4px rgba(14, 30, 60, 0.2), 0 28px 60px -20px rgba(24, 70, 140, 0.45), 0 64px 120px -44px rgba(0, 120, 140, 0.4);
+  /* 독 모양 (Dock.tsx paint 가 읽음): 떠 있는 알약 반경 = 바 높이 72 / 2, 좌우 여백, 림 두께 */
+  --dock-r: 36;
+  --dock-pad: 44;
+  --dock-rim: 1.5;
   /* 작은 요소 전용: 얕은 블러 + 가장자리 굴절 렌즈 (GlassDefs 의 SVG 필터) */
   --blur-lens: blur(3px) url(#hera-lens) saturate(180%) brightness(1.05);
 
@@ -62,13 +80,12 @@
   --island-solid: rgba(10, 12, 18, 0.94);
   --island-accent: #34e0a1;
   --island-spec:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 1px 0 0 rgba(255, 255, 255, 0.1),
-    inset -1px 0 0 rgba(255, 255, 255, 0.05),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
-    inset 0 10px 16px -12px rgba(255, 255, 255, 0.2),
-    inset 3px 0 4px -3px rgba(255, 80, 140, 0.16),
-    inset -3px 0 4px -3px rgba(60, 140, 255, 0.2);
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.34),
+    inset 1px 0 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 12px 18px -12px rgba(255, 255, 255, 0.26),
+    inset 4px 0 6px -4px rgba(255, 80, 140, 0.2),
+    inset -4px 0 6px -4px rgba(60, 140, 255, 0.24);
 }
 
 :root[data-theme='dark'] {
@@ -80,7 +97,7 @@
   --glass: rgba(18, 22, 30, 0.26);
   --glass-strong: rgba(16, 19, 26, 0.64);
   --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 26%, rgba(255, 255, 255, 0) 62%, rgba(255, 255, 255, 0.04));
-  --rim: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.16) 24%, rgba(255, 255, 255, 0.05) 64%, rgba(255, 255, 255, 0.2));
+  --rim: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.22) 30%, rgba(255, 255, 255, 0.08) 70%, rgba(255, 255, 255, 0.3));
   --edge: rgba(255, 255, 255, 0.1);
   --edge-top: rgba(255, 255, 255, 0.28);
   --spec:
@@ -97,15 +114,28 @@
   --field: rgba(255, 255, 255, 0.06);
   --seg: rgba(255, 255, 255, 0.15);
   --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3), 0 18px 44px -16px rgba(0, 0, 0, 0.62), 0 40px 90px -36px rgba(8, 70, 100, 0.55);
-  --accent: #34e0a1;
+  --accent: #1ff0a6;
   --accent-text: #4be8ad;
-  --accent-soft: rgba(52, 224, 161, 0.18);
+  --accent-soft: rgba(31, 240, 166, 0.18);
   --on-accent: #022116;
   --alert: #ff7a45;
   --dot: rgba(255, 255, 255, 0.82);
   --taskbar: rgba(22, 24, 30, 0.8);
   --island-solid: rgba(6, 8, 12, 0.92);
   --glass-dense: rgba(16, 19, 26, 0.86);
+  --glass-clear: rgba(14, 18, 26, 0.16);
+  --glass-plate: rgba(14, 17, 24, 0.74);
+  --sheen-strong:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0, rgba(255, 255, 255, 0.04) 16%, rgba(255, 255, 255, 0) 34%),
+    radial-gradient(120% 55% at 18% 0%, rgba(255, 255, 255, 0.08), transparent 60%);
+  --spec-strong:
+    inset 1.5px 2px 0 -0.5px rgba(255, 255, 255, 0.6),
+    inset -1px -1.5px 0 -0.5px rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 0 24px -6px rgba(255, 255, 255, 0.12),
+    inset 4px 0 6px -4px rgba(255, 80, 140, 0.22),
+    inset -4px 0 6px -4px rgba(60, 140, 255, 0.26);
+  --shadow-float: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 4px 12px -4px rgba(0, 0, 0, 0.45), 0 28px 64px -20px rgba(0, 0, 0, 0.7), 0 64px 120px -44px rgba(8, 90, 120, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -158,6 +188,28 @@ kbd {
 [data-theme='dark'] :is(.panel, .palette, .demo, .note)::before { opacity: 0.28; }
 :is(.panel, .palette, .demo, .note)[data-hl='true']::before { opacity: 1; }
 [data-theme='dark'] :is(.panel, .palette, .demo, .note)[data-hl='true']::before { opacity: 0.6; }
+
+/* 큰 표면(패널·팔레트): 아주 맑은 유리(채움 0.10, 블러 6px) + 테두리 ~10px 렌즈 띠(SVG 변위, 가운데 변위 0) — 정적.
+   렌즈·블러·채움·림은 ::after 한 겹에 몰아 둔다 — 표면 자체에 backdrop-filter 를 두면 그 표면이 backdrop root 가 되어
+   안쪽 레이어가 바탕화면을 못 본다. 글자가 빽빽한 곳은 안쪽 판(--glass-plate)이 받친다 → 대비 AA. */
+:is(.panel, .palette) { background: none; backdrop-filter: none; box-shadow: var(--shadow-float); }
+.panel { --rim-lens: url(#hera-rim-panel); }
+.palette { --rim-lens: url(#hera-rim-palette); }
+:is(.panel, .palette)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--sheen-strong), var(--glass-clear);
+  box-shadow: var(--spec-strong);
+  backdrop-filter: blur(6px) var(--rim-lens) saturate(190%) brightness(1.06);
+  pointer-events: none;
+}
+/* 실제 앱(단일 표면 창): 창 뒤는 OS Acrylic 이 블러·틴트 — 웹뷰는 창 밖을 굴절시킬 수 없으니 렌즈를 뺀다.
+   림 빛·광택·안쪽 판·동심원 모서리가 그대로 남아 같은 재질로 읽힌다. */
+.desktop:not([data-only='all']) :is(.panel, .palette)::after { backdrop-filter: none; }
+.desktop:not([data-only='all']) .note { backdrop-filter: none; }
 /* 실제 앱(투명 창): 창 밖은 블러할 수 없으니 backdrop-filter 를 끈다 (합성 비용 0, 틴트만) */
 .desktop:not([data-only='all']) .glass-card { backdrop-filter: none; }
 
@@ -301,7 +353,7 @@ kbd {
   pointer-events: none;
   z-index: 30;
 }
-.desktop[data-only='all'] .dock { bottom: 52px; width: 1290px; } /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
+.desktop[data-only='all'] .dock { bottom: 62px; width: 1290px; } /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
 .dock-glass,
 .dock-ring {
   position: absolute;
@@ -310,10 +362,10 @@ kbd {
   bottom: 0;
   height: 84px;
 }
-.dock-glass { background: linear-gradient(180deg, transparent 14%, rgba(255, 255, 255, 0.3) 14.5%, rgba(255, 255, 255, 0.04) 36%, transparent 70%, rgba(255, 255, 255, 0.12)), var(--glass); backdrop-filter: var(--blur); }
-[data-theme='dark'] .dock-glass { background: linear-gradient(180deg, transparent 14%, rgba(255, 255, 255, 0.09) 14.5%, transparent 40%, transparent 75%, rgba(255, 255, 255, 0.04)), var(--glass); }
+.dock-glass { --band: linear-gradient(180deg, transparent 14%, rgba(255, 255, 255, 0.42) 14.5%, rgba(255, 255, 255, 0.1) 32%, transparent 62%, rgba(255, 255, 255, 0.18)); background: var(--band), var(--glass-clear); backdrop-filter: var(--blur); }
+[data-theme='dark'] .dock-glass { --band: linear-gradient(180deg, transparent 14%, rgba(255, 255, 255, 0.12) 14.5%, rgba(255, 255, 255, 0.03) 32%, transparent 62%, rgba(255, 255, 255, 0.05)); }
 /* 시안: 실제 앱이 캔버스에 굽는 것과 같은 세로 렌즈(바 위·아래 띠)를 정적 SVG 필터로. 모양(clip-path)만 바뀌고 필터 값은 고정. */
-.desktop[data-only='all'] .dock-glass { backdrop-filter: blur(9px) url(#hera-lens-dock) saturate(180%) brightness(1.04); }
+.desktop[data-only='all'] .dock-glass { backdrop-filter: blur(5px) url(#hera-lens-dock) saturate(190%) brightness(1.06); }
 /* 배경 밝기 적응(실제 앱: 배경화면 캔버스 평균 밝기를 그릴 때 1회 측정) —
    밝은 배경 = 밝은 유리 + 짙은 글자, 어두운 배경 = 짙은 유리 + 밝은 글자 (테마와 무관하게 대비 유지) */
 .dock[data-lum='light'] { --glass: rgba(250, 252, 255, 0.3); --text: #0b1220; --text-2: rgba(11, 18, 32, 0.68); --fill: rgba(11, 18, 32, 0.05); --line: rgba(11, 18, 32, 0.08); --line-strong: rgba(11, 18, 32, 0.15); }
@@ -323,7 +375,22 @@ kbd {
 .desktop:not([data-only='all']) .dock-glass { backdrop-filter: none; }
 .dock-wall { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
 .dock[data-wall='true'] .dock-glass { background: none; }
-.dock[data-wall='true'] .dock-glass::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 14%, rgba(255, 255, 255, 0.3) 14.5%, rgba(255, 255, 255, 0.04) 36%, transparent 70%, rgba(255, 255, 255, 0.12)), var(--glass); }
+.dock[data-wall='true'] .dock-glass::before { content: ''; position: absolute; inset: 0; background: var(--band), var(--glass); }
+/* 떠 있는 그림자: clip-path 레이어엔 box-shadow 가 안 붙으니 바 아래 정적 타원 (opacity 만) */
+.dock::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  width: 70%;
+  height: 34px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(20, 60, 110, 0.38), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms;
+}
+.dock[data-open='true']::before { opacity: 1; }
 /* 접힌 점: 같은 레이어 위 불투명 덮개를 opacity 로만 */
 .dock-glass::after {
   content: '';
@@ -440,10 +507,12 @@ kbd {
 .widget {
   display: flex;
   align-items: center;
-  border-radius: 12px; /* 바 22 − 여백 10 (동심원) */
-  background: var(--fill);
-  box-shadow: inset 0 0 0 1px var(--line);
+  border-radius: 26px; /* 알약 36 − 여백 10 (동심원) */
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 1px 1.5px 0 -0.5px rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.22), inset 0 8px 14px -10px rgba(255, 255, 255, 0.6);
 }
+[data-theme='dark'] .widget { background: rgba(255, 255, 255, 0.07); box-shadow: inset 1px 1.5px 0 -0.5px rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.shelf { outline-offset: -6px; }
 .clock { width: 84px; flex-direction: column; justify-content: center; gap: 3px; }
 .clock b { font: 600 18px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 .clock small { font-size: 10.5px; color: var(--text-2); }
@@ -501,7 +570,8 @@ kbd {
   transform: translateX(-50%);
   pointer-events: auto;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 40%), var(--island-solid);
-  box-shadow: var(--island-spec), 0 2px 6px rgba(0, 0, 0, 0.2), 0 14px 34px -10px rgba(4, 30, 46, 0.45);
+  overflow: hidden;
+  box-shadow: var(--island-spec), 0 2px 6px rgba(0, 0, 0, 0.22), 0 18px 40px -12px rgba(4, 40, 60, 0.5);
   transition: width var(--dur-bouncy) var(--spring-bouncy), height var(--dur-bouncy) var(--spring-bouncy),
     border-radius var(--dur-bouncy) var(--spring-bouncy);
 }
@@ -598,7 +668,7 @@ kbd {
   transition: opacity 220ms var(--ease-out), transform var(--dur-smooth) var(--spring-smooth);
 }
 /* 패널 창: 창 = 카드. 모서리·그림자는 DWM(Win11), 블러는 OS Acrylic → CSS 는 옅은 틴트만 */
-.desktop[data-only='panel'] .panel { inset: 0; width: auto; height: auto; border-radius: 0; box-shadow: none; backdrop-filter: none; background: var(--glass-sheen), var(--glass); }
+.desktop[data-only='panel'] .panel { inset: 0; width: auto; height: auto; border-radius: 0; box-shadow: none; }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px; }
 .tabs {
   position: relative;
@@ -607,7 +677,7 @@ kbd {
   grid-template-columns: repeat(3, 1fr);
   padding: 3px;
   border-radius: var(--r-pill);
-  background: var(--fill);
+  background: var(--glass-plate);
   box-shadow: inset 0 0 0 1px var(--line);
 }
 .tab-ind {
@@ -626,7 +696,19 @@ kbd {
 }
 .tabs button { position: relative; padding: 6px 0; border: 0; background: none; font-weight: 550; color: var(--text-2); }
 .tabs button[aria-selected='true'] { color: var(--text); }
-.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 12px 12px; }
+/* 글자가 빽빽한 곳 = 안쪽 판 (동심원: 카드 28 − 여백 12 = 16) */
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 12px 12px;
+  padding: 10px;
+  border-radius: var(--r-inner);
+  background: var(--glass-plate);
+  box-shadow: inset 0 0 0 0.5px var(--line), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
 .add { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .add input:first-child { grid-column: 1 / -1; }
 .add input {
@@ -698,6 +780,10 @@ kbd {
   width: 580px;
   max-width: calc(100vw - 32px);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
   transform: translateX(-50%);
   animation: pop var(--dur-smooth) var(--spring-smooth);
 }
@@ -707,16 +793,44 @@ kbd {
 .app-ico { border-radius: 8px; }
 @keyframes pop { from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.97); } }
 @keyframes fade { from { opacity: 0; } }
-.palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; box-shadow: inset 0 -1px 0 var(--line); }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
+:is(.palette-input, .palette-list) { border-radius: 20px; background: var(--glass-plate); box-shadow: inset 0 0 0 0.5px var(--line); }
 .palette-input svg { width: 20px; height: 20px; flex: none; color: var(--text-2); }
 .palette-input input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 17px; }
 .palette-list { max-height: 360px; margin: 0; padding: 6px; list-style: none; overflow-y: auto; scrollbar-width: thin; }
-.palette-list li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 18px; /* 카드 24 − 여백 6 */ }
+.palette-list li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; /* 판 20 − 여백 6 */ }
 .palette-list li[aria-selected='true'] { background: var(--fill-2); }
 .palette-list li kbd { opacity: 0; }
 .palette-list li[aria-selected='true'] kbd { opacity: 1; }
 .palette-list .empty { justify-content: center; color: var(--text-3); padding: 20px; }
 .todo-ico { width: 28px; height: 28px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* ── island: 모드가 바뀔 때 빛 띠가 한 번 스쳐 지나감 (transform 만, 애니메이션 이름을 모드마다 바꿔 재시작) ── */
+.island-shape::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent 15%, rgba(255, 255, 255, 0.24) 50%, transparent 85%);
+  transform: translateX(-110%);
+  pointer-events: none;
+}
+.island[data-mode='idle'] .island-shape::after { animation: isw-idle 900ms var(--ease-out); }
+.island[data-mode='preview'] .island-shape::after { animation: isw-preview 900ms var(--ease-out) 60ms; }
+.island[data-mode='nowPlaying'] .island-shape::after { animation: isw-play 900ms var(--ease-out) 60ms; }
+.island[data-mode='alert'] .island-shape::after { animation: isw-alert 900ms var(--ease-out) 60ms; }
+.island[data-mode='drop'] .island-shape::after { animation: isw-drop 900ms var(--ease-out) 60ms; }
+.island[data-mode='cue'] .island-shape::after { animation: isw-cue 900ms var(--ease-out) 60ms; }
+.island[data-mode='news'] .island-shape::after { animation: isw-news 900ms var(--ease-out) 60ms; }
+@keyframes isw-idle { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-preview { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-play { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-alert { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-drop { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-cue { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-news { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 
 /* ── 이동 줄이기: 이동 대신 페이드 ── */
 @media (prefers-reduced-motion: reduce) {
@@ -725,5 +839,6 @@ kbd {
   .island-layer { transform: translate(-50%, 0); }
   .palette { animation: fade 160ms; }
   .tab-ind { transition: none; }
+  .island-shape::after { animation: none !important; }
   :is(.primary, .demo-btns button, .demo-seg button, .alert .actions button, .mc-today, .mc-seg button, .icon-btn, .tabs button, .snip-vars button):active { transform: none; }
 }

@@ -2,7 +2,7 @@
    열기/닫기 모두 data-show(usePresence) + 기존 스프링 토큰. 애니메이션은 transform / opacity / clip-path 만. */
 
 /* ── 데모 바 v2 ── */
-.demo { width: 288px; max-height: calc(100vh - 40px); overflow-y: auto; scrollbar-width: none; }
+.demo { width: 288px; max-height: calc(100vh - 170px); /* 떠 있는 독 위에서 끝나게 */ overflow-y: auto; scrollbar-width: none; }
 .demo-btns.v2 button { white-space: nowrap; font-size: 12.5px; }
 .demo-sub { margin: 12px 0 8px !important; padding-top: 10px; border-top: 1px solid var(--line); }
 .demo-btns.v2 { grid-template-columns: repeat(4, 1fr); margin-top: 6px; }
