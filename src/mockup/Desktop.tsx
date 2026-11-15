@@ -86,8 +86,6 @@ export function Desktop({ only }: { only?: string }) {
 
   // v2 효과: 스위치·도시는 저장 (스위치는 트레이와 공유, Rust 가 판정). 날씨: 시안 = 가짜, 실제 앱 = 독 창이 30분마다 받아 store 에.
   const [fxOn, setFxOn] = useValue('fx.enabled', true)
-  // 작업 표시줄 숨기기 (Rust watch 루프가 store 변화를 보고 적용 · 트레이 체크와 공유)
-  const [tbHide, setTbHide] = useValue('taskbar.hide', false)
   const [city, setCity] = useValue('fx.city', '서울')
   const [liveWeather, setLiveWeather] = useValue<Weather | null>('fx.weather', null)
   const [coords, setCoords] = useValue<[number, number] | null>('fx.coords', null)
@@ -451,8 +449,6 @@ export function Desktop({ only }: { only?: string }) {
           idleMin={idleMin}
           setIdleMin={setIdleMin}
           onFxNow={() => playFx(pickFx(clock, weather))}
-          tbHide={tbHide}
-          setTbHide={setTbHide}
         />
       )}
       {palette && show('palette') && (

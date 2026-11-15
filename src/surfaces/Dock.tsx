@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TransitionEvent } from 'react'
 import type { AppGroup, LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, thumbs, wallpaper, type Win } from '../data/api'
+import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, taskbarLift, thumbs, wallpaper, type Win } from '../data/api'
 import { Shelf } from './Shelf'
 import { AsciiWidget, type SceneId } from './Ascii'
 
@@ -71,6 +71,7 @@ const MAX = 1.8 // 최대 배율
 const R = 170 // 코사인 감쇠 반경(px)
 const BOX = 84 // 바 레이어 높이 (스프링 오버슈트 여유 포함)
 const BAR_H = 72
+const LIFT_MAX = 72 // 독 창 위 여유 (Rust DOCK 높이 250 = 178 + 72)
 const SPREAD = 120 // 확대 시 바가 좌우로 넓어지는 최대 폭(≈ 52px 아이콘 5개 × 코사인 가중 × 0.8) — 펼침 히트 rect 여유
 
 type Item = { el: HTMLElement; mag: HTMLElement | null; c: number; w: number }
@@ -124,17 +125,34 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     ring.current!.style.clipPath = s.ring
   }
 
+  // 자동 숨김 작업 표시줄 공존: 작업 표시줄이 올라오면 독(점·펼침)이 그 높이만큼 창 안에서 스프링으로 올라간다.
+  // 독이 펼쳐진 동안엔 내려가지 않는다 — 커서를 독으로 옮기는 사이 작업 표시줄이 숨어도 독이 커서 아래에서 빠지지 않게.
+  const [tbLift, setTbLift] = useState(0)
+  useEffect(() => {
+    if (!isTauri) return
+    const f = (px: number) => setTbLift(Math.min(LIFT_MAX, px / devicePixelRatio))
+    void taskbarLift().then(f)
+    return onEvent<number>('taskbar-lift', f)
+  }, [])
+  const [lift, setLift] = useState(0)
+  useEffect(() => setLift((l) => (open && tbLift < l ? l : tbLift)), [tbLift, open])
+
   // 히트 rect: 평소 = .dock-hit, 묶음 팝오버가 열린 동안(실제 앱) = 키운 창 전체 (바깥 클릭은 팝오버 닫기로 한 번 먹는다).
   // 창 크기가 바뀌면 .dock-hit 의 클라이언트 위치도 바뀌므로 resize 때 다시 보낸다.
   const report = useRef(() => {})
-  report.current = () => reportHitRects('dock', [folder && isTauri ? new DOMRect(0, 0, innerWidth, innerHeight) : hit.current!.getBoundingClientRect()])
+  report.current = () => {
+    if (folder && isTauri) return reportHitRects('dock', [new DOMRect(0, 0, innerWidth, innerHeight)])
+    // 올라가는 중이어도 목표 위치로: 지금 애니메이션 중인 translate 값을 빼고 목표 -lift 를 더한다
+    const r = hit.current!.getBoundingClientRect(), cur = parseFloat(getComputedStyle(root.current!).translate.split(' ')[1] ?? '0') || 0
+    reportHitRects('dock', [new DOMRect(r.x, r.y - cur - lift, r.width, r.height)])
+  }
   useLayoutEffect(() => {
     m.current = null
     paint(0, false)
     // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
     hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
     report.current()
-  }, [open, records.length, shelf.length, groups.length, folder, runApps.length])
+  }, [open, records.length, shelf.length, groups.length, folder, runApps.length, lift])
   useEffect(() => {
     if (!isTauri) return
     const f = () => report.current()
@@ -272,7 +290,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   }
 
   return (
-    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-attention={attention.size > 0} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
+    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-attention={attention.size > 0} style={{ '--lift': `${lift}px` } as CSSProperties} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
       <div ref={glass} className="dock-glass">{isTauri && <canvas ref={wall} className="dock-wall" />}</div>
       <div ref={ring} className="dock-ring" />
       <div ref={hit} className="dock-hit" />

@@ -209,6 +209,9 @@
 /* ── 작업 표시줄 대체 ── */
 /* 단일 표면 창: 독 창 폭(작업 영역에 맞춰 최대 1600)을 그대로 쓴다 — 실행 중 앱이 늘어도 줄이 잘리지 않게 */
 .desktop:not([data-only='all']) .dock { width: 100%; }
+/* 자동 숨김 작업 표시줄이 펼쳐지면 독이 그 위로 비켜 선다 (창 안 여유 72px, 기존 스프링). 접힌 점의 히트 영역은 창 바닥 8px 위부터 —
+   맨 아래 1~2px 는 Windows 가 작업 표시줄을 꺼내는 가장자리라 클릭 통과로 남겨 둔다. */
+.desktop:not([data-only='all']) .dock { translate: 0 calc(-1 * var(--lift, 0px)); transition: translate var(--dur-bouncy) var(--spring-bouncy); }
 /* 왼쪽 2×2 작은 버튼 (시작 · 숨은 아이콘 · 빠른 설정 · 알림 센터) */
 .sys-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 52px; }
 .sys-keys button {

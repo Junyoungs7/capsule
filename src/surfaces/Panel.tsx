@@ -37,8 +37,6 @@ type Props = {
   idleMin: number
   setIdleMin: (m: number) => void
   onFxNow: () => void
-  tbHide: boolean
-  setTbHide: (v: boolean) => void
 }
 
 // 열기: 마운트 → 강제 reflow → data-open=true (transition). 닫기: data-open=false → transitionend → 언마운트(파괴).
@@ -289,7 +287,7 @@ function LibraryTab({ records, pinned, onAddRecord, onRemoveRecord, onTogglePin,
 }
 
 // v2 설정: 효과 이벤트 스위치(트레이에도 같은 스위치 — Rust), 도시(날씨), 지금 보기, 아스키 화면보호기 대기 시간
-function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMin, onFxNow, tbHide, setTbHide }: Props) {
+function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMin, onFxNow }: Props) {
   const [draft, setDraft] = useState(city)
   const f = moonPhase(new Date())
   const save = () => draft.trim() && setCity(draft.trim())
@@ -311,14 +309,6 @@ function SettingsTab({ fxOn, setFxOn, city, setCity, weather, idleMin, setIdleMi
         <input className="city" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="도시 이름" />
       </form>
       <button className="primary now" onClick={onFxNow}>지금 보기</button>
-      <h3>작업 표시줄</h3>
-      <label className="row">
-        <span className="grow">
-          <b>Windows 작업 표시줄 숨기기</b>
-          <small>Hera 실행 중에만 숨기고 화면 전체를 씀 · 끄거나 종료하면 되돌림</small>
-        </span>
-        <input type="checkbox" className="switch" checked={tbHide} onChange={(e) => setTbHide(e.target.checked)} />
-      </label>
       <h3>아스키 아트</h3>
       <label className="row">
         <span className="grow">

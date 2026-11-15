@@ -1,10 +1,10 @@
-// 작업 표시줄 대체: 실행 중인 앱 창 목록 · 깜빡임 알림 · Win 키 버튼 · DWM 썸네일.
+// 작업 표시줄 대체: 실행 중인 앱 창 목록 · 깜빡임 알림 · Win 키 버튼 · DWM 썸네일 · 자동 숨김 작업 표시줄 공존(독 올리기).
 // 숨은 최상위 창 1개(브로드캐스트 TaskbarCreated 를 받으려면 메시지 전용 창이면 안 됨) + 셸 훅(창 생성/파괴/활성/깜빡임)
 // + WinEvent 훅(표시·숨김·제목·최소화·클로킹·포그라운드). 이벤트는 250ms 디바운스 후 1회 열거 → 바뀌었을 때만 'windows' emit.
 // ponytail: 10s 안전망 재열거 — 이벤트가 빠지는 경우가 확인되면 지우거나 줄일 것.
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
@@ -18,7 +18,7 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentProcessId;
-use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
+use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_LWIN, VK_RETURN};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -44,10 +44,14 @@ static HOST: AtomicIsize = AtomicIsize::new(0);
 static SHELLHOOK: AtomicU32 = AtomicU32::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// 자동 숨김 작업 표시줄 공존: 작업 표시줄 창 · 그 스레드에만 건 위치 변경 훅 · 독을 올릴 높이(물리 px)
+static TRAY: AtomicIsize = AtomicIsize::new(0);
+static TRAY_HOOK: AtomicIsize = AtomicIsize::new(0);
+static LIFT: AtomicI32 = AtomicI32::new(0);
 
 const T_REFRESH: usize = 1;
 const T_SAFETY: usize = 2;
-const T_REAPPLY: usize = 3;
+const T_LIFT: usize = 3;
 const HSHELL_FLASH: u32 = 0x8006; // HSHELL_REDRAW | HSHELL_HIGHBIT
 const HSHELL_ACTIVATED: u32 = 4;
 const HSHELL_RUDEACTIVATED: u32 = 0x8004;
@@ -150,10 +154,43 @@ fn unflash(h: isize) {
     }
 }
 
-fn is_explorer(h: HWND) -> bool {
+/// 작업 표시줄이 펼쳐졌는지 다시 계산 → 바뀌면 독에 'taskbar-lift'(물리 px). 펼침/숨김마다 1번씩.
+fn update_lift() {
+    let tray = HWND(TRAY.load(Ordering::Relaxed) as _);
+    let lift = if tray.is_invalid() { 0 } else { taskbar::state(tray).map_or(0, |(m, t, a)| taskbar::dock_lift(m, t, a)) };
+    if LIFT.swap(lift, Ordering::Relaxed) != lift {
+        if let Some(app) = APP.get() {
+            let _ = app.emit_to("dock", "taskbar-lift", lift);
+        }
+    }
+}
+
+pub fn lift() -> i32 {
+    LIFT.load(Ordering::Relaxed)
+}
+
+unsafe extern "system" fn on_tray(_: HWINEVENTHOOK, _: u32, h: HWND, obj: i32, _: i32, _: u32, _: u32) {
+    if obj == OBJID_WINDOW.0 && h.0 as isize == TRAY.load(Ordering::Relaxed) {
+        update_lift();
+    }
+}
+
+/// 위치 변경 훅을 explorer 의 작업 표시줄 스레드에만 건다 (시스템 전체 LOCATIONCHANGE 는 커서 이동마다 와서 비쌈). explorer 재시작 때 다시.
+unsafe fn hook_tray() {
+    let old = TRAY_HOOK.swap(0, Ordering::Relaxed);
+    if old != 0 {
+        let _ = UnhookWinEvent(HWINEVENTHOOK(old as _));
+    }
+    let Ok(tray) = FindWindowW(w!("Shell_TrayWnd"), None) else {
+        TRAY.store(0, Ordering::Relaxed);
+        return;
+    };
+    TRAY.store(tray.0 as isize, Ordering::Relaxed);
     let mut pid = 0;
-    unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
-    CACHE.with_borrow(|c| c.get(&(h.0 as isize)).map(|e| e.1.clone())).unwrap_or_else(|| unsafe { watch::info(h).exe_path }).to_lowercase().ends_with("\\explorer.exe")
+    let tid = GetWindowThreadProcessId(tray, Some(&mut pid));
+    let h = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(on_tray), pid, tid, WINEVENT_OUTOFCONTEXT);
+    TRAY_HOOK.store(h.0 as isize, Ordering::Relaxed);
+    update_lift();
 }
 
 unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, h: HWND, obj: i32, child: i32, _: u32, _: u32) {
@@ -163,13 +200,9 @@ unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, h: HWND, obj: i32,
     match ev {
         EVENT_SYSTEM_FOREGROUND => {
             unflash(h.0 as isize);
-            if taskbar::peeking() && !is_explorer(h) {
-                taskbar::end_peek();
-            }
             schedule();
         }
         _ if GetAncestor(h, GA_ROOT) != h => {}
-        EVENT_OBJECT_SHOW if taskbar::is_tray(h) => taskbar::on_tray_shown(),
         _ => schedule(),
     }
 }
@@ -183,17 +216,17 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
                     refresh();
                 }
                 T_SAFETY => refresh(),
-                T_REAPPLY => {
-                    let _ = KillTimer(Some(h), T_REAPPLY);
-                    taskbar::handle(taskbar::Ev::Reapply);
+                T_LIFT => {
+                    let _ = KillTimer(Some(h), T_LIFT);
+                    update_lift();
                 }
                 _ => {}
             }
             LRESULT(0)
         }
-        // 디스플레이 변경: explorer 가 작업 영역을 다시 잡은 뒤에 재적용
+        // 디스플레이 변경: explorer 가 작업 표시줄을 다시 놓은 뒤 다시 계산
         WM_DISPLAYCHANGE => {
-            SetTimer(Some(h), T_REAPPLY, 1500, None);
+            SetTimer(Some(h), T_LIFT, 1500, None);
             DefWindowProcW(h, m, wp, lp)
         }
         _ if m != 0 && m == SHELLHOOK.load(Ordering::Relaxed) => {
@@ -211,11 +244,11 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
             schedule();
             LRESULT(0)
         }
-        // explorer 재시작: 셸 훅 다시 등록 + 작업 표시줄 숨김 재적용
+        // explorer 재시작: 셸 훅·작업 표시줄 훅 다시 등록
         _ if m != 0 && m == TASKBAR_CREATED.load(Ordering::Relaxed) => {
             let _ = DeregisterShellHookWindow(h);
             let _ = RegisterShellHookWindow(h);
-            SetTimer(Some(h), T_REAPPLY, 1500, None);
+            hook_tray();
             schedule();
             LRESULT(0)
         }
@@ -251,6 +284,7 @@ pub fn start(app: AppHandle) {
         ] {
             SetWinEventHook(a, b, None, Some(on_event), 0, 0, flags);
         }
+        hook_tray();
         refresh();
         SetTimer(Some(h), T_SAFETY, 10_000, None);
         let mut msg = MSG::default();
@@ -306,10 +340,6 @@ pub fn key(kind: &str) -> Result<(), String> {
         "quick" => send(&[VK_LWIN, k(b'A')]),
         "notify" => send(&[VK_LWIN, k(b'N')]),
         "tray" => {
-            // 작업 표시줄을 Hera 가 숨겨 둔 상태면 잠깐 보이게 (포그라운드가 explorer 밖으로 가면 다시 숨김)
-            if taskbar::peek() {
-                std::thread::sleep(std::time::Duration::from_millis(150));
-            }
             send(&[VK_LWIN, k(b'B')])?;
             std::thread::sleep(std::time::Duration::from_millis(200));
             send(&[VK_RETURN]) // Win+B 는 트레이 첫 항목(숨은 아이콘 ^)에 포커스 → Enter 로 펼침

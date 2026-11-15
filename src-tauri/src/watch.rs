@@ -389,8 +389,6 @@ fn fx_trigger(prev: Option<(Tod, u8)>, cur: (Tod, u8), season: Option<&'static s
 
 /// 트레이 '날씨·계절 효과' 체크 항목 (패널에서 바꾸면 watch 루프가 맞춰 준다)
 pub struct FxMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
-/// 트레이 'Windows 작업 표시줄 숨기기' 체크 항목
-pub struct TbMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
 
 fn last_input() -> u32 {
     let mut li = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
@@ -418,7 +416,6 @@ pub fn start(app: AppHandle) {
         let mut sky: Option<(Tod, u8)> = None;
         let mut season_shown = (0u16, 0u16);
         let mut fx_on: Option<bool> = None;
-        let mut tb_hide: Option<bool> = None; // 시작 시 적용은 lib.rs setup 이 한다 → 첫 틱은 기록만
 
         loop {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
@@ -523,17 +520,6 @@ pub fn start(app: AppHandle) {
                         fx_on = Some(on);
                         if let Some(m) = app.try_state::<FxMenu>() {
                             let _ = m.0.set_checked(on);
-                        }
-                    }
-                    // 작업 표시줄 숨기기: 패널에서 바뀌면 적용 + 트레이 체크 맞춤
-                    let hide = s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false);
-                    if tb_hide != Some(hide) {
-                        if tb_hide.is_some() {
-                            crate::taskbar::set(hide, crate::taskbar::Ev::Setting);
-                        }
-                        tb_hide = Some(hide);
-                        if let Some(m) = app.try_state::<TbMenu>() {
-                            let _ = m.0.set_checked(hide);
                         }
                     }
                     let lt = GetLocalTime();

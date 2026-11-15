@@ -14,6 +14,8 @@ await dock.evaluate(`(window.__ev = 0, window.__TAURI_INTERNALS__.invoke('plugin
 const before = await dock.evaluate(inv('windows_list'))
 ok('windows_list', Array.isArray(before), `(${before.length} app windows)`)
 ok('dock width follows work area', (await dock.evaluate('innerWidth')) > 960, `(innerWidth ${await dock.evaluate('innerWidth')})`)
+const lift = await dock.evaluate(inv('taskbar_lift'))
+ok('taskbar_lift (auto-hide coexist)', Number.isInteger(lift) && lift >= 0, `(${lift}px now)`)
 const known = new Set(notepad(before).map((w) => w.hwnd))
 
 spawn('notepad.exe', { detached: true, stdio: 'ignore' }).unref()

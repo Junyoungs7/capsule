@@ -19,11 +19,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 // 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
-const DOCK: (f64, f64) = (960.0, 178.0);
+/// 높이 = 독 178 + 위 여유 72 (자동 숨김 작업 표시줄이 올라오면 독이 창 안에서 스프링으로 그만큼 올라간다 — 창 이동 없음)
+const DOCK: (f64, f64) = (960.0, 250.0);
 /// 독 창 최대 폭 (실행 중 앱이 늘면 줄이 길어진다) — 작업 영역 폭으로 제한
 const DOCK_MAX_W: f64 = 1600.0;
-/// v2 앱 묶음 팝오버가 열린 동안 독 창을 위로 키운 높이 (팝오버 3줄 + 여유). 내용은 CSS 로 하단 고정이라 그대로.
-const DOCK_TALL: f64 = 560.0;
+/// v2 앱 묶음 팝오버가 열린 동안 독 창을 위로 키운 높이 (팝오버 3줄 + 작업 표시줄 여유). 내용은 CSS 로 하단 고정이라 그대로.
+const DOCK_TALL: f64 = 640.0;
 static DOCK_IS_TALL: AtomicBool = AtomicBool::new(false);
 const ISLAND: (f64, f64) = (440.0, 144.0);
 const PANEL: (f64, f64) = (384.0, 540.0);
@@ -347,6 +348,12 @@ async fn win_click(hwnd: isize) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || shell::click(hwnd)).await.map_err(|e| e.to_string())?
 }
 
+/// 자동 숨김 작업 표시줄이 펼쳐져 있으면 그 높이(물리 px), 아니면 0. 변화는 'taskbar-lift' 이벤트.
+#[tauri::command]
+fn taskbar_lift() -> i32 {
+    shell::lift()
+}
+
 #[tauri::command]
 fn win_close(hwnd: isize) -> Result<(), String> {
     shell::close(hwnd)
@@ -463,7 +470,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
-            shell_key, thumbs
+            shell_key, thumbs, taskbar_lift
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -486,8 +493,8 @@ pub fn run() {
                 s.set("dock.pinned", serde_json::json!(["calc", "notepad", "github"]));
                 s.set("seeded", true);
             }
-            // 작업 표시줄 숨기기: 켜져 있으면 적용, 꺼져 있는데 숨겨진 채면(이전 실행이 죽음) 복원
-            taskbar::set(s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false), taskbar::Ev::Startup);
+            // 작업 표시줄은 건드리지 않는다. 이전 빌드가 숨긴 채 남겼다면 1회 되살림.
+            taskbar::recover();
             let h = app.handle();
             let dock = overlay(h, "dock", "", DOCK)?;
             let island = overlay(h, "island", "", ISLAND)?;
@@ -532,9 +539,7 @@ pub fn run() {
             let fx_on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
             let fx_item = CheckMenuItem::with_id(app, "fx", "날씨·계절 효과", true, fx_on, None::<&str>)?;
             app.manage(watch::FxMenu(fx_item.clone()));
-            let tb_on = s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false);
-            let tb_item = CheckMenuItem::with_id(app, "taskbar", "Windows 작업 표시줄 숨기기", true, tb_on, None::<&str>)?;
-            app.manage(watch::TbMenu(tb_item.clone()));
+
             let menu = Menu::with_items(
                 app,
                 &[
@@ -542,7 +547,6 @@ pub fn run() {
                     &MenuItem::with_id(app, "palette", format!("검색 ({PALETTE_HOTKEY})"), true, None::<&str>)?,
                     &MenuItem::with_id(app, "turntable", "턴테이블 보이기/숨기기", true, None::<&str>)?,
                     &fx_item,
-                    &tb_item,
                     &auto,
                     &MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?,
                 ],
@@ -571,12 +575,6 @@ pub fn run() {
                             s.set("fx.enabled", m.0.is_checked().unwrap_or(true));
                         }
                     }
-                    "taskbar" => {
-                        // 적용은 watch 루프가 store 변화를 보고 한다 (패널 스위치와 같은 경로)
-                        if let (Ok(s), Some(m)) = (app.store("hera.json"), app.try_state::<watch::TbMenu>()) {
-                            s.set("taskbar.hide", m.0.is_checked().unwrap_or(false));
-                        }
-                    }
                     "autostart" => {
                         let a = app.autolaunch();
                         let _ = if a.is_enabled().unwrap_or(false) { a.disable() } else { a.enable() };
@@ -587,7 +585,6 @@ pub fn run() {
                         if let Ok(s) = app.store("hera.json") {
                             let _ = s.save();
                         }
-                        taskbar::handle(taskbar::Ev::Exit); // 숨겨 둔 작업 표시줄·작업 영역 복원
                         app.exit(0)
                     }
                     _ => {}

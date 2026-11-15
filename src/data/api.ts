@@ -205,6 +205,8 @@ export const closeSelf = () => invoke('close_panel')
 /* ── 작업 표시줄 대체: 실행 중 앱 창 (Rust shell.rs 가 창 이벤트로 'windows' emit) ── */
 export type Win = { hwnd: number; key: string; keys: string[]; title: string; exe: string; aumid: string; min: boolean; flash: boolean }
 export const windowsList = () => invoke<Win[]>('windows_list')
+// 자동 숨김 작업 표시줄이 펼쳐진 높이(물리 px, 숨김·항상 보임 = 0). 변화 = 'taskbar-lift' 이벤트
+export const taskbarLift = () => invoke<number>('taskbar_lift')
 // 클릭: 최소화면 복원 / 맨 앞이면 최소화 / 아니면 앞으로
 export const winClick = (hwnd: number) => invoke('win_click', { hwnd })
 export const winClose = (hwnd: number) => invoke('win_close', { hwnd })
