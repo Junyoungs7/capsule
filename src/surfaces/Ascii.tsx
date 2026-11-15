@@ -742,60 +742,6 @@ function AsciiCanvas({ id, live }: { id: SceneId; live: boolean }) {
   return <canvas ref={ref} className="ascii3d" aria-hidden />
 }
 
-/** 독 위젯(독 2칸 폭): 짧은 단어 고리 4줄이 세로축으로 돈다 — 단어가 통째로 읽히게 큰 글자, 비스듬하면 가로로 눌리고 뒤쪽은 숨김.
-    맨 앞을 지나는 단어는 하이라이트 색. 독이 펼쳐져 있을 때만 10fps, 숨기면 루프 없음, 이동 줄이기 = 정지 1프레임. */
-function AsciiMini({ id, live }: { id: SceneId; live: boolean }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const cv = ref.current!, ctx = cv.getContext('2d', { alpha: false })!, sc = SCENES[id], words = sc.mini
-    const k = devicePixelRatio || 1, W = (cv.width = Math.round(cv.clientWidth * k)), H = (cv.height = Math.round(cv.clientHeight * k))
-    const ROWS = 4, lh = H / ROWS, N = 4, rad = W * 0.36
-    ctx.font = `600 ${Math.round(lh * 0.74)}px ${FONT}`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    const ww = words.map(([w]) => ctx.measureText(w).width)
-    const draw = (t: number) => {
-      ctx.globalAlpha = 1
-      ctx.fillStyle = sc.bg
-      ctx.fillRect(0, 0, W, H)
-      for (let r = 0; r < ROWS; r++) {
-        const th = t * 0.9 + r * 0.55, y = (r + 0.55) * lh
-        for (let i = 0; i < N; i++) {
-          const a = th + (i * TAU) / N, c = Math.cos(a), wi = (r * 3 + i * 2) % words.length
-          if (c < 0.12) continue
-          const [w, m] = words[wi], x = W / 2 + Math.sin(a) * rad
-          ctx.globalAlpha = 0.3 + 0.7 * c
-          ctx.fillStyle = sc.mats[c > 0.985 ? 0 : m]
-          ctx.setTransform(c, 0, 0, 1, x, y)
-          ctx.fillText(w, 0, 0, Math.max(ww[wi], 1))
-        }
-        ctx.setTransform(1, 0, 0, 1, 0, 0)
-      }
-    }
-    const t0 = performance.now()
-    draw(T0)
-    if (!live || reducedMotion()) return
-    let raf = 0, last = 0
-    const loop = (now: number) => {
-      raf = requestAnimationFrame(loop)
-      if (now - last >= 97) (last = now), draw((now - t0) / 1000 + T0)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [id, live])
-  return <canvas ref={ref} className="ascii3d" aria-hidden />
-}
-
-/** 독 위젯(독 2칸 폭): 독이 펼쳐져 있을 때만 움직인다 */
-export function AsciiWidget({ id, live, onOpen }: { id: SceneId; live: boolean; onOpen: (r: DOMRect) => void }) {
-  const box = useRef<HTMLButtonElement>(null)
-  return (
-    <button ref={box} className="dock-slot widget ascii-w" style={{ background: SCENES[id].bg }} onClick={() => onOpen(box.current!.getBoundingClientRect())} aria-label={`아스키 아트 · ${SCENES[id].name} (클릭: 전체화면)`}>
-      <AsciiMini id={id} live={live} />
-    </button>
-  )
-}
-
 /** 전체화면: from(위젯 rect) 이 있으면 그 자리에서 확대/그 자리로 축소, 없으면(화면보호기) 부드러운 페이드+약간 축소. */
 /** onClosed = 닫힘 애니메이션이 끝남 (실제 앱: 아스키 창 파괴) */
 export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }: { open: boolean; id: SceneId; from: DOMRect | null; saver: boolean; caption: string; onClose: () => void; onClosed?: () => void }) {

@@ -197,7 +197,7 @@ export const setClip = (text: string) => invoke('set_clip', { text })
 // 앱 묶음 팝오버: 독 창을 위로 키우기/되돌리기
 export const dockTall = (tall: boolean) => invoke('dock_tall', { tall })
 // 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
-export const openAscii = (from: [number, number, number, number]) => invoke('ascii', { from })
+export const openAscii = (from: [number, number, number, number] | null, scene?: string) => invoke('ascii', { from, scene })
 export const openFx = (kind: string) => invoke('fx', { kind })
 // 호출한 창 파괴 (패널·아스키·효과 공용 — Rust close_panel 은 호출 창을 닫는다)
 export const closeSelf = () => invoke('close_panel')

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { LpRecord, Notification, RunningSession } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri, reportHitRects } from '../data/api'
-import { Tile } from './Dock'
-import { labelVars } from './Turntable'
+import { Disc, useSpin } from './Lp'
+import { Avatar, groupOf } from './Team'
 
 export type NextItem = { title: string; at?: string; kind: 'todo' | 'event' }
 /** Hera Link 표시: 엔진 연결 · 파일 채널(files) · 화면 전환(swap, n 이 바뀔 때마다 1번) · 페어링 코드 · 전송 진행 */
@@ -15,7 +15,9 @@ export type LinkView = {
   pair: { code: string; name: string } | null
   xfer: { dir: 'in' | 'out'; name: string; bytes: number; size: number; done?: boolean } | null
 }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'swap' | 'pair' | 'xfer' | 'ime'
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news' | 'ascii' | 'swap' | 'pair' | 'xfer' | 'ime'
+// Hera Team 변경 소식: 누가 · 어느 그룹 · 무엇을 (짧게 떴다 사라짐)
+export type TeamNews = { who: string; group: string; what: string; detail: string; n: number }
 
 // 컨테이너(=창)는 최대 크기 고정, 상태별 모양은 고정 프리셋 → clip-path 스프링
 const SIZES: Record<Mode, [number, number, number]> = {
@@ -24,6 +26,9 @@ const SIZES: Record<Mode, [number, number, number]> = {
   nowPlaying: [372, 68, 30],
   alert: [404, 122, 30],
   drop: [372, 92, 30],
+  news: [392, 58, 29],
+  ascii: [252, 44, 22], // 아스키 재생 중: 작은 알약 + 정지
+  cue: [372, 68, 30], // LP 를 끌고 오는 중 = nowPlaying 과 같은 모양 → 놓으면 내용만 바뀜
   swap: [196, 44, 22],
   pair: [404, 104, 30],
   xfer: [372, 68, 30],
@@ -61,6 +66,12 @@ type Props = {
   onSnooze: () => void
   onOpen: () => void
   onDropFiles: (paths: string[]) => void
+  alive?: boolean // 지금 레코드의 앱이 살아 있음 = LP 회전 (턴테이블 규칙)
+  lp?: 'off' | 'drag' | 'over' // 독에서 LP 를 끌고 오는 중
+  news?: TeamNews | null
+  ascii?: string | null // 재생 중인 아스키 장면 이름
+  onAscii?: () => void // ✦ 자동 장면 시작
+  onAsciiStop?: () => void
   link?: LinkView | null
   onSendFiles?: (paths: string[]) => void // 연결 중 드롭존 오른쪽 절반 = 맥으로 보내기
   onPair?: (ok: boolean) => void
@@ -68,7 +79,7 @@ type Props = {
   onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, link, onSendFiles, onPair, ime, onChip }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop, link, onSendFiles, onPair, ime, onChip }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -94,7 +105,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     return () => void off.then((f) => f())
   }, [])
   // 화면 전환 표시는 swap.n 이 바뀔 때만 (1.6초 — Desktop 이 지움)
-  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : ime ? 'ime' : link?.xfer ? 'xfer' : link?.swap ? 'swap' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const mode: Mode = link?.pair ? 'pair' : drag ? 'drop' : alert ? 'alert' : ime ? 'ime' : lp !== 'off' ? 'cue' : link?.xfer ? 'xfer' : ascii ? 'ascii' : link?.swap ? 'swap' : news ? 'news' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
@@ -110,14 +121,9 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
   const [w, h, r] = mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
   const pct = link?.xfer ? Math.round((100 * link.xfer.bytes) / Math.max(1, link.xfer.size)) : 0
 
-  // 미니 LP: 곡(포그라운드 앱)이 바뀌면 10초간 회전 후 정지 (Open Question 5 기본안)
-  const [spinning, setSpinning] = useState(false)
-  useEffect(() => {
-    if (!playing) return
-    setSpinning(true)
-    const t = setTimeout(() => setSpinning(false), 10_000)
-    return () => clearTimeout(t)
-  }, [playing?.startedAt, playing?.title])
+  // LP: 앱이 살아 있는 동안 회전 (계단식 가속 → 정속 30°/150ms). 디스크가 보일 때만 돌린다.
+  const disc = useRef<HTMLSpanElement>(null)
+  useSpin(disc, alive && mode === 'nowPlaying')
 
   // 경과 시간은 분 단위 — nowPlaying 표시 중에만 1분 타이머
   const [, tick] = useState(0)
@@ -142,8 +148,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       ref={root}
       className="island"
       data-mode={mode}
-      data-spin={spinning && mode === 'nowPlaying'}
       data-xfer={link?.xfer ? `${link.xfer.dir}${link.xfer.done ? '-done' : ''}` : undefined}
+      data-lp={lp}
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onClick={() => mode === 'preview' && onOpen()}
@@ -204,16 +210,44 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
           <small>{next ? `${next.kind === 'event' ? '일정' : '할 일'} · ${fmtWhen(next.at)}` : '패널에서 할 일을 추가하세요'}</small>
         </span>
         <span className="chip">{until(next?.at) || '열기'}</span>
+        {onAscii && (
+          <button className="isl-ascii" onClick={(e) => (e.stopPropagation(), onAscii())} tabIndex={mode === 'preview' ? 0 : -1} aria-label="아스키 아트 전체화면 (계절 장면)" title="아스키 아트">✦</button>
+        )}
+      </div>
+
+      <div className="island-layer ascii" style={{ width: SIZES.ascii[0], height: SIZES.ascii[1] }} aria-hidden={mode !== 'ascii'}>
+        <span className="isl-eq" aria-hidden><i /><i /><i /></span>
+        <span className="txt"><b>아스키 재생 중</b><small>{ascii}</small></span>
+        <button className="isl-stop" onClick={(e) => (e.stopPropagation(), onAsciiStop?.())} tabIndex={mode === 'ascii' ? 0 : -1} aria-label="아스키 끄기">
+          <svg viewBox="0 0 12 12" aria-hidden><rect x="3" y="3" width="6" height="6" rx="1.2" fill="currentColor" /></svg>
+        </button>
       </div>
 
       <div className="island-layer nowPlaying" style={{ width: SIZES.nowPlaying[0], height: SIZES.nowPlaying[1] }} aria-hidden={mode !== 'nowPlaying'}>
-        <span className="mini-lp" style={labelVars(playingRec?.cover)}>{playingRec && <Tile rec={playingRec} size={26} />}</span>
+        <Disc rec={playingRec} size={52} spinRef={disc} />
         <span className="txt">
-          <small>지금 작업 중</small>
+          <small>{alive ? '지금 회전 중' : '지금 작업 중'}</small>
           <b>{playing?.title}</b>
           <span className="bar"><i style={{ transform: `scaleX(${Math.min(1, mins / CYCLE)})` }} /></span>
         </span>
         <span className="time">{mins}<small>/{CYCLE}분</small></span>
+      </div>
+
+      <div className="island-layer cue" style={{ width: SIZES.cue[0], height: SIZES.cue[1] }} aria-hidden={mode !== 'cue'}>
+        <Disc size={52} />
+        <span className="txt">
+          <b>{lp === 'over' ? '놓으면 실행해요' : 'Island 로 끌어 오세요'}</b>
+          <small>앱을 열고, 앱이 도는 동안 여기서 돌아요</small>
+        </span>
+      </div>
+
+      <div className="island-layer news" style={{ width: SIZES.news[0], height: SIZES.news[1], '--g': groupOf(news?.group)?.color } as React.CSSProperties} aria-hidden={mode !== 'news'} role="status">
+        {news && <Avatar m={groupOf(news.group)?.members.find((m) => m.name === news.who) ?? { name: news.who, online: true }} color={groupOf(news.group)?.color ?? '#64748b'} size={34} />}
+        <span className="txt">
+          <b>{news?.who}님이 {groupOf(news?.group)?.name} {news?.what}</b>
+          <small>{news?.detail}</small>
+        </span>
+        <span className="chip gchip">{groupOf(news?.group)?.name}</span>
       </div>
 
       <div className="island-layer drop" data-split={split} style={{ width: split ? 404 : SIZES.drop[0], height: SIZES.drop[1] }} aria-hidden={mode !== 'drop'}>
@@ -235,7 +269,8 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       <div className="island-layer alert" style={{ width: SIZES.alert[0], height: SIZES.alert[1] }} aria-hidden={mode !== 'alert'} role="alert">
         <div className="head">
           <span className="bell" />
-          <small>알림 · 지금</small>
+          <small>{groupOf(alert?.group) ? '팀 일정 · 지금' : '알림 · 지금'}</small>
+          {groupOf(alert?.group) && <span className="chip gchip" style={{ '--g': groupOf(alert?.group)!.color } as React.CSSProperties}>{groupOf(alert?.group)!.name}</span>}
         </div>
         <b>{alert?.title}</b>
         <small className="body">{alert?.body}</small>

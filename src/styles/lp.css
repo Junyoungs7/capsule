@@ -1,0 +1,140 @@
+/* LP (턴테이블 대체): 글라스 레코드 · 독 크레이트 · 라이브러리 팝오버 · Island 회전/놓기.
+   애니메이션은 transform / opacity 만. 회전은 Lp.tsx useSpin(WAAPI steps) — 반사(.lp-sheen)는 돌지 않는다. */
+
+/* ── 글라스 LP ── */
+.lp {
+  position: relative;
+  flex: none;
+  display: block;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px -3px rgba(0, 0, 0, 0.4);
+}
+/* 도는 층: 커버색으로 물든 연기 유리 몸통 + 홈 + 트랙 띠 + 라벨. 홈이 원형이라 회전은 라벨 아이콘과 옅은 비대칭 띠로 읽힌다 */
+.lp-spin {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--lab) 0 31%, color-mix(in oklab, var(--lab) 50%, white) 31.5% 34%, transparent 34.5%),
+    conic-gradient(from 10deg, rgba(255, 255, 255, 0.07), transparent 12% 48%, rgba(255, 255, 255, 0.05) 60%, transparent 74%),
+    radial-gradient(circle, transparent 0 62%, rgba(255, 255, 255, 0.08) 62.5% 64%, transparent 64.5%),
+    repeating-radial-gradient(circle, rgba(255, 255, 255, 0.07) 0 0.6px, transparent 0.6px 2.2px),
+    radial-gradient(circle, color-mix(in srgb, var(--c) 20%, rgba(14, 16, 22, 0.86)) 0 72%, color-mix(in srgb, var(--c) 34%, rgba(14, 16, 22, 0.72)));
+}
+.lp-label { display: grid; place-items: center; }
+.lp-label .tile { background: none; box-shadow: none; color: var(--ink); }
+.lp-label .tile svg { stroke-width: 2.3; }
+/* 아스키 LP 라벨: 장면 기호 (크기는 디스크에 비례 — .lp 의 font-size = 지름) */
+.lp-ascii { font: 600 0.2em/1 ui-monospace, 'Cascadia Mono', Consolas, monospace; color: var(--ink); }
+.lp[data-kind='ascii'] .lp-spin {
+  background:
+    radial-gradient(circle, var(--lab) 0 31%, color-mix(in oklab, var(--lab) 50%, white) 31.5% 34%, transparent 34.5%),
+    repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.09) 0 2deg, transparent 2deg 12deg),
+    repeating-radial-gradient(circle, rgba(255, 255, 255, 0.07) 0 0.6px, transparent 0.6px 2.2px),
+    radial-gradient(circle, color-mix(in srgb, var(--c) 32%, rgba(14, 16, 22, 0.86)) 0 72%, color-mix(in srgb, var(--c) 44%, rgba(14, 16, 22, 0.72)));
+}
+/* 정적 반사 + 림 빛 (Liquid Glass 스펙큘러): 라벨 위는 가린다 */
+.lp-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(from 215deg, transparent 0 3%, rgba(255, 255, 255, 0.3) 9%, transparent 15% 50%, rgba(255, 255, 255, 0.14) 57%, transparent 63%);
+  box-shadow: inset 1px 1.5px 0 -0.5px rgba(255, 255, 255, 0.7), inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  mask: radial-gradient(circle, transparent 34%, #000 35%);
+}
+
+/* ── 독 크레이트: 레코드 3장이 살짝 부채꼴로 꽂힘. 호버 = 더 벌어짐, 맨 앞 LP 를 끌어 Island 로 ── */
+.crate { width: 104px; }
+.crate-btn { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: grab; touch-action: none; }
+.crate-btn:active { cursor: grabbing; }
+.crate-lp {
+  position: absolute;
+  left: calc(10px + var(--i) * 22px);
+  top: 6px;
+  transform: rotate(calc((var(--i) - 1) * 9deg));
+  transform-origin: 50% 120%;
+  transition: transform 560ms var(--spring-bouncy);
+}
+.crate-btn:hover .crate-lp { transform: translate(calc((var(--i) - 1) * 3px), -4px) rotate(calc((var(--i) - 1) * 15deg)); }
+.crate-btn:hover .crate-lp:last-child { transform: translateY(-7px) rotate(-10deg); } /* 맨 앞 LP 가 살짝 들림 = 끌 수 있음 */
+.crate[data-open='true'] > .dock-label { opacity: 0; }
+.crate-empty { position: absolute; inset: 6px 30px; display: grid; place-items: center; border-radius: 50%; font: 700 10px/1 var(--font); color: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.crate:hover > .dock-label { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── 라이브러리 팝오버 (독 묶음 팝오버와 같은 스프링) ── */
+.lp-pop { width: 336px; max-width: 336px; }
+.lp-pop header { display: flex; align-items: baseline; gap: 8px; margin: 0 4px 8px; }
+.lp-pop header b { font: 650 13px/1.2 var(--font-display); }
+.lp-pop header small { flex: 1; font-size: 11px; color: var(--text-2); }
+.lp-add { padding: 4px 12px; border: 0; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--accent-soft); }
+.lp-sect { display: block; margin: 8px 4px 4px; font-size: 11px; font-weight: 600; color: var(--text-2); }
+.lp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+.lp-item { position: relative; }
+.lp-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 2px 6px;
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  cursor: grab;
+  touch-action: none;
+}
+.lp-pick:hover { background: var(--fill-2); }
+.lp-pick .lp { transition: transform 420ms var(--spring-bouncy); }
+.lp-pick:hover .lp { transform: translateY(-2px) rotate(-8deg); }
+.lp-pick small { max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 550; }
+.lp-x {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--glass-strong);
+  box-shadow: var(--spec), var(--shadow);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 120ms, transform 160ms var(--ease-out);
+}
+.lp-item:hover .lp-x, .lp-x:focus-visible { opacity: 1; transform: none; }
+
+/* 끌고 다니는 LP (body 포털, 고정 위치, transform 만) */
+.lp-ghost { position: fixed; left: 0; top: 0; z-index: 100; pointer-events: none; will-change: transform; }
+.lp-ghost .lp { box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+
+/* ── Island: LP 를 끌고 오는 중(cue) — nowPlaying 과 같은 모양, 빈 플래터 ── */
+.island[data-mode='cue'] .cue {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  transition: opacity 240ms 110ms, transform var(--dur-bouncy) var(--spring-bouncy) 40ms;
+}
+.cue .lp {
+  box-shadow: none;
+  outline: 1.5px dashed rgba(52, 224, 161, 0.55);
+  outline-offset: 2px;
+  transition: transform 420ms var(--spring-bouncy);
+}
+.cue .lp-spin { background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0 30%, transparent 31%), repeating-radial-gradient(circle, rgba(255, 255, 255, 0.05) 0 0.6px, transparent 0.6px 2.4px), rgba(255, 255, 255, 0.03); }
+.cue .lp-sheen { opacity: 0.5; }
+.island[data-lp='over'] .cue .lp { transform: scale(1.1); outline-style: solid; outline-color: var(--island-accent); }
+.island[data-lp='over'] .island-shape { box-shadow: var(--island-spec), 0 0 0 1.5px rgba(52, 224, 161, 0.55), 0 14px 34px -10px rgba(4, 30, 46, 0.45); }
+.nowPlaying .lp { margin-left: -2px; }
+.cue small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (prefers-reduced-motion: reduce) {
+  .crate-lp, .lp-pick .lp, .cue .lp { transition: none; }
+  .crate-btn:hover .crate-lp, .crate-btn:hover .crate-lp:last-child, .lp-pick:hover .lp { transform: rotate(calc((var(--i, 1) - 1) * 9deg)); }
+}

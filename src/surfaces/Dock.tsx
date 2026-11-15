@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TransitionEvent } from 'react'
-import type { AppGroup, LpRecord, ShelfFile } from '../data/types'
+import type { AppGroup, Clip, LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, taskbarLift, thumbs, wallpaper, type Win } from '../data/api'
 import { Shelf } from './Shelf'
-import { AsciiWidget, type SceneId } from './Ascii'
+import { NotesDockItem } from './Notes'
+import { LpCrate } from './Lp'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
    글라스 레이어는 최대 크기로 고정하고 모양만 clip-path 로 바꾼다.
@@ -12,10 +13,10 @@ const rr = (x: number, y: number, w: number, h: number, r: number) =>
   `M${x + r},${y}H${x + w - r}A${r},${r} 0 0 1 ${x + w},${y + r}V${y + h - r}A${r},${r} 0 0 1 ${x + w - r},${y + h}` +
   `H${x + r}A${r},${r} 0 0 1 ${x},${y + h - r}V${y + r}A${r},${r} 0 0 1 ${x + r},${y}Z`
 
-export function shape(x: number, y: number, w: number, h: number, r: number) {
+export function shape(x: number, y: number, w: number, h: number, r: number, t = 1) {
   return {
     glass: `path("${rr(x, y, w, h, r)}")`,
-    ring: `path(evenodd, "${rr(x, y, w, h, r)}${rr(x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1))}")`,
+    ring: `path(evenodd, "${rr(x, y, w, h, r)}${rr(x + t, y + t, w - 2 * t, h - 2 * t, Math.max(0, r - t))}")`,
   }
 }
 
@@ -83,15 +84,19 @@ type Props = {
   onLaunch: (r: LpRecord) => void
   onPanel: () => void
   onDropFiles: (paths: string[], toShelf: boolean) => void
-  onCue: (r: LpRecord) => void // 우클릭 = 턴테이블에 올리기
+  onCue: (r: LpRecord) => void // 우클릭·LP 끌어 놓기 = Island 에 올리기 (실행 + 회전)
+  library: LpRecord[] // LP 크레이트 (전체 레코드)
+  onRemoveRecord: (r: LpRecord) => void
+  onLibrary: () => void
+  onLpDrag: (s: 'off' | 'drag' | 'over') => void
   shelf: ShelfFile[]
   onShelfOpen: (f: ShelfFile) => void
   onShelfRemove: (f: ShelfFile) => void
   onShelfSend?: (f: ShelfFile) => void // Hera Link 연결 중: 선반 우클릭 메뉴 'Mac으로 보내기'
   peerName?: string
   groups: { group: AppGroup; recs: LpRecord[] }[]
-  scene: SceneId
-  onAscii: (from: DOMRect) => void
+  clips: Clip[] // 최근 복사 (독 클립보드 버튼)
+  onCopy: (c: Clip) => void
   // 작업 표시줄 대체
   runApps: { rec: LpRecord; wins: Win[] }[] // 고정 안 된 실행 중 앱 (앱별 창 묶음)
   attention: Set<string> // 깜빡이는 앱: 레코드 id · run:<키>
@@ -101,8 +106,14 @@ type Props = {
   onKey: (k: 'start' | 'tray' | 'quick' | 'notify') => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, onShelfSend, peerName, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, library, onRemoveRecord, onLibrary, onLpDrag, shelf, onShelfOpen, onShelfRemove, onShelfSend, peerName, groups, clips, onCopy, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
   const [open, setOpen] = useState(false)
+  // 독 줄이 화면에 안 들어가면: 실행 중 앱부터, 그다음 고정 앱 뒤쪽부터 '+N' 칸으로 접는다 (useFit)
+  const { runMax, recMax } = useFit(runApps.length, records.length, groups.length)
+  const recsShown = records.slice(0, recMax), recsHidden = records.slice(recMax)
+  const overflow = recsHidden.length > 0 || runApps.length > runMax
+  const runsShown = overflow ? runApps.slice(0, Math.max(0, runMax - 1)) : runApps
+  const more = [...recsHidden.map((rec) => ({ rec, wins: [] as Win[] })), ...runApps.slice(runsShown.length)]
   const [folder, setFolder] = useState<string | null>(null) // 열린 앱 묶음 id
   const root = useRef<HTMLDivElement>(null)
   const row = useRef<HTMLDivElement>(null)
@@ -117,9 +128,11 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   // 모양 쓰기: 펼침/접힘은 스프링, 확대 추종은 짧은 ease-out
   const paint = (extra: number, fast: boolean) => {
     const W = root.current!.offsetWidth
-    const barW = row.current!.offsetWidth + 20
+    // 모서리·좌우 여백·림 두께는 CSS 변수 (글라스 B = 떠 있는 알약 독)
+    const cs = getComputedStyle(root.current!), v = (k: string, d: number) => parseFloat(cs.getPropertyValue(k)) || d
+    const barW = row.current!.offsetWidth + v('--dock-pad', 20)
     const s = open
-      ? shape((W - barW - extra) / 2, BOX - BAR_H, barW + extra, BAR_H, 22)
+      ? shape((W - barW - extra) / 2, BOX - BAR_H, barW + extra, BAR_H, v('--dock-r', 22), v('--dock-rim', 1))
       : shape((W - 40) / 2, BOX - 12, 40, 6, 3)
     const t = fast ? 'clip-path 140ms var(--ease-out)' : 'clip-path var(--dur-bouncy) var(--spring-bouncy)'
     glass.current!.style.transition = ring.current!.style.transition = t
@@ -201,11 +214,13 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   // B0-1 ②: 실제 앱에서는 배경화면을 정적 캔버스로 1회 그린다 (변경 시 watch 루프가 'wallpaper' emit)
   const wall = useRef<HTMLCanvasElement>(null)
   const [hasWall, setHasWall] = useState(false)
+  // 배경 밝기 적응: 구운 캔버스의 바 영역 평균 밝기 (그릴 때 1회) → 유리 틴트·글자색 (glass.css .dock[data-lum])
+  const [lum, setLum] = useState<'light' | 'dark'>()
   useEffect(() => {
     if (!isTauri) return
     const draw = () => {
       const c = wall.current // 언마운트 후 늦게 온 'wallpaper' 이벤트 무시
-      if (c) void paintWall(c).then(setHasWall)
+      if (c) void paintWall(c).then((l) => (setHasWall(l !== false), setLum(l === false ? undefined : l > 0.42 ? 'light' : 'dark')))
     }
     draw()
     return onEvent('wallpaper', draw)
@@ -292,15 +307,15 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   }
 
   return (
-    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-attention={attention.size > 0} style={{ '--lift': `${lift}px` } as CSSProperties} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
+    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-lum={lum} data-attention={attention.size > 0} style={{ '--lift': `${lift}px` } as CSSProperties} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
       <div ref={glass} className="dock-glass">{isTauri && <canvas ref={wall} className="dock-wall" />}</div>
       <div ref={ring} className="dock-ring" />
       <div ref={hit} className="dock-hit" />
       <div ref={row} className="dock-row" role="toolbar" aria-label="독">
         <SysKeys onKey={onKey} />
         <span className="dock-sep" />
-        {records.map((r) => (
-          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} data-attention={attention.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: 턴테이블에 올리기)`}>
+        {recsShown.map((r) => (
+          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} data-attention={attention.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: Island에 올리기)`}>
             <span className="icon-mag">
               <span className="icon-bounce"><Tile rec={r} /></span>
             </span>
@@ -321,7 +336,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
           />
         ))}
         {runApps.length > 0 && <span className="dock-sep" />}
-        {runApps.map(({ rec, wins }) => (
+        {runsShown.map(({ rec, wins }) => (
           <RunApp
             key={rec.id}
             rec={rec}
@@ -335,7 +350,26 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
             onPin={onPin}
           />
         ))}
+        {overflow && (
+          <RunOverflow
+            apps={more}
+            attention={attention}
+            onLaunch={onLaunch}
+            open={folder === 'run-more'}
+            onToggle={(o) => void openFolder(o ? 'run-more' : null)}
+            onClose={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+            onWinClick={onWinClick}
+          />
+        )}
         <span className="dock-sep" />
+        <NotesDockItem />
+        <ClipItem
+          clips={clips}
+          open={folder === 'clips'}
+          onToggle={(o) => void openFolder(o ? 'clips' : null)}
+          onClose={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+          onCopy={onCopy}
+        />
         <button className="dock-slot" data-running={panelOpen} onClick={onPanel} aria-label="할 일 · 달력 · 라이브러리 패널">
           <span className="icon-mag">
             <span className="icon-bounce">
@@ -348,8 +382,19 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
           <span className="dock-dot" />
         </button>
         <span className="dock-sep" />
+        <LpCrate
+          records={library}
+          running={runApps.map((a) => a.rec)}
+          open={folder === 'crate'}
+          onToggle={(o) => void openFolder(o ? 'crate' : null)}
+          onClosed={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+          onCue={onCue}
+          onRemove={onRemoveRecord}
+          onLibrary={onLibrary}
+          onDrag={onLpDrag}
+        />
+        <span className="dock-sep" />
         <Clock open={open} />
-        <AsciiWidget id={scene} live={open} onOpen={onAscii} />
         <Battery />
         <Shelf
           files={shelf}
@@ -405,6 +450,115 @@ function Folder({ group, recs, running, open, onToggle, onClose, onLaunch }: {
               </button>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* 실행 중 앱이 많으면: 앞 runMax-1 개만 칸으로, 나머지는 '+N' 칸 하나 → 격자 팝오버.
+   runMax 는 최대 RUN_MAX, 독 줄이 화면(독 창) 폭을 넘으면 칸을 하나씩 줄이고, 그래도 넘치면 고정 앱 뒤쪽도 접는다 (useFit). */
+const RUN_MAX = 6
+const REC_MIN = 3 // 고정 앱은 최소 이만큼은 칸으로 남긴다
+/** 독 줄(.dock-row)이 사용 가능 폭(독 창 폭 − 여백 − 알약 좌우 여백)에 들어갈 때까지 1칸씩 접는다:
+    실행 중 칸(RUN_MAX → 1) → 고정 앱(뒤에서부터, REC_MIN 까지). 목록·창 크기가 바뀌면 처음부터.
+    레이아웃 효과라 넘친 상태는 화면에 그려지지 않는다. */
+function useFit(nRun: number, nRec: number, nGroups: number) {
+  const [fit, setFit] = useState({ runMax: RUN_MAX, recMax: Infinity })
+  const [w, setW] = useState(innerWidth)
+  useEffect(() => {
+    const f = () => setW(innerWidth)
+    addEventListener('resize', f)
+    return () => removeEventListener('resize', f)
+  }, [])
+  useLayoutEffect(() => setFit({ runMax: RUN_MAX, recMax: Infinity }), [nRun, nRec, nGroups, w])
+  useLayoutEffect(() => {
+    const row = document.querySelector<HTMLElement>('.dock-row'), dock = row?.parentElement
+    if (!row || !dock) return
+    const room = Math.min(dock.offsetWidth, innerWidth) - 32 - (parseFloat(getComputedStyle(dock).getPropertyValue('--dock-pad')) || 20)
+    if (row.offsetWidth <= room) return
+    if (nRun > 0 && fit.runMax > 1) setFit((f) => ({ ...f, runMax: f.runMax - 1 }))
+    else if (Math.min(fit.recMax, nRec) > REC_MIN) setFit((f) => ({ ...f, recMax: Math.min(f.recMax, nRec) - 1 }))
+  })
+  return fit
+}
+
+function RunOverflow({ apps, attention, onLaunch, open, onToggle, onClose, onWinClick }: {
+  apps: { rec: LpRecord; wins: Win[] }[] // wins 가 비면 접힌 고정 앱(누르면 실행), 있으면 실행 중 앱(누르면 창으로)
+  attention: Set<string>
+  onLaunch: (r: LpRecord) => void
+  open: boolean
+  onToggle: (o: boolean) => void
+  onClose: (inside: boolean) => void
+  onWinClick: (w: Win) => void
+}) {
+  const p = usePresence<HTMLDivElement>(open)
+  const slot = useRef<HTMLDivElement>(null)
+  const close = useDismiss(open, slot, onClose)
+  const flash = apps.some((a) => attention.has(a.rec.id))
+  return (
+    <div ref={slot} className="dock-slot folder run-more" data-running data-attention={flash} data-open={open}>
+      <button className="folder-btn" onClick={() => onToggle(!open)} aria-expanded={open} aria-label={`앱 ${apps.length}개 더`}>
+        <span className="icon-mag">
+          <span className="icon-bounce">
+            <span className="tile folder-tile run-more-tile">
+              {apps.slice(0, 3).map(({ rec }) => <Tile key={rec.id} rec={rec} size={19} />)}
+              <b>+{apps.length}</b>
+            </span>
+          </span>
+        </span>
+      </button>
+      <span className="dock-label">{apps.length}개 더</span>
+      <span className="dock-dot" />
+      {p.mounted && (
+        <div ref={p.ref} className="folder-pop glass-card" onTransitionEnd={p.onTransitionEnd} onPointerMove={(e) => e.stopPropagation()} role="dialog" aria-label="더 보기">
+          <b>더 보기</b>
+          <div className="folder-grid">
+            {apps.map(({ rec, wins }) => (
+              <button key={rec.id} data-running={wins.length > 0} onClick={() => (wins.length ? onWinClick(wins[0]) : onLaunch(rec), close.current(true))} aria-label={wins.length ? `${rec.title} 창으로` : `${rec.title} 실행`}>
+                <Tile rec={rec} size={46} />
+                <small>{rec.title}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* 최근 복사: 독 칸 1개 → 최근 6개 팝오버, 누르면 다시 복사 (전체 기록·검색은 팔레트) */
+function ClipItem({ clips, open, onToggle, onClose, onCopy }: { clips: Clip[]; open: boolean; onToggle: (o: boolean) => void; onClose: (inside: boolean) => void; onCopy: (c: Clip) => void }) {
+  const p = usePresence<HTMLDivElement>(open)
+  const slot = useRef<HTMLDivElement>(null)
+  const close = useDismiss(open, slot, onClose)
+  const ago = (t: number) => {
+    const m = Math.round((Date.now() - t) / 60_000)
+    return m < 1 ? '방금' : m < 60 ? `${m}분 전` : `${Math.floor(m / 60)}시간 전`
+  }
+  return (
+    <div ref={slot} className="dock-slot folder clip-item" data-open={open}>
+      <button className="folder-btn" onClick={() => onToggle(!open)} aria-expanded={open} aria-label={`최근 복사 · ${clips.length}개`}>
+        <span className="icon-mag">
+          <span className="icon-bounce">
+            <span className="tile tile-clip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4.5" width="12" height="16" rx="2.5" /><path d="M9.5 4.5V3.8a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v.7" /><path d="M9 10h6M9 13.5h6M9 17h3.5" /></svg>
+            </span>
+          </span>
+        </span>
+      </button>
+      <span className="dock-label">최근 복사</span>
+      {p.mounted && (
+        <div ref={p.ref} className="folder-pop glass-card clip-pop" onTransitionEnd={p.onTransitionEnd} onPointerMove={(e) => e.stopPropagation()} role="dialog" aria-label="최근 복사">
+          <b>최근 복사</b>
+          {clips.length === 0 && <p className="clip-empty">복사한 글자가 여기 모여요</p>}
+          {clips.slice(0, 6).map((c) => (
+            <button key={c.id} className="clip-row" onClick={() => (onCopy(c), close.current(true))} title={c.text}>
+              <span>{c.text}</span>
+              <small>{ago(c.at)}</small>
+            </button>
+          ))}
+          <small className="clip-more">전체 기록·검색: <kbd>Ctrl</kbd> <kbd>K</kbd></small>
         </div>
       )}
     </div>
@@ -542,7 +696,24 @@ async function paintWall(c: HTMLCanvasElement) {
   ctx.filter = `blur(${28 / k}px) saturate(1.85)`
   ctx.drawImage(img, x, y, (img.width * sw) / k, (img.height * sh) / k)
   img.close()
-  return true
+  ctx.filter = 'none'
+  // Liquid Glass 렌즈를 1회 굽기: 바 위·아래 띠의 행을 안쪽에서 끌어와(가장자리로 갈수록 세게) 테두리가 굴절돼 보이게.
+  // 바 너비는 바뀌므로 세로 렌즈만. 상시 비용 0 (live 필터 없음).
+  const top = Math.round((BOX - BAR_H) / k), CH = c.height, band = Math.max(2, Math.round((BAR_H * 0.2) / k))
+  const src = document.createElement('canvas')
+  src.width = c.width
+  src.height = CH
+  src.getContext('2d')!.drawImage(c, 0, 0)
+  for (let i = 0; i < band; i++) {
+    const d = ((band - i) ** 2 / band) * 0.9
+    ctx.drawImage(src, 0, top + i + d, c.width, 1, 0, top + i, c.width, 1)
+    ctx.drawImage(src, 0, CH - 1 - i - d, c.width, 1, 0, CH - 1 - i, c.width, 1)
+  }
+  // 바 영역 평균 상대 밝기 (0~1)
+  const px = ctx.getImageData(0, top, c.width, CH - top).data
+  let sum = 0
+  for (let i = 0; i < px.length; i += 4) sum += (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255
+  return sum / (px.length / 4)
 }
 
 function Clock({ open }: { open: boolean }) {
