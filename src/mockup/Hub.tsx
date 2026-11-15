@@ -14,12 +14,14 @@ import { useSnippets } from '../surfaces/Snippets'
 import { Tile, usePresence } from '../surfaces/Dock'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, type FxKind } from '../surfaces/Fx'
+import { ChatView, TermView, useChat, useTerm, type Msg } from './HubExtras'
+import { groupOf } from '../surfaces/Team'
 
 /* 허브 시안 (?surface=hub): 독을 없애고 모든 기능을 위쪽 Island 로. Windows 작업 표시줄은 그대로 보인다.
    알약 = 시계 · 다음 일정 · 재생 중 LP. 알약 클릭(또는 마우스 0.3초 머묾) → 허브가 아래로 스프링으로 펼쳐짐. */
 
-type View = 'home' | 'notes' | 'clips' | 'todo' | 'cal' | 'snip' | 'team' | 'link' | 'fx'
-type Win = { id: string; rec: LpRecord; x: number; y: number; w: number; h: number; kind: 'browser' | 'app' }
+type View = 'home' | 'notes' | 'clips' | 'todo' | 'cal' | 'snip' | 'team' | 'link' | 'fx' | 'chat' | 'term'
+type Win = { id: string; rec: LpRecord; x: number; y: number; w: number; h: number; kind: 'browser' | 'app' | 'ara'; cwd?: string; cmd?: string }
 
 const hm = (t: string | number | Date) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 const fname = (p: string) => p.split(/[\\/]/).pop()!
@@ -38,7 +40,9 @@ const QUICK: [View | 'ocr' | 'settings', string, string][] = [
   ['ocr', 'OCR', 'M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 10h8M8 14h5'],
   ['snip', '스니펫', 'M8 7l-5 5 5 5M16 7l5 5-5 5'],
   ['team', 'Team', 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M18 15c2 .5 3 2.5 3 5'],
+  ['chat', '채팅', 'M4 5h16v11H9l-5 4zM8 10h8M8 13h5'],
   ['link', 'Link', 'M4 6h11v8H4zM8 18h3M17 9h4v10h-4z'],
+  ['term', '터미널', 'M4 5h16v14H4zM7 10l3 2-3 2M12 15h5'],
   ['fx', '화면 효과', 'M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2'],
   ['settings', '설정', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-1-3-2 .3-1.5-1.5L17 5l-3-1-1 2h-2L10 4 7 5l.5 2.3L6 8.8 4 8.5l-1 3 2 1v1l-2 1 1 3 2-.3 1.5 1.5L7 19.9l3 1 1-2h2l1 2 3-1-.5-2.3 1.5-1.5 2 .3 1-3-2-1z'],
 ]
@@ -114,10 +118,10 @@ export function HubDesktop() {
   useEffect(() => void (!hub && setTimeout(() => (setGroupOpen(null), setView('home')), 300)), [hub])
 
   /* ── Island 한 줄 알림 (실행 중 · 복사됨 …) ── */
-  const [flash, setFlash] = useState<{ text: string; rec?: LpRecord; n: number } | null>(null)
+  const [flash, setFlash] = useState<{ text: string; rec?: LpRecord; n: number; icon?: 'ok' | 'fail' | 'spin' } | null>(null)
   const flashT = useRef(0)
-  const say = (text: string, r?: LpRecord, ms = 1500) => {
-    setFlash((f) => ({ text, rec: r, n: (f?.n ?? 0) + 1 }))
+  const say = (text: string, r?: LpRecord, ms = 1500, icon?: 'ok' | 'fail' | 'spin') => {
+    setFlash((f) => ({ text, rec: r, n: (f?.n ?? 0) + 1, icon }))
     clearTimeout(flashT.current)
     flashT.current = window.setTimeout(() => setFlash(null), ms)
   }
@@ -244,7 +248,63 @@ export function HubDesktop() {
   const quick = (k: View | 'ocr' | 'settings') => {
     if (k === 'ocr') return close(), setV3({ ocr: true })
     if (k === 'settings') return close(), setPanel({ open: true, tab: 'settings' })
+    if (k === 'chat') chat.setUnread(0)
     setView((v) => (v === k ? 'home' : k))
+  }
+
+  /* 팀 채팅: 받으면 알약 알림(빠른 답장) + 읽지 않음 배지. 채팅 화면이 열려 있으면 그냥 목록에. */
+  const chat = useChat()
+  const [msg, setMsg] = useState<{ who: string; group: string; color: string; text: string; n: number; gid: string } | null>(null)
+  const msgT = useRef(0)
+  const hideMsg = () => {
+    clearTimeout(msgT.current)
+    // 답장 입력 중이면 기다린다
+    msgT.current = window.setTimeout(() => (document.activeElement?.closest('.hubmsg') ? hideMsg() : setMsg(null)), 7000)
+  }
+  const receive = () => {
+    const m = chat.receive()
+    if (hub && view === 'chat' && chat.group === m.group) return
+    const g = groupOf(m.group)
+    chat.setUnread((u) => u + 1)
+    setMsg((x) => ({ who: m.who, group: g?.name ?? '', color: g?.color ?? '#64748b', gid: m.group, text: m.kind === 'text' ? m.text! : m.kind === 'image' ? `사진 · ${m.name}` : `파일 · ${m.name}`, n: (x?.n ?? 0) + 1 }))
+    hideMsg()
+  }
+  const label = (m: Msg) => m.name ?? (m.text ?? '').slice(0, 24)
+  const chatAct = {
+    copy: (m: Msg) => (m.kind === 'text' && void navigator.clipboard?.writeText(m.text!).catch(() => {}), close(), say(m.kind === 'image' ? '사진 복사됨' : '복사됨')),
+    open: (m: Msg) => (close(), say(`열기 · ${label(m)}`)),
+    shelve: (m: Msg) => (shelve([`C:\\Users\\me\\Downloads\\${m.name}`]), close(), say('선반에 담았어요')),
+    note: (m: Msg) => (close(), setV3({ notes: true }), setTimeout(() => newNote(undefined, m.text, m.group, m.who), 60), say('그룹 메모로 만들었어요')),
+    event: (m: Msg, when: Date) => (
+      setEvents((all) => [...all, { id: crypto.randomUUID(), title: (m.text ?? '').replace(/(오늘|내일|모레|[일월화수목금토]요일)?\s*(오전|오후)?\s*\d{1,2}시\s*(\d{1,2}분|반)?/, '').split(/[?.!]/)[0].trim().slice(0, 30) || '회의', start: when.toISOString(), end: new Date(when.getTime() + 3_600_000).toISOString(), source: 'local' as const, group: m.group, by: m.who }]),
+      close(), say(`일정 추가 · ${when.toLocaleDateString('ko-KR', { weekday: 'short' })} ${hm(when)}`)
+    ),
+  }
+  // 앱 창·바탕화면에 끌어 놓기 = 복사
+  const chatDrop = (e: DragEvent, where: string) => {
+    const name = e.dataTransfer.getData('text/x-hera-chat')
+    if (!name) return
+    e.preventDefault()
+    say(`${where}에 복사 · ${name.slice(0, 18)}`)
+  }
+
+  /* 터미널: 허브가 접혀도 계속 → 알약 '터미널 · 실행 중' → 완료/실패 알림. 아라에서 이어서 하기. */
+  const hubRef = useRef({ hub, view })
+  hubRef.current = { hub, view }
+  const term = useTerm((ok, cmd) => {
+    if (hubRef.current.hub && hubRef.current.view === 'term') return
+    say(`${ok ? '완료' : '실패'} · ${cmd}`, undefined, 2600, ok ? 'ok' : 'fail')
+  })
+  const toAra = (pane: HTMLElement) => {
+    pane.dataset.handoff = 'true'
+    const last = term.hist[term.hist.length - 1]
+    setTimeout(() => (close(), say('아라로 넘기는 중 → 아라', undefined, 1500, 'spin')), 420)
+    setTimeout(() => {
+      const r: LpRecord = { id: 'ara', title: 'ARA', target: 'ara', kind: 'single', cover: '#111827', glyph: 'text' }
+      const id = 'w-ara' + Date.now()
+      setWins((ws) => [...ws, { id, rec: r, x: 380, y: 170, w: 640, h: 380, kind: 'ara', cwd: term.cwd, cmd: last }])
+      toFront(id)
+    }, 1900)
   }
 
   // 다음 일정 (알약)
@@ -261,13 +321,21 @@ export function HubDesktop() {
   return (
     <div className="desktop hub-desk" data-only="all" data-hub data-fs={fs} data-ascii={ascii.open}>
       <GlassDefs />
-      <div className="wallpaper" aria-hidden />
+      <div className="wallpaper" aria-hidden onDragOver={(e) => e.dataTransfer.types.includes('text/x-hera-chat') && e.preventDefault()} onDrop={(e) => chatDrop(e, '바탕화면')} />
 
       {/* 가짜 창 */}
       {wins.map((w) => (
         <FakeWin key={w.id} w={w} z={3 + order.indexOf(w.id)} front={w === front} onFront={() => toFront(w.id)} onClose={() => closeWin(w.id)}
-          onMove={(x, y) => setWins((ws) => ws.map((o) => (o.id === w.id ? { ...o, x, y } : o)))}>
-          {w.kind === 'browser' ? (
+          onMove={(x, y) => setWins((ws) => ws.map((o) => (o.id === w.id ? { ...o, x, y } : o)))} onChatDrop={(e) => chatDrop(e, w.rec.title)}>
+          {w.kind === 'ara' ? (
+            <div className="ara">
+              <div className="ara-tabs"><span>PowerShell</span><span data-on>Hera에서</span><span className="ara-plus">+</span></div>
+              <div className="ara-body">
+                <div className="ara-dim">새 셸 · 폴더(+마지막 명령)만 이어짐 · Hera 스크롤 기록은 안 넘어와요</div>
+                <div>PS {w.cwd}&gt; <b>{w.cmd ?? ''}</b><i className="ara-caret" /></div>
+              </div>
+            </div>
+          ) : w.kind === 'browser' ? (
             <div className="fb">
               <div className="fb-tabs" role="tablist">
                 {tabs.list.map((t, j) => (
@@ -311,7 +379,10 @@ export function HubDesktop() {
           onDone={() => ack(true)}
           onSnooze={() => ack(false)}
           onOpen={() => Date.now() - dropped.current > 500 && setHub((h) => !h)}
-          onDropFiles={(paths) => (shelve(paths), say('선반에 담았어요'))}
+          onDropFiles={(paths) => (hub && view === 'chat' ? chat.attach(paths.map((name) => ({ name }))) : (shelve(paths), say('선반에 담았어요')))}
+          msg={msg}
+          onReply={(t) => (chat.send(t, msg?.gid), setMsg(null), chat.setUnread((u) => Math.max(0, u - 1)), say('보냄'))}
+          onMsgOpen={() => (msg && chat.setGroup(msg.gid), setMsg(null), chat.setUnread(0), setView('chat'), setHub(true))}
           lp={lp}
           news={news}
           ascii={ascii.open ? ascii.name : null}
@@ -320,7 +391,7 @@ export function HubDesktop() {
           onSendFiles={(paths) => paths.forEach(send)}
           onPair={() => setPair(null)}
           ime={ime}
-          pill={{ clock: hm(clock), next: nextLabel, rec: playing ?? undefined, onStop: () => setPlaying(null) }}
+          pill={{ clock: hm(clock), next: nextLabel, rec: playing ?? undefined, onStop: () => setPlaying(null), badge: chat.unread, busy: term.running && !(hub && view === 'term') ? '터미널 · 실행 중' : undefined }}
           onHover={onHover}
           flash={flash}
           forceDrop={dropDemo}
@@ -460,6 +531,9 @@ export function HubDesktop() {
               </section>
             )}
 
+            {view === 'chat' && <ChatView chat={chat} act={chatAct} />}
+            {view === 'term' && <TermView term={term} onAra={toAra} />}
+
             {view === 'team' && (
               <section className="hub-team"><TeamSection /></section>
             )}
@@ -500,6 +574,7 @@ export function HubDesktop() {
           <button onClick={() => { const t = todos.find((x) => !x.done); if (t) pushAlert({ title: t.title, body: '마감 시각이 되었어요', key: `todo:${t.id}` }) }}>할 일 알림</button>
           <button onClick={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}>팀 일정 알림</button>
           <button onClick={fakeDrop}>파일 놓기</button>
+          <button onClick={receive}>메시지 받기</button>
           <button onClick={flipIme}>한/A</button>
           <button onClick={() => setPair((p) => (p ? null : { code: '482913', name: 'MacBook' }))}>페어링</button>
           <button aria-pressed={fs} onClick={() => (close(), setFs((v) => !v))}>전체화면 앱</button>
@@ -530,7 +605,7 @@ export function HubDesktop() {
 }
 
 /** 가짜 앱 창: 제목줄 끌기 · 누르면 앞으로 · 열릴 때 알약 쪽에서 스프링 */
-function FakeWin({ w, z, front, onFront, onClose, onMove, children }: { w: Win; z: number; front: boolean; onFront: () => void; onClose: () => void; onMove: (x: number, y: number) => void; children: React.ReactNode }) {
+function FakeWin({ w, z, front, onFront, onClose, onMove, onChatDrop, children }: { w: Win; z: number; front: boolean; onFront: () => void; onClose: () => void; onMove: (x: number, y: number) => void; onChatDrop: (e: DragEvent) => void; children: React.ReactNode }) {
   const drag = (e: RPointerEvent<HTMLElement>) => {
     if ((e.target as Element).closest('button')) return
     const [x0, y0, wx, wy] = [e.clientX, e.clientY, w.x, w.y]
@@ -542,8 +617,9 @@ function FakeWin({ w, z, front, onFront, onClose, onMove, children }: { w: Win; 
     el.addEventListener('pointerup', up)
   }
   return (
-    <div className="fake-win" data-front={front} data-kind={w.kind} style={{ left: w.x, top: w.y, width: w.w, height: w.h, zIndex: z, transformOrigin: `${720 - w.x}px ${-w.y}px` }} onPointerDown={onFront}>
-      {w.kind === 'app' && (
+    <div className="fake-win" data-front={front} data-kind={w.kind} style={{ left: w.x, top: w.y, width: w.w, height: w.h, zIndex: z, transformOrigin: `${720 - w.x}px ${-w.y}px` }} onPointerDown={onFront}
+      onDragOver={(e) => e.dataTransfer.types.includes('text/x-hera-chat') && e.preventDefault()} onDrop={onChatDrop}>
+      {w.kind !== 'browser' && (
         <header onPointerDown={drag}>
           <Tile rec={w.rec} size={16} />
           <b>{w.rec.title}</b>

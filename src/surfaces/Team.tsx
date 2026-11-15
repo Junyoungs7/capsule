@@ -331,10 +331,10 @@ export function CalendarFilter() {
 }
 
 /** 일정 추가 폼의 '어느 캘린더에' 고르기: 알약 → 하나 고르기 팝오버 (그룹이 많으면 검색) */
-export function CalendarSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+export function CalendarSelect({ value, onChange, groupsOnly }: { value: string; onChange: (id: string) => void; groupsOnly?: boolean }) {
   const { groups } = useTeam()
   const [open, setOpen] = useState(false)
-  const cals = calsOf(groups)
+  const cals = groupsOnly ? calsOf(groups).slice(1) : calsOf(groups) // groupsOnly: 채팅방 고르기 (내 일정 없음)
   const cur = cals.find((c) => c.id === (value || 'me')) ?? ME
   return (
     <div className="gp-wrap">
