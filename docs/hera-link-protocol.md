@@ -86,8 +86,19 @@ code  = HKDF-Expand(prk, info = "code" || T, 4) → u32(빅엔디안) % 1_000_00
 | `ack` | 받는 쪽 | `id`, `ok`(bool), `error`(실패 시 문자열) | 크기·해시 확인 결과 |
 | `clip` | 양쪽 | `text` (≤ 64K 글자) | 클립보드 **기록** 항목 — 받는 쪽은 기록 목록에만 넣고 클립보드는 건드리지 않는다 |
 | `ping` | 양쪽 | — | 무시해도 됨 (유지용) |
+| `bye` | 양쪽 | — | 곧 닫음 — 받으면 읽기 루프를 끝낸다 (닫는 쪽은 그 뒤 shutdown) |
+| `monitors` | 양쪽 | `list: [{id, rect:[x,y,w,h], scale, primary}]` | 내 모니터 (rect = 내 OS 가상 데스크톱 좌표: 윈도우 물리 px, 맥 포인트). 받는 쪽은 배치 캔버스에 상대 모니터로 쓴다 (윈도우: store `link.macMonitors` → 엔진 링크 다시 생성) |
+| `crossed` | 양쪽 | `enter`(bool), `x`,`y`(enter=true 일 때, **받는 쪽 좌표**) | 커서가 넘어감. enter=true: 받는 쪽 화면에 (x,y) 로 들어왔음 → 그 가장자리에 진한 파란 물결. enter=false: 받는 쪽 화면에서 떠났음 → 받는 쪽은 자기 커서 위치에 옅은 물결 |
+| `ambient` | 양쪽 | `kind`: ascii \| saver \| fx, `fx`: snow\|rain\|leaves\|sunset\|dawn\|moon (kind=fx), `action`: start \| stop | 받는 쪽 화면에 아스키 전체화면·화면보호기·효과를 켜거나 끈다 (받는 쪽 입력이 생기면 원래 규칙대로 꺼짐) |
+| `sync` | 양쪽 | `items: [{key, value\|null, at, scope}]` | 할 일·일정 동기화 (7장) |
+| `keymap` | 윈도우→맥 | `preset`: habit\|position\|shortcuts\|custom, `rows`: [[윈도우키, 맥키]…], `ime`: hera\|capslock\|ctrl-space\|cmd-space\|off | 키 매핑 설정 알림. 수식키 바꾸기는 **엔진**이 이미 한다 (윈도우가 엔진 설정에 넣음). 맥 Hera 는 `shortcuts` 일 때만 직접 처리: Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q(+Shift) → ⌘+같은 키 (CGEventTap, 손쉬운 사용 권한) |
+| `ime` | 윈도우→맥 / 맥→윈도우 | `action`: toggle \| set \| state, `source`: "ko"\|"en" (set·state) | 윈도우→맥 toggle: 커서가 맥에 있을 때 윈도우 키보드의 한/영 → 맥 Hera 가 입력 소스 전환(TISSelectInputSource) 후 `{"t":"ime","action":"state","source":…}` 로 답한다 → 윈도우 Island 에 "한"/"A" 칩 |
 
 모르는 `t` 는 무시한다 (앞으로의 확장).
+
+`offer` 는 부가 필드를 가질 수 있다: `via`: "edge"(화면 가장자리로 끌어 보냄), `edge`: 받는 쪽 화면의 가장자리(left/right/up/down), `pos`: 그 가장자리 위 위치 0..1.
+받는 쪽은 `via == "edge"` 면 자기 화면 그 자리에 진한 물결을 그리고 파일을 선반에 놓는다.
+(입력 엔진은 OLE/NSDraggingSession 드래그를 실어 나르지 못한다 — 끌고 가장자리에 닿으면 Hera 의 가장자리 띠가 받아 이 채널로 보낸다.)
 
 ### 파일 조각 (종류 2)
 본문 = `u32 id(빅엔디안)` + 데이터 (보내는 쪽은 64 KiB 씩). 현재 `offer` 의 id 와 다르면 무시.
@@ -104,11 +115,19 @@ code  = HKDF-Expand(prk, info = "code" || T, 4) → u32(빅엔디안) % 1_000_00
 - 이름 정리: `\ / : * ? " < > |` 와 제어 문자 → `_`, 앞뒤 `.`·공백 제거, 비면 `file`, 같은 이름이 있으면 `이름 (2).확장자`…
 - 한 연결에서 파일은 한 번에 하나씩 (받는 쪽은 진행 중인 offer 1개만 기억).
 
-## 6. 화면 표시 (참고)
+## 7. 할 일·일정 동기화 (`sync`)
+- 대상 store 키: `todo:<id>`, `event:<id>`. 항목마다 `at` = 마지막 변경 시각(epoch ms), 지움 = `value: null`(묘비).
+- **마지막에 쓴 쪽이 이김 (LWW)**: 받은 항목의 `at` 이 내 기록보다 **클 때만** 적용(같으면 무시 → 왕복 없음). 묘비도 같은 규칙 — 지운 뒤의 옛 수정은 되살리지 않는다.
+- 접속 직후 양쪽이 전체(살아 있는 항목 + 묘비)를 한 번 보내고, 이후 바뀔 때마다 그 항목만 보낸다. 받은 변경을 적용할 때 생기는 내 변경 알림은 다시 보내지 않는다.
+- 묘비는 30일 뒤 정리. 메타(키 → 시각·지움)는 store `sync.meta`.
+- `scope`: "personal" (두 PC 사이) | "group:<id>" (Hera Team — 나중에 그룹 채널로. 이 채널은 personal 만 주고받는다).
+- **알림은 커서가 있는 PC 에서만** 울린다: 윈도우는 엔진의 화면 전환 상태로, 맥은 `crossed` 로 판단. 커서가 없는 쪽은 그 알림을 '울림'으로 표시만 해서 나중에 중복으로 울리지 않는다. 완료·다시 알림은 할 일 항목 변경(done / snooze)이라 동기화로 전파된다.
+
+## 8. 화면 표시 (참고)
 - 진행: 100ms 마다 `bytes/size` → Island 진행 바.
 - 보내기 끝: Island 이 접혔다 펴짐(삼킴). 받기 끝: 튀어나오고 파일이 선반으로 날아감.
 
-## 7. 보안 메모
+## 9. 보안 메모
 - 비밀키는 각 기기 사용자 프로필 안 (윈도우: `%APPDATA%\dev.hera.dock\hera.json`).
 - 페어링 해제 = 저장한 상대 pk 삭제 → 다음 접속에서 다시 코드 확인.
 - 회사 방화벽이 24810/24811 을 막으면 연결이 안 된다 → 패널에 "파일 채널" 상태로 보인다.

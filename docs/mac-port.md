@@ -92,7 +92,24 @@ loop {
 - 받은 파일: `~/Downloads/Hera/` → 'link-received' 로 독 선반.
 - Island 표시(페어링 코드·진행·→ Windows)는 React 가 공용 — 이벤트 이름만 같게 (`link-status`, `link-switch`, `link-files`, `link-received`).
 
-## 5. 수락 시험 (맥)
+## 5. Hera Link 추가 기능 (3b) — 맥 쪽 구현
+윈도우 쪽 구현 파일을 참고: `link_layout.rs`(공용), `link_sync.rs`(공용), `ripple.rs`·`edge.rs`(윈도우 전용), `link.rs` 의 `on_msg`.
+
+**A. 모니터별 배치**: 접속 직후 `monitors` 를 보낸다 (`NSScreen.screens` → frame 을 맥 전역 좌표 [x, y, w, h] 포인트로, y 는 위쪽이 0 이 되게 뒤집기). 엔진 링크는 서버(윈도우)가 만든다 — 맥은 표시만 (`link_layout::plan` 을 그대로 써서 같은 캔버스를 보여 줘도 됨).
+
+**B. 넘어갈 때 파란 물결**: `crossed` 를 받으면 웹뷰 창을 만들지 말고 **네이티브 창** 하나로 그린다: borderless `NSPanel`(`.nonactivatingPanel`, `ignoresMouseEvents = true`, 레벨 `.screenSaver`, `backgroundColor = .clear`, `isOpaque = false`) 에 `CALayer`/`CAShapeLayer` 동심원 3개를 600ms 동안 키우며 투명하게(`CABasicAnimation`), 끝나면 `orderOut`. 처음 한 번 만들고 재사용. enter=true → (x,y) 에 진하게, enter=false → 지금 커서 자리(`NSEvent.mouseLocation`)에 옅게. 움직임 줄이기(`NSWorkspace.accessibilityDisplayShouldReduceMotion`)면 부드러운 빛 한 번. 모양은 윈도우 `ripple::render` 와 같게(파랑 #3C9AFF 바깥 → 밝은 하늘색 안쪽).
+
+**C. 상대 PC 분위기**: `ambient` 를 받으면 아스키 창(saver/일반)·효과 창을 연다/닫는다 (윈도우 `open_ascii`/`open_fx` 와 같은 동작). 보내기는 패널·⌘K·Island 칩 (React 공용 — `link_ambient` 명령만 맥에서 구현). 자동 화면보호기: 커서가 맥에만 N분 있으면 윈도우에 `ambient{saver,start}`.
+
+**D. 가장자리로 파일 끌기**: 이어진 가장자리 구간(맥 쪽 = `plan` 의 `mac` % 구간 — 윈도우가 `monitors`·링크를 알려 주면 계산)에 4px 투명 `NSWindow` 를 두고 `registerForDraggedTypes([.fileURL])`. `draggingEntered` 에서 파랗게, `performDragOperation` 에서 파일 경로를 받아 `send_file_meta(… {"via":"edge","edge":<윈도우 쪽 가장자리>,"pos":…})` + 옅은 물결. (평소엔 `ignoresMouseEvents = true`, 드래그 중일 때만 false — `NSEvent.pressedMouseButtons` 를 가볍게 확인)
+
+**E. 할 일·일정 동기화**: `link_sync.rs` 를 그대로 쓰고, store 변경 리스너·적용 가드는 `link.rs` 의 `on_store_change`/`sync_apply` 와 같게. 알림은 커서가 맥에 있을 때만 (마지막 `crossed`: enter=true 받음 = 맥에 있음).
+
+**F. 커서 찾기**: `watch::Shake`(공용 로직) 를 맥 커서 표본(30Hz `NSEvent.mouseLocation`)에 쓰고, 발동 시 B 의 물결을 커서 둘레 원으로.
+
+**G. 키 매핑·한/영**: 수식키 바꾸기는 엔진(윈도우 설정)이 한다 — 맥은 할 일 없음. `keymap.preset == "shortcuts"` 면 `CGEventTap`(kCGHIDEventTap, keyDown/keyUp)으로 엔진이 주입한 Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q(+Shift) 를 ⌘+같은 키로 바꾼다 (손쉬운 사용 권한, 엔진이 주입한 이벤트만 — 맥 자체 키보드는 그대로). 한/영: `ime{toggle}` → `TISCopyInputSourceForLanguage("ko")`/`TISCopyCurrentASCIICapableKeyboardInputSource()` 로 한국어 ↔ 영어 입력 소스 전환(`TISSelectInputSource`), 이어서 `{"t":"ime","action":"state","source":"ko"|"en"}` 회신. 반대 방향(맥 키보드 → 윈도우)은 맥이 서버일 때의 일 — 지금은 해당 없음(미래).
+
+## 6. 수락 시험 (맥)
 1. `cargo test --lib` 통과 (link_files 루프백 시험 포함), `npx tsc --noEmit -p .` 통과, `npx tauri build` 로 .app.
 2. 독이 화면 아래 가운데 점으로 뜨고, 올리면 펼쳐지며 앱 실행·아이콘이 된다. 다른 앱을 클릭해도 포커스가 Hera 로 오지 않는다.
 3. Island 이 노치에 붙어 보이고, 알림·할 일 미리보기가 동작한다. 클릭 통과: 독/Island 바깥 투명 영역 클릭이 아래 앱으로 간다.
@@ -101,3 +118,5 @@ loop {
 6. 윈도우에서 파일을 Island 오른쪽 절반("Mac으로 보내기")에 놓기 → 윈도우 Island 접힘, 맥 Island 튀어나오고 `~/Downloads/Hera/` + 맥 독 선반에 착지. 반대 방향도.
 7. 맥에서 복사한 텍스트가 윈도우 ⌘K '최근 복사' 에 보이고, 비밀번호 관리자 복사는 안 보인다.
 8. 메모리: 맥 Hera idle (효과·아스키 꺼짐) ≤ 150MB (Activity Monitor, WebKit 프로세스 포함).
+9. (3b) 패널 배치 캔버스에 맥 실제 모니터가 보이고, 맥 모니터를 PC 모니터 아래쪽 절반에 붙이면 그 구간에서만 넘어간다. 넘어갈 때 들어간 쪽에 진한, 떠난 쪽에 옅은 파란 물결.
+10. (3b) 윈도우 패널 '맥 화면 → 눈' → 맥에 눈 효과. 윈도우에서 파일을 오른쪽 가장자리 파란 띠에 놓으면 맥 선반에 착지. 할 일을 한쪽에서 추가·완료·삭제 → 다른 쪽에 반영. 커서가 맥에 있을 때 윈도우 한/영 → 맥 입력 소스가 바뀌고 윈도우 Island 에 "한"/"A".
