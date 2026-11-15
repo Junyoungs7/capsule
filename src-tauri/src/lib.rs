@@ -21,6 +21,7 @@ mod watch;
 mod stub;
 #[cfg(not(windows))]
 use stub::{clip, icons, launch, ocr, shell, taskbar, watch};
+mod holidays;
 mod link;
 mod link_files;
 mod link_layout;
