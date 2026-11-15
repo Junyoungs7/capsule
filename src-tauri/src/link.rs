@@ -27,6 +27,16 @@ pub struct Cfg {
     pub tls: bool,
     pub double_tap: bool, // 가장자리를 두 번 쳐야 넘어감 (사용자 Deskflow 에서 가져옴)
     pub file_port: u16,
+    /// 키 매핑: habit(윈도우 습관대로) / position(키 위치대로, 엔진 기본) / shortcuts(단축키만 — 맥 Hera 가 처리) / custom
+    pub keymap: String,
+    /// custom: (윈도우 수식키, 맥 수식키) — shift/ctrl/alt/altgr/meta/super, 맥 쪽은 none 도
+    pub key_rows: Vec<(String, String)>,
+    /// 한/영: hera(맥 Hera 가 입력 소스 전환) / capslock / ctrl-space / cmd-space / fn (엔진으로 단축키 보내기, 실험적)
+    pub ime: String,
+    /// 이 PC 에만 N분 있으면 맥에 화면보호기 (0 = 끔)
+    pub auto_saver_min: u64,
+    /// 마우스 흔들어 커서 찾기
+    pub locator: bool,
 }
 
 impl Default for Cfg {
@@ -39,41 +49,70 @@ impl Default for Cfg {
             tls: true,
             double_tap: false,
             file_port: 24810,
+            keymap: "habit".into(),
+            key_rows: vec![],
+            ime: "hera".into(),
+            auto_saver_min: 0,
+            locator: true,
         }
     }
 }
 
-fn dir(side: &str) -> (&'static str, &'static str) {
-    match side {
-        "left" => ("left", "right"),
-        "top" => ("up", "down"),
-        "bottom" => ("down", "up"),
-        _ => ("right", "left"),
-    }
+/// 엔진 서버 설정 파일. 1.27 은 이름을 설정 INI 의 [computer_*] 에서 읽고 screens 섹션은 무시, options 는 keystroke/mousepress 만 →
+/// links(가장자리 범위) + 빈 options. 수식키·두 번 치기는 INI 로.
+pub fn server_conf(c: &Cfg, segs: &[crate::link_layout::Seg]) -> String {
+    crate::link_layout::links_section(&c.me, &c.peer, segs, &c.side) + "\nsection: options\nend\n"
 }
 
-/// 엔진 서버 설정 파일 (screens / links / options)
-pub fn server_conf(c: &Cfg) -> String {
-    let (go, back) = dir(&c.side);
-    let mut s = format!("section: screens\n\t{me}:\n\t{peer}:\nend\n\nsection: links\n\t{me}:\n\t\t{go} = {peer}\n\t{peer}:\n\t\t{back} = {me}\nend\n\nsection: options\n", me = c.me, peer = c.peer);
-    if c.double_tap {
-        s += "\tswitchDoubleTap = 250\n";
+const MODS: [&str; 6] = ["shift", "ctrl", "alt", "altgr", "meta", "super"];
+
+/// 맥(엔진 클라이언트) 쪽 수식키 매핑: 윈도우 키 → 맥에서 그 키로 (엔진 [computer_<맥>] modifier* 키)
+pub fn modifiers(c: &Cfg) -> Vec<(&'static str, String)> {
+    let mut m: Vec<(&'static str, String)> = MODS.iter().map(|k| (*k, k.to_string())).collect();
+    let set = |m: &mut Vec<(&'static str, String)>, from: &str, to: &str| {
+        if let Some(e) = m.iter_mut().find(|(k, _)| *k == from) {
+            e.1 = to.to_string();
+        }
+    };
+    match c.keymap.as_str() {
+        // Ctrl → ⌘, Win → Ctrl : 윈도우에서 하던 Ctrl+C/V/Z 가 맥에서 그대로
+        "habit" => (set(&mut m, "ctrl", "super"), set(&mut m, "super", "ctrl")).1,
+        "custom" => {
+            for (from, to) in &c.key_rows {
+                if MODS.contains(&from.as_str()) && (MODS.contains(&to.as_str()) || to == "none") {
+                    set(&mut m, from, to);
+                }
+            }
+        }
+        _ => {} // position · shortcuts(맥 Hera 가 Ctrl+C 등만 ⌘ 로) = 엔진 기본
     }
-    s += "end\n";
-    s
+    m
+}
+
+fn mod_key(k: &str) -> &'static str {
+    match k {
+        "shift" => "modifierShift",
+        "ctrl" => "modifierCtrl",
+        "alt" => "modifierAlt",
+        "altgr" => "modifierAltGr",
+        "meta" => "modifierMeta",
+        _ => "modifierSuper",
+    }
 }
 
 /// 엔진 설정 INI (portable: exe 옆 settings\Deskflow.conf)
 pub fn settings_ini(c: &Cfg, conf: &Path, cert: &Path) -> String {
     let p = |x: &Path| x.display().to_string().replace('\\', "/");
     format!(
-        "[core]\ncomputerName={me}\nport={port}\ncoreMode=2\npreventSleep=false\n\n[server]\nexternalConfig=true\nexternalConfigFile={conf}\nprotocol=barrier\nenableClipboard=true\nclipboardSize=3\nenableSwitchDoubleTap={dt}\nswitchDoubleTap=250\n\n[security]\ntlsEnabled={tls}\ncheckPeerFingerprints=true\ncertificate={cert}\n\n[log]\nlevel=INFO\n",
+        "[core]\ncomputerName={me}\nport={port}\ncoreMode=2\npreventSleep=false\n\n[server]\nexternalConfig=true\nexternalConfigFile={conf}\nprotocol=barrier\nenableClipboard=true\nclipboardSize=3\nenableSwitchDoubleTap={dt}\nswitchDoubleTap=250\n\n[security]\ntlsEnabled={tls}\ncheckPeerFingerprints=true\ncertificate={cert}\n\n[log]\nlevel=INFO\n\n[computer_{me}]\nname={me}\n\n[computer_{peer}]\nname={peer}\n{mods}",
         me = c.me,
+        peer = c.peer,
         port = c.port,
         conf = p(conf),
         dt = c.double_tap,
         tls = c.tls,
-        cert = p(cert)
+        cert = p(cert),
+        mods = modifiers(c).iter().map(|(k, v)| format!("{}={v}\n", mod_key(k))).collect::<String>()
     )
 }
 
@@ -294,16 +333,84 @@ fn install(app: &AppHandle, dst: &Path) -> Result<(), String> {
     copy(&src, dst).map_err(|e| e.to_string())
 }
 
+/* ── 모니터별 배치 (link_layout) ── */
+use crate::link_layout::{self as ll, Mon};
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct MacMon {
+    pub id: String,
+    pub rect: [f64; 4],
+}
+
+/// store `link.layout` = { at: { 모니터 id: [x, y] (캔버스) } }, `link.macMonitors` = 맥이 보고한 모니터(없으면 자리 표시 2대, 패널에서 크기 수정)
+#[derive(Deserialize, Default)]
+struct LayoutStore {
+    #[serde(default)]
+    at: std::collections::HashMap<String, [f64; 2]>,
+}
+
+pub fn mac_monitors(app: &AppHandle) -> Vec<MacMon> {
+    app.store("hera.json").ok().and_then(|s| s.get("link.macMonitors")).and_then(|v| serde_json::from_value(v).ok()).filter(|v: &Vec<MacMon>| !v.is_empty()).unwrap_or_else(|| {
+        vec![MacMon { id: "Mac 1".into(), rect: [0.0, 0.0, 1512.0, 982.0] }, MacMon { id: "Mac 2".into(), rect: [1512.0, 0.0, 1920.0, 1080.0] }]
+    })
+}
+
+/// 캔버스 위 모든 모니터. PC 모니터는 Windows 배치 그대로(주 모니터 배율로 나눔 — 맞닿음 유지), 맥 모니터는 저장 위치 또는 기본(설정한 방향 옆)
+pub fn layout(app: &AppHandle) -> Vec<Mon> {
+    let wins = crate::watch::monitors();
+    let s = wins.iter().find(|m| m.3).or(wins.first()).map_or(1.0, |m| m.2).max(0.5);
+    let mut mons: Vec<Mon> = wins.iter().map(|(id, r, _, _)| Mon { id: id.clone(), mac: false, rect: *r, at: [r[0] / s, r[1] / s, r[2] / s, r[3] / s] }).collect();
+    let store: LayoutStore = app.store("hera.json").ok().and_then(|st| st.get("link.layout")).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    let (wl, wt, wr, wb) = mons.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |a, m| (a.0.min(m.at[0]), a.1.min(m.at[1]), a.2.max(m.at[0] + m.at[2]), a.3.max(m.at[1] + m.at[3])));
+    let macs = mac_monitors(app);
+    let (ml, mt) = macs.iter().fold((f64::MAX, f64::MAX), |a, m| (a.0.min(m.rect[0]), a.1.min(m.rect[1])));
+    let (mw, mh) = macs.iter().fold((0.0f64, 0.0f64), |a, m| (a.0.max(m.rect[0] + m.rect[2] - ml), a.1.max(m.rect[1] + m.rect[3] - mt)));
+    let side = read_cfg(app).1.side;
+    // 기본 위치: 맥 배치를 통째로 PC 경계 상자의 설정 방향에 붙임
+    let (ox, oy) = match side.as_str() {
+        "left" => (wl - mw, wt),
+        "top" => (wl, wt - mh),
+        "bottom" => (wl, wb),
+        _ => (wr, wt),
+    };
+    for m in macs {
+        let def = [ox + m.rect[0] - ml, oy + m.rect[1] - mt];
+        let [x, y] = store.at.get(&m.id).copied().unwrap_or(def);
+        mons.push(Mon { id: m.id, mac: true, rect: m.rect, at: [x, y, m.rect[2], m.rect[3]] });
+    }
+    mons
+}
+
+pub fn plan(app: &AppHandle) -> (Vec<Mon>, ll::Plan) {
+    let mons = layout(app);
+    let p = ll::plan(&mons);
+    (mons, p)
+}
+
+/// TLS 인증서가 없을 때: 자체 서명 (ECDSA P-256, rcgen) — 'Deskflow 설정 가져오기' 없이도 새로 시작 가능.
+/// ponytail: Deskflow GUI 는 RSA 를 만들지만 엔진(OpenSSL)은 EC 인증서도 쓴다 — 맥 쪽에서 문제가 보이면 RSA 로
+pub fn ensure_cert(path: &Path, name: &str) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    let key = rcgen::KeyPair::generate().map_err(|e| e.to_string())?;
+    let mut params = rcgen::CertificateParams::new(vec![name.to_string()]).map_err(|e| e.to_string())?;
+    params.distinguished_name.push(rcgen::DnType::CommonName, name);
+    params.not_after = rcgen::date_time_ymd(2046, 1, 1);
+    let cert = params.self_signed(&key).map_err(|e| e.to_string())?;
+    std::fs::write(path, format!("{}{}", key.serialize_pem(), cert.pem())).map_err(|e| e.to_string())
+}
+
 fn prepare(app: &AppHandle, c: &Cfg) -> Result<PathBuf, String> {
     let d = engine_dir(app).ok_or("앱 데이터 폴더 없음")?;
     install(app, &d)?;
     let (conf, tls) = (d.join("server.conf"), d.join("settings").join("tls"));
     std::fs::create_dir_all(&tls).map_err(|e| e.to_string())?;
     let cert = tls.join("deskflow.pem");
-    if c.tls && !cert.exists() {
-        return Err("TLS 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 TLS 를 끄세요".into());
+    if c.tls {
+        ensure_cert(&cert, &c.me).map_err(|e| format!("TLS 인증서를 만들지 못했어요: {e}"))?;
     }
-    std::fs::write(&conf, server_conf(c)).map_err(|e| e.to_string())?;
+    std::fs::write(&conf, server_conf(c, &plan(app).1.segs)).map_err(|e| e.to_string())?;
     std::fs::write(d.join("settings").join("Deskflow.conf"), settings_ini(c, &conf, &cert)).map_err(|e| e.to_string())?;
     Ok(d)
 }
@@ -637,21 +744,39 @@ mod tests {
     use super::*;
 
     fn cfg(side: &str) -> Cfg {
-        Cfg { me: "DEV-PC".into(), peer: "MacBook".into(), side: side.into(), port: 24900, tls: true, double_tap: false, file_port: 24810 }
+        Cfg { me: "DEV-PC".into(), peer: "MacBook".into(), side: side.into(), port: 24900, ..Cfg::default() }
     }
 
     #[test]
     fn config_generation() {
-        let s = server_conf(&cfg("right"));
-        assert_eq!(s, "section: screens\n\tDEV-PC:\n\tMacBook:\nend\n\nsection: links\n\tDEV-PC:\n\t\tright = MacBook\n\tMacBook:\n\t\tleft = DEV-PC\nend\n\nsection: options\nend\n");
-        assert!(server_conf(&cfg("top")).contains("\t\tup = MacBook\n\tMacBook:\n\t\tdown = DEV-PC"));
-        assert!(server_conf(&cfg("bottom")).contains("down = MacBook"));
-        assert!(server_conf(&cfg("left")).contains("left = MacBook"));
-        assert!(server_conf(&Cfg { double_tap: true, ..cfg("right") }).contains("\tswitchDoubleTap = 250\n"));
+        let s = server_conf(&cfg("right"), &[]);
+        assert_eq!(s, "section: links\n\tDEV-PC:\n\t\tright = MacBook\n\tMacBook:\n\t\tleft = DEV-PC\nend\n\nsection: options\nend\n");
+        assert!(server_conf(&cfg("top"), &[]).contains("\t\tup = MacBook\n\tMacBook:\n\t\tdown = DEV-PC"));
+        assert!(server_conf(&cfg("bottom"), &[]).contains("down = MacBook"));
+        assert!(server_conf(&cfg("left"), &[]).contains("left = MacBook"));
+        assert!(!server_conf(&cfg("right"), &[]).contains("screens")); // 1.27 은 screens 섹션을 무시(경고)
+        let seg = crate::link_layout::Seg { side: "right".into(), win: (50.0, 100.0), mac: (0.0, 54.99), edge: [0.0; 4] };
+        assert!(server_conf(&cfg("right"), &[seg]).contains("\t\tright(50,100) = MacBook(0,54.99)\n\tMacBook:\n\t\tleft(0,54.99) = DEV-PC(50,100)\n"));
         let ini = settings_ini(&cfg("right"), Path::new(r"C:\x\server.conf"), Path::new(r"C:\x\settings\tls\deskflow.pem"));
         assert!(ini.contains("port=24900\n") && ini.contains("computerName=DEV-PC\n") && ini.contains("coreMode=2\n"));
         assert!(ini.contains("externalConfigFile=C:/x/server.conf\n") && ini.contains("certificate=C:/x/settings/tls/deskflow.pem\n"));
         assert!(ini.contains("tlsEnabled=true\n") && ini.contains("protocol=barrier\n"));
+        // 이름은 INI 의 [computer_*] 에서 (1.27), 수식키는 맥 쪽 섹션에
+        assert!(ini.contains("[computer_DEV-PC]\nname=DEV-PC\n") && ini.contains("[computer_MacBook]\nname=MacBook\n"));
+        assert!(ini.contains("modifierCtrl=super\n") && ini.contains("modifierSuper=ctrl\n")); // 기본 프리셋 = 윈도우 습관대로
+    }
+
+    #[test]
+    fn key_presets() {
+        let get = |c: &Cfg| modifiers(c).into_iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",");
+        let base = cfg("right");
+        assert_eq!(get(&Cfg { keymap: "habit".into(), ..base.clone() }), "shift=shift,ctrl=super,alt=alt,altgr=altgr,meta=meta,super=ctrl");
+        assert_eq!(get(&Cfg { keymap: "position".into(), ..base.clone() }), "shift=shift,ctrl=ctrl,alt=alt,altgr=altgr,meta=meta,super=super");
+        assert_eq!(get(&Cfg { keymap: "shortcuts".into(), ..base.clone() }), "shift=shift,ctrl=ctrl,alt=alt,altgr=altgr,meta=meta,super=super");
+        let custom = Cfg { keymap: "custom".into(), key_rows: vec![("alt".into(), "super".into()), ("super".into(), "alt".into()), ("altgr".into(), "none".into()), ("bogus".into(), "ctrl".into()), ("ctrl".into(), "xyz".into())], ..base.clone() };
+        assert_eq!(get(&custom), "shift=shift,ctrl=ctrl,alt=super,altgr=none,meta=meta,super=alt");
+        let ini = settings_ini(&custom, Path::new("c"), Path::new("p"));
+        assert!(ini.ends_with("[computer_MacBook]\nname=MacBook\nmodifierShift=shift\nmodifierCtrl=ctrl\nmodifierAlt=super\nmodifierAltGr=none\nmodifierMeta=meta\nmodifierSuper=alt\n"));
     }
 
     #[test]
@@ -683,6 +808,19 @@ mod tests {
         // PEM → DER SHA-256 (DER = "hi" → sha256("hi"))
         let pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n-----BEGIN CERTIFICATE-----\naGk=\n-----END CERTIFICATE-----\n";
         assert_eq!(cert_fp(pem).unwrap(), "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4");
+    }
+
+    #[test]
+    fn self_signed_cert() {
+        let p = std::env::temp_dir().join(format!("hera-cert-{}.pem", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        ensure_cert(&p, "DEV-PC").unwrap();
+        let pem = std::fs::read_to_string(&p).unwrap();
+        assert!(pem.contains("BEGIN PRIVATE KEY") && pem.contains("BEGIN CERTIFICATE"));
+        assert_eq!(cert_fp(&pem).unwrap().len(), 64); // 지문 계산 가능 (맥에 건넬 값)
+        ensure_cert(&p, "other").unwrap(); // 있으면 그대로
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), pem);
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

@@ -17,6 +17,7 @@ mod stub;
 use stub::{clip, icons, launch, shell, taskbar, watch};
 mod link;
 mod link_files;
+mod link_layout;
 mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};

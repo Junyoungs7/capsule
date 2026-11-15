@@ -158,6 +158,29 @@ pub fn focus(h: HWND) -> Result<(), String> {
     }
 }
 
+/// 모니터 목록: (장치 이름, [x, y, w, h] 물리 px, 배율, 주 모니터) — Hera Link 배치·리플·가장자리 띠
+pub fn monitors() -> Vec<(String, [f64; 4], f64, bool)> {
+    use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW};
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    unsafe extern "system" fn collect(m: HMONITOR, _: HDC, _: *mut RECT, l: LPARAM) -> BOOL {
+        let mut mi = MONITORINFOEXW::default();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(m, &mut mi.monitorInfo).as_bool() {
+            let (mut dx, mut dy) = (96u32, 96u32);
+            let _ = GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
+            let r = mi.monitorInfo.rcMonitor;
+            let name = wstr(&mi.szDevice).trim_start_matches(r"\\.\").to_string();
+            (*(l.0 as *mut Vec<(String, [f64; 4], f64, bool)>)).push((name, [r.left as f64, r.top as f64, (r.right - r.left) as f64, (r.bottom - r.top) as f64], dx as f64 / 96.0, mi.monitorInfo.dwFlags & 1 != 0));
+        }
+        true.into()
+    }
+    let mut v = vec![];
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut v as *mut _ as isize));
+    }
+    v
+}
+
 /// C4 배터리: (잔량 %, 충전 중). 배터리 없는 데스크톱·알 수 없음 → None (위젯 숨김)
 pub fn power() -> Option<(u8, bool)> {
     use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};

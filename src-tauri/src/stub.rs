@@ -40,6 +40,10 @@ pub mod watch {
         Default::default()
     }
     pub fn start(_: AppHandle) {}
+    /// (이름, [x, y, w, h], 배율, 주 모니터) — 맥: NSScreen.screens
+    pub fn monitors() -> Vec<(String, [f64; 4], f64, bool)> {
+        vec![("main".into(), [0.0, 0.0, 1920.0, 1080.0], 1.0, true)]
+    }
 }
 
 pub mod launch {
