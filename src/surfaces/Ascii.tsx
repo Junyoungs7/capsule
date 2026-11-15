@@ -7,7 +7,7 @@ import { reducedMotion, usePresence } from './Dock'
    글자는 표면에 붙어 같이 돌고, 비스듬한 면에서는 화면 폭이 줄어 저절로 가로로 눌린다(뒷면 글자는 좌우 반전).
    밝기 = 램버트 + 반사광(>1 이면 하이라이트 색) × 깊이, 효과 = 스캔 띠 · 언어 바뀜 물결 · 해독(뒤섞였다 풀림) · 반짝임 · 떨어지는 글자.
    그리기 = fillText(maxWidth = 눌린 폭) + globalAlpha, 글자 색을 1/8 버퍼에 쌓아 흐린 빛 번짐을 'lighter' 로 얹는다.
-   위젯 = 작은 글자 ≤10fps(독이 펼쳐져 있을 때만), 전체화면 ≤30fps + HUD, 숨기면 루프 없음, 이동 줄이기 = 정지 1프레임. */
+   위젯 = 회전하는 짧은 단어 고리 ≤10fps(독이 펼쳐져 있을 때만), 전체화면 ≤30fps + HUD, 숨기면 루프 없음, 이동 줄이기 = 정지 1프레임. */
 
 const TAU = Math.PI * 2
 const hash = (x: number, y: number, s = 0) => {
@@ -39,8 +39,8 @@ const DREAM = ['dream', '꿈', 'rêve', 'sueño', 'Traum', '夢', '梦', 'сон
 const AUT = ['가을', 'autumn', 'fall', 'otoño', 'automne', 'Herbst', 'autunno', 'outono', '秋', 'осень', 'jesień', 'herfst', 'höst', 'efterår', 'høst', 'syksy', 'ősz', 'podzim', 'φθινόπωρο', 'sonbahar', 'toamnă', 'jesen', 'musim gugur', 'taglagas', 'mùa thu', 'haust', 'hydref', 'tardor', 'udazkena', 'fómhar', 'ruduo', 'rudens', 'sügis']
 const LEAF = ['단풍', 'maple', 'érable', 'Ahorn', '紅葉', '枫叶', 'клён', 'acero', 'arce', 'esdoorn', 'lönn', 'vaher']
 
-/* ── 글자 흐름: 문구를 섞어 4번 이어 붙인 긴 줄. 표면 u(글자 칸 단위) → 글자 index (한중일 = 2칸, 실제 폭으로 잰다) ── */
-type Stream = { ch: string[]; wu: Uint8Array; word: Int32Array; head: Uint8Array; at: Int32Array; U: number; nz: Int32Array }
+/* ── 글자 흐름: 문구를 섞어 4번 이어 붙인 긴 줄. 표면 u(라틴 글자 칸 단위) → 글자 index. 글자마다 실제 폭을 재서(1/4 칸 단위) 한중일도 빈틈 없이 ── */
+type Stream = { ch: string[]; wu: Float32Array; word: Int32Array; head: Uint8Array; at: Int32Array; U: number; nz: Int32Array }
 let mx: CanvasRenderingContext2D | null = null
 let mUnit = 1
 const wcache = new Map<string, number>()
@@ -48,7 +48,7 @@ function unitsOf(c: string) {
   let w = wcache.get(c)
   if (w === undefined) {
     if (!mx) (mx = document.createElement('canvas').getContext('2d')!), (mx.font = `40px ${FONT}`), (mUnit = mx.measureText('M').width)
-    wcache.set(c, (w = mx.measureText(c).width > mUnit * 1.3 ? 2 : 1))
+    wcache.set(c, (w = Math.min(2, Math.max(0.5, Math.round((mx.measureText(c).width / mUnit) * 4) / 4))))
   }
   return w
 }
@@ -65,10 +65,10 @@ function mkStream(list: string[], seed: number): Stream {
     }
   const at: number[] = []
   ch.forEach((c, i) => {
-    for (let u = unitsOf(c); u > 0; u--) at.push(i)
+    for (let u = unitsOf(c) * 4; u > 0; u--) at.push(i) // 1/4 칸마다 글자 index
   })
   const nz = ch.flatMap((c, i) => (c === ' ' ? [] : [i]))
-  return { ch, wu: Uint8Array.from(ch, unitsOf), word: Int32Array.from(word), head: Uint8Array.from(head), at: Int32Array.from(at), U: at.length, nz: Int32Array.from(nz) }
+  return { ch, wu: Float32Array.from(ch, unitsOf), word: Int32Array.from(word), head: Uint8Array.from(head), at: Int32Array.from(at), U: at.length, nz: Int32Array.from(nz) }
 }
 
 /* ── 줄 래스터: 줄 r × 칸 i. 칸마다 깊이·글자·밝기·재질·흐름·방향(-1 = 뒷면, 좌우 반전) ── */
@@ -76,7 +76,7 @@ const LX = -0.47, LY = 0.55, LZ = 0.69 // 빛 (왼쪽 위 앞)
 const HX = LX * 0.62, HY = LY * 0.62, HZ = (LZ + 1) * 0.62 // 반사광 half 벡터 (근사 정규화)
 const AMB = 0.3, DIF = 0.8
 class Rows {
-  W = 0; R = 0; cs = 1; lh = 1; uw = 1; S = 1; cx = 0; cy = 0; pw = 0; ph = 0; small = false
+  W = 0; R = 0; cs = 1; lh = 1; uw = 1; S = 1; cx = 0; cy = 0; pw = 0; ph = 0
   z = new Float32Array(0)
   k = new Int32Array(0)
   l = new Float32Array(0)
@@ -85,9 +85,9 @@ class Rows {
   d = new Int8Array(0)
   st: Stream[] = []
   rp = -1; rcx = 0; rcy = 0; sh0 = 0; sh1 = 0 // 언어 바뀜 물결: 반지름 rp 안 = sh1, 밖 = sh0
-  resize(pw: number, ph: number, lh: number, uw: number, cs: number, S: number, small: boolean) {
+  resize(pw: number, ph: number, lh: number, uw: number, cs: number, S: number) {
     const W = Math.ceil(pw / cs), R = Math.floor(ph / lh)
-    Object.assign(this, { W, R, cs, lh, uw, S, small, pw, ph, cx: pw / 2, cy: (R * lh) / 2 })
+    Object.assign(this, { W, R, cs, lh, uw, S, pw, ph, cx: pw / 2, cy: (R * lh) / 2 })
     for (const [k, T] of [['z', Float32Array], ['k', Int32Array], ['l', Float32Array], ['m', Int8Array], ['s', Int8Array], ['d', Int8Array]] as const) (this as Record<string, unknown>)[k] = new T(W * R)
   }
   clear() {
@@ -117,8 +117,8 @@ class Rows {
         const dx = i * cs - this.rcx
         if (dx * dx + dy * dy > rp2) sh = this.sh0
       }
-      let q = Math.floor(u0 + (u1 - u0) * f)
-      if (per) q = ((q % per) + per) % per
+      let q = Math.floor((u0 + (u1 - u0) * f) * 4)
+      if (per) q = ((q % (per * 4)) + per * 4) % (per * 4)
       q = (q + off + sh) % U
       if (q < 0) q += U
       this.z[o] = z
@@ -246,20 +246,26 @@ const CLOVER = () =>
     }
     return false
   }, 0.15, 0.17))
+const MAPLE_R = [
+  [0, 0.95], [0.06, 0.8], [0.12, 0.84], [0.15, 0.68], [0.23, 0.73], [0.25, 0.54], [0.31, 0.58], [0.27, 0.4], // 위 잎 오른쪽 톱니
+  [0.13, 0.27], // 깊은 골
+  [0.3, 0.33], [0.36, 0.45], [0.45, 0.38], [0.56, 0.5], [0.62, 0.39], [0.76, 0.47], [0.9, 0.36], // 옆 잎 윗변 → 끝
+  [0.76, 0.24], [0.83, 0.13], [0.64, 0.11], [0.6, 0.0], // 옆 잎 아랫변
+  [0.3, -0.03], // 골
+  [0.44, -0.15], [0.52, -0.11], [0.58, -0.3], [0.45, -0.31], [0.41, -0.42], [0.27, -0.31], // 아래 잎
+  [0.1, -0.29], [0.03, -0.37], [0.035, -0.6], // 잎자루
+]
+const MAPLE_P = [...MAPLE_R, ...MAPLE_R.map(([x, y]) => [-x, y]).reverse()].map(([x, y]) => [x, y - 0.17])
 let mapleShape: Shape | null = null
 const MAPLE = () =>
   (mapleShape ??= shape((x, y) => {
-    if (Math.abs(x - 0.03 * y) < 0.028 && y < -0.1 && y > -0.94) return true // 잎자루
-    const yy = y - 0.08, p = Math.atan2(yy, x)
-    let r = 0.4
-    for (const [deg, amp, w] of [[90, 0.88, 0.85], [32, 0.8, 0.8], [148, 0.8, 0.8], [-28, 0.6, 0.6], [208, 0.6, 0.6]]) {
-      let dd = Math.abs(p - (deg * Math.PI) / 180) % TAU
-      if (dd > Math.PI) dd = TAU - dd
-      r = Math.max(r, 0.4 + (amp - 0.4) * Math.max(0, 1 - dd / w) ** 1.4)
+    let inside = false // 짝수-홀수 규칙
+    for (let i = 0, j = MAPLE_P.length - 1; i < MAPLE_P.length; j = i++) {
+      const [xi, yi] = MAPLE_P[i], [xj, yj] = MAPLE_P[j]
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
     }
-    r += 0.05 * Math.max(0, Math.sin(p * 21)) ** 3 * Math.min(1, (r - 0.4) * 4) // 톱니
-    return Math.hypot(x, yy) < r
-  }, 0.12, 0.15))
+    return inside
+  }, 0.12, 0.13, 200))
 
 /* ── 장면 ── */
 const T0 = 24 // 장면 시계 시작값: 선물이 몇 개 쌓인 채로 시작, 정지 프레임도 이 시각
@@ -267,7 +273,7 @@ type Gly = { m: number; lum: number; k: number; s: number; row: number }
 type Over = { put: (c: string, x: number, y: number, m: number, a: number, k?: number) => void; free: (x: number, y: number) => boolean }
 type Run = { geo: (R: Rows, t: number, dt: number) => void; over?: (o: Over, R: Rows, t: number, dt: number) => void; tint?: (g: Gly, t: number) => void }
 type Fx = { band?: number; ripple?: number; decode?: number; sparkle?: number; fall?: number }
-type Scene = { name: string; bg: string; mats: string[]; phrases: string[][]; fx: Fx; make: () => Run; built?: Stream[] } // mats[0] = 하이라이트
+type Scene = { name: string; bg: string; mats: string[]; phrases: string[][]; mini: [string, number][]; fx: Fx; make: () => Run; built?: Stream[] } // mats[0] = 하이라이트
 
 /** 유성: period 초마다 문구 글자가 꼬리를 끌며 하늘을 비스듬히 가로지른다 */
 function shoot(o: Over, R: Rows, t: number, st: Stream, m: number, period: number) {
@@ -295,6 +301,7 @@ const xmas: Scene = {
   bg: '#03060d',
   mats: ['#fffbe6', '#47e07c', '#b07a4a', '#ffd84a', '#ff5468', '#62b6ff', '#eef4ff', '#c49bff', '#cfe0ff'],
   phrases: [XMAS, GIFT, HOPE, SNOWW, WISH],
+  mini: [['Noël', 1], ['선물', 4], ['Merry', 3], ['눈', 8], ['gift', 5], ['聖誕', 4], ['hope', 3], ['★', 3]],
   fx: { ripple: 9, decode: 0.05, sparkle: 0.002 },
   make() {
     const [TREE, TRUNK, GOLD, RED, BLUE, WHITE, PURPLE, SNOW] = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -341,7 +348,7 @@ const xmas: Scene = {
         // 별: ★ + 희망 글자 8갈래 빛살 (길이가 숨쉬고, 6초마다 번쩍)
         const sx = R.cx, sy = R.cy - 0.71 * R.S, flash = (t % 6) < 0.5 ? 1 - (t % 6) / 0.5 : 0
         for (let i = 0; i < 8; i++) {
-          const a = (i * TAU) / 8 + t * 0.25, n = Math.round((R.small ? 1.5 : 3) + 2.5 * (0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7)) + flash * 4)
+          const a = (i * TAU) / 8 + t * 0.25, n = Math.round(3 + 2.5 * (0.5 + 0.5 * Math.sin(t * 2.3 + i * 1.7)) + flash * 4)
           for (let j = 0, q = i * 23; j < n; j++, q++) {
             const sl = st[2].ch[st[2].nz[q % st[2].nz.length]]
             const d = (j + 1.7) * lh * 0.78
@@ -358,7 +365,7 @@ const xmas: Scene = {
           x += w * uw
         }
         // 눈: 3D 위치(z<0 = 트리 뒤라 가려짐), 가까울수록 크고 밝게
-        const N = R.small ? 24 : 110
+        const N = 110
         if (!fl || fl.length !== N * 4) {
           fl = new Float32Array(N * 4)
           for (let k = 0; k < N; k++) fl.set([(Math.random() - 0.5) * (R.pw / R.S), -0.85 + Math.random() * 2, Math.random() * 2 - 1, 0.12 + Math.random() * 0.16], k * 4)
@@ -384,6 +391,7 @@ const city: Scene = {
   bg: '#02040b',
   mats: ['#ffffff', '#9fb4e6', '#ffc24a', '#ff9a3c', '#3a4870', '#f6ecc4', '#ff5a5a', '#c9d6ff', '#ffc24a'],
   phrases: [NIGHT, MOONW, DREAM],
+  mini: [['moon', 5], ['잘 자요', 1], ['夢', 2], ['night', 7], ['달', 5], ['nuit', 1], ['晚安', 2], ['dream', 7]],
   fx: { band: 13, decode: 0.04, sparkle: 0.0008 },
   make() {
     const [WALL, WIN, WINC, DARK, MOON, RED, STAR] = [1, 2, 3, 4, 5, 6, 7]
@@ -434,7 +442,7 @@ const city: Scene = {
         }
       },
       over(o, R, t) {
-        const n = R.small ? 14 : 80
+        const n = 80
         for (let k = 0; k < n; k++) {
           const x = hash(k, 1, 3) * R.pw, y = hash(k, 2, 3) * R.ph * 0.55, tw = Math.sin(t * 1.4 + k * 2.7)
           if (o.free(x, y)) o.put(hash(k, 3, 3) < 0.08 ? '✦' : hash(k, 3, 3) < 0.25 ? '+' : '·', x, y, STAR, tw > 0.7 ? 0.9 : 0.35)
@@ -455,6 +463,7 @@ const autumn: Scene = {
   bg: '#0a0505',
   mats: ['#fff1d0', '#ff4a3a', '#ff8a2a', '#ffc340', '#c22f2a', '#ffb08a'],
   phrases: [AUT, LEAF],
+  mini: [['가을', 3], ['秋', 1], ['fall', 2], ['단풍', 1], ['otoño', 3], ['紅葉', 2], ['Herbst', 1], ['leaf', 3]],
   fx: { band: 10, decode: 0.05, sparkle: 0.0015, fall: 9 },
   make() {
     const [RED, OR, AMB2, DEEP] = [1, 2, 3, 4]
@@ -473,7 +482,7 @@ const autumn: Scene = {
           L[o + 3] += dt * 1.6
           L[o + 4] += dt * 1.1
           if (L[o + 1] < -1.15) spawn(o, 1.2)
-          pillow(R, sh, L[o], L[o + 1], R.small ? 0.16 : 0.12 + 0.04 * hash(k, 1), L[o + 3], 0.3 + 0.7 * Math.abs(Math.cos(L[o + 4])), 1, () => LEAFC[k % 4], 20 + k, 0.9)
+          pillow(R, sh, L[o], L[o + 1], 0.12 + 0.04 * hash(k, 1), L[o + 3], 0.3 + 0.7 * Math.abs(Math.cos(L[o + 4])), 1, () => LEAFC[k % 4], 20 + k, 0.9)
         }
       },
     }
@@ -486,6 +495,7 @@ const calm: Scene = {
   bg: '#000000',
   mats: ['#e2ffec', '#45ff8a'],
   phrases: [LUCK],
+  mini: [['행운', 1], ['luck', 1], ['幸運', 1], ['suerte', 1], ['chance', 1], ['Glück', 1], ['福', 1], ['lycka', 1]],
   fx: { band: 7, ripple: 8, decode: 0.05, sparkle: 0.002, fall: 7 },
   make() {
     return { geo: (R, t) => pillow(R, CLOVER(), 0, 0.02 * Math.sin(t * 0.8), 0.98, (t - T0) * 0.6 + 0.35, 1, 0, () => 1, 7) }
@@ -613,14 +623,14 @@ function paint(ctx: CanvasRenderingContext2D, R: Rows, sc: Scene, run: Run, t: n
   return [letters, phrases]
 }
 
-/** 렌더 루프. small = 독 위젯(작은 글자, 빛 번짐·HUD 없음). live=false 거나 이동 줄이기면 1프레임만. */
-function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps: number; small?: boolean }) {
+/** 전체화면 렌더 루프 ≤30fps. live=false 거나 이동 줄이기면 1프레임만. */
+function AsciiCanvas({ id, live }: { id: SceneId; live: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const cv = ref.current!, ctx = cv.getContext('2d', { alpha: false })!
     const sc = SCENES[id], st = (sc.built ??= sc.phrases.map(mkStream)), run = sc.make(), R = new Rows()
     R.st = st
-    const gcv = document.createElement('canvas'), gx = gcv.getContext('2d')!, glow = small ? null : new Glow(sc.mats)
+    const gcv = document.createElement('canvas'), gx = gcv.getContext('2d')!, glow = new Glow(sc.mats)
     const PN = 160, P = new Float32Array(PN * 8) // 떨어지는 글자: x y vx vy life 흐름 글자 재질
     let pn = 0, acc = 0, ms = 0, fpsE = 0, kdp = 1, font = ''
     const cand: number[] = []
@@ -629,7 +639,7 @@ function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps
         if (a <= 0.02) return
         ctx.globalAlpha = Math.min(1, a)
         ctx.fillStyle = sc.mats[m]
-        glow?.add(x, y, m, a * k * k)
+        glow.add(x, y, m, a * k * k)
         if (k === 1) return ctx.fillText(c, x, y)
         ctx.setTransform(k, 0, 0, k, x, y)
         ctx.fillText(c, 0, 0)
@@ -645,13 +655,13 @@ function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps
       const w = cv.clientWidth, h = cv.clientHeight
       cv.width = Math.max(1, Math.round(w * kdp))
       cv.height = Math.max(1, Math.round(h * kdp))
-      const lh = Math.max(5, Math.round((small ? h / 6.5 : Math.min(15, Math.max(10, h / 64))) * kdp))
+      const lh = Math.max(5, Math.round(Math.min(15, Math.max(10, h / 64)) * kdp))
       ctx.font = font = `${Math.round(lh * 0.86)}px ${FONT}`
       const uw = Math.max(2, Math.ceil(ctx.measureText('M').width))
-      R.resize(cv.width, cv.height, lh, uw, small ? 1 : Math.max(1, Math.round(uw / 4)), (small ? 0.56 : 0.42) * cv.height, !!small)
-      glow?.resize(cv.width, cv.height)
-      gcv.width = glow?.w ?? 1
-      gcv.height = glow?.h ?? 1
+      R.resize(cv.width, cv.height, lh, uw, Math.max(1, Math.round(uw / 4)), 0.42 * cv.height)
+      glow.resize(cv.width, cv.height)
+      gcv.width = glow.w
+      gcv.height = glow.h
     }
     const t0 = performance.now()
     let raf = 0, last = 0
@@ -682,7 +692,7 @@ function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps
       run.over?.(ov, R, t, dt)
       // 떨어지는 글자: 표면에서 떨어져 나와 중력으로 떨어지며 사라짐
       if (fx.fall && cand.length) {
-        for (acc += fx.fall * dt * (small ? 0.4 : 1); acc >= 1; acc--) {
+        for (acc += fx.fall * dt; acc >= 1; acc--) {
           const c = Math.floor(Math.random() * (cand.length / 5)) * 5
           P.set([cand[c], cand[c + 1], (Math.random() - 0.5) * R.lh * 2, -R.lh * (0.5 + Math.random()), 1, cand[c + 2], cand[c + 3], cand[c + 4]], (pn++ % PN) * 8)
         }
@@ -695,8 +705,8 @@ function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps
         P[p + 4] -= dt * 0.55
         ov.put(st[P[p + 5]].ch[P[p + 6]], P[p], P[p + 1], P[p + 4] > 0.9 ? 0 : P[p + 7], P[p + 4] * 0.85)
       }
-      if (!small) {
-        glow!.flush(gx, 120)
+      {
+        glow.flush(gx, 120)
         ctx.globalCompositeOperation = 'lighter'
         ctx.globalAlpha = 1
         ctx.drawImage(gcv, 0, 0, cv.width, cv.height)
@@ -722,22 +732,66 @@ function AsciiCanvas({ id, live, fps, small }: { id: SceneId; live: boolean; fps
     if (!live || reducedMotion()) return
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop)
-      if (now - last >= 1000 / fps - 3) render(now)
+      if (now - last >= 1000 / 30 - 3) render(now)
     }
     raf = requestAnimationFrame(loop)
     const onResize = () => (size(), render(performance.now()))
-    if (!small) addEventListener('resize', onResize)
+    addEventListener('resize', onResize)
     return () => (cancelAnimationFrame(raf), removeEventListener('resize', onResize))
   }, [id, live])
   return <canvas ref={ref} className="ascii3d" aria-hidden />
 }
 
-/** 독 위젯 1칸: 작은 글자, 독이 펼쳐져 있을 때만 10fps */
+/** 독 위젯(독 2칸 폭): 짧은 단어 고리 4줄이 세로축으로 돈다 — 단어가 통째로 읽히게 큰 글자, 비스듬하면 가로로 눌리고 뒤쪽은 숨김.
+    맨 앞을 지나는 단어는 하이라이트 색. 독이 펼쳐져 있을 때만 10fps, 숨기면 루프 없음, 이동 줄이기 = 정지 1프레임. */
+function AsciiMini({ id, live }: { id: SceneId; live: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const cv = ref.current!, ctx = cv.getContext('2d', { alpha: false })!, sc = SCENES[id], words = sc.mini
+    const k = devicePixelRatio || 1, W = (cv.width = Math.round(cv.clientWidth * k)), H = (cv.height = Math.round(cv.clientHeight * k))
+    const ROWS = 4, lh = H / ROWS, N = 4, rad = W * 0.36
+    ctx.font = `600 ${Math.round(lh * 0.74)}px ${FONT}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const ww = words.map(([w]) => ctx.measureText(w).width)
+    const draw = (t: number) => {
+      ctx.globalAlpha = 1
+      ctx.fillStyle = sc.bg
+      ctx.fillRect(0, 0, W, H)
+      for (let r = 0; r < ROWS; r++) {
+        const th = t * 0.9 + r * 0.55, y = (r + 0.55) * lh
+        for (let i = 0; i < N; i++) {
+          const a = th + (i * TAU) / N, c = Math.cos(a), wi = (r * 3 + i * 2) % words.length
+          if (c < 0.12) continue
+          const [w, m] = words[wi], x = W / 2 + Math.sin(a) * rad
+          ctx.globalAlpha = 0.3 + 0.7 * c
+          ctx.fillStyle = sc.mats[c > 0.985 ? 0 : m]
+          ctx.setTransform(c, 0, 0, 1, x, y)
+          ctx.fillText(w, 0, 0, Math.max(ww[wi], 1))
+        }
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+      }
+    }
+    const t0 = performance.now()
+    draw(T0)
+    if (!live || reducedMotion()) return
+    let raf = 0, last = 0
+    const loop = (now: number) => {
+      raf = requestAnimationFrame(loop)
+      if (now - last >= 97) (last = now), draw((now - t0) / 1000 + T0)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [id, live])
+  return <canvas ref={ref} className="ascii3d" aria-hidden />
+}
+
+/** 독 위젯(독 2칸 폭): 독이 펼쳐져 있을 때만 움직인다 */
 export function AsciiWidget({ id, live, onOpen }: { id: SceneId; live: boolean; onOpen: (r: DOMRect) => void }) {
   const box = useRef<HTMLButtonElement>(null)
   return (
     <button ref={box} className="dock-slot widget ascii-w" style={{ background: SCENES[id].bg }} onClick={() => onOpen(box.current!.getBoundingClientRect())} aria-label={`아스키 아트 · ${SCENES[id].name} (클릭: 전체화면)`}>
-      <AsciiCanvas id={id} live={live} fps={10} small />
+      <AsciiMini id={id} live={live} />
     </button>
   )
 }
@@ -776,7 +830,7 @@ export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }:
       role="dialog"
       aria-label={`아스키 아트 전체화면 · ${SCENES[id].name}`}
     >
-      <AsciiCanvas id={id} live={open} fps={30} />
+      <AsciiCanvas id={id} live={open} />
       <footer>
         <b>{SCENES[id].name}</b> · {caption}
         <small>{saver ? '마우스를 움직이거나 아무 키나 누르면 돌아가요' : 'Esc 또는 클릭으로 닫기'}</small>
