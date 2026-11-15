@@ -61,12 +61,20 @@ export function useSpin(el: RefObject<HTMLElement | null>, on: boolean) {
   }, [on])
 }
 
-/** 글라스 LP: 홈(회전) + 라벨(앱 아이콘, 회전) + 정적 반사(회전 안 함) */
+/* 아스키 LP: 독 위젯 대신 크레이트 안의 특별한 레코드. Island 에 올리면 전체화면 아스키가 Island 에서 커진다. */
+const ASCII_GLYPH = { xmas: '❄', city: '☾', autumn: '❦', calm: '☘', auto: '✦' } as const
+export const ASCII_RECORDS: LpRecord[] = (
+  [['auto', '자동(계절)', '#0f766e'], ['xmas', '크리스마스', '#b91c1c'], ['city', '밤 도시', '#312e81'], ['autumn', '단풍', '#c2410c'], ['calm', '클로버', '#15803d']] as const
+).map(([scene, name, cover]) => ({ id: 'ascii:' + scene, title: `아스키 · ${name}`, target: '', kind: 'ascii', scene, cover, glyph: 'ascii' }))
+
+/** 글라스 LP: 홈(회전) + 라벨(앱 아이콘, 회전) + 정적 반사(회전 안 함). 아스키 LP 는 라벨에 장면 기호 + ASCII 글자 */
 export function Disc({ rec, size, spinRef }: { rec?: LpRecord; size: number; spinRef?: RefObject<HTMLSpanElement> }) {
   return (
-    <span className="lp" style={{ width: size, height: size, ...labelVars(rec?.cover) }} aria-hidden>
+    <span className="lp" data-kind={rec?.kind} style={{ width: size, height: size, fontSize: size, ...labelVars(rec?.cover) }} aria-hidden>
       <span ref={spinRef} className="lp-spin">
-        <span className="lp-label">{rec && <Tile rec={rec} size={Math.round(size * 0.34)} />}</span>
+        <span className="lp-label">
+          {rec?.kind === 'ascii' ? <b className="lp-ascii">{ASCII_GLYPH[rec.scene ?? 'auto']}</b> : rec && <Tile rec={rec} size={Math.round(size * 0.34)} />}
+        </span>
       </span>
       <i className="lp-sheen" />
     </span>
@@ -117,7 +125,7 @@ export function LpCrate({ records, running, open, onToggle, onClosed, onCue, onR
         aria-label={`${r.title} — Island 에 올려 실행 (끌어서 놓아도 돼요)`}
       >
         <Disc rec={r} size={48} />
-        <small>{r.title}</small>
+        <small>{r.kind === 'ascii' ? r.title.replace('아스키 · ', '') : r.title}</small>
       </button>
       {removable && <button className="lp-x" onClick={() => onRemove(r)} aria-label={`${r.title} 라이브러리에서 빼기`}>×</button>}
     </div>
@@ -137,6 +145,7 @@ export function LpCrate({ records, running, open, onToggle, onClosed, onCue, onR
             <Disc rec={r} size={40} />
           </span>
         )).reverse()}
+        {top.length === 0 && <span className="crate-empty" aria-hidden>LP</span>}
       </button>
       <span className="dock-label">LP</span>
       {p.mounted && (
@@ -147,6 +156,8 @@ export function LpCrate({ records, running, open, onToggle, onClosed, onCue, onR
             <button className="lp-add" onClick={() => (onLibrary(), closed.current(true))}>추가</button>
           </header>
           <div className="lp-grid" role="list">{records.map((r) => item(r, true))}</div>
+          <b className="lp-sect">아스키 아트</b>
+          <div className="lp-grid" role="list">{ASCII_RECORDS.map((r) => item(r, false))}</div>
           {running.length > 0 && (
             <>
               <b className="lp-sect">실행 중</b>

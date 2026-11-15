@@ -167,22 +167,52 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .note-apps button[aria-pressed='true'] { color: var(--accent-text); font-weight: 600; }
 
 /* ── 앱별 메모: 앱이 앞에 있을 때 화면 오른쪽 가장자리에 붙는다 ── */
-.edge-notes { position: fixed; right: 14px; top: 50%; z-index: 38; display: flex; flex-direction: column; gap: 10px; transform: translateY(-50%); pointer-events: none; }
-.edge-note {
-  width: 252px;
-  height: 160px;
-  pointer-events: auto;
+/* 앱 메모: 붙은 앱 창 옆 고정 자리 (placeAppNote). 붙은 쪽에서 밀려 나오며 등장 */
+.app-note {
+  position: fixed;
+  z-index: 38;
   opacity: 0;
-  transform: translateX(calc(100% + 28px));
-  transition: opacity 180ms var(--ease-out), transform 260ms cubic-bezier(0.4, 0, 1, 1);
+  transform: translateX(-14px) scale(0.96);
+  transform-origin: 0 30%;
+  transition: opacity 160ms var(--ease-out), transform 220ms cubic-bezier(0.4, 0, 1, 1);
 }
-.edge-note[data-show='true'] {
+.app-note[data-side='left'] { transform: translateX(14px) scale(0.96); transform-origin: 100% 30%; }
+.app-note[data-side='inside'] { transform: translateY(-8px) scale(0.96); transform-origin: 100% 0; }
+.app-note[data-show='true'] {
   opacity: 1;
   transform: none;
-  transition: opacity 200ms var(--ease-out), transform var(--dur-bouncy) var(--spring-bouncy);
+  transition: opacity 220ms var(--ease-out) 60ms, transform var(--dur-bouncy) var(--spring-bouncy) 60ms;
 }
-.edge-note .note-pos { position: static; width: 100%; height: 100%; }
-.edge-note .note-app small { font-weight: 600; color: var(--text); }
+.app-note .note-pos { position: static; width: 100%; height: 100%; }
+.app-note .note-app small { font-weight: 600; color: var(--text); }
+
+/* 시안 전용 가짜 앱 창 (앱 메모가 어디에 붙는지 보여 주기) */
+.mock-win {
+  position: fixed;
+  z-index: 8; /* 바탕화면 메모(6·7) 위, 항상 위 메모(40) 아래 — 실제 창 순서와 같게 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fbfcfe;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12), 0 24px 60px -20px rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 200ms var(--ease-out), transform 320ms var(--spring-smooth);
+}
+.mock-win[data-show='true'] { opacity: 1; transform: none; }
+[data-theme='dark'] .mock-win { background: #1b1e25; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 60px -20px rgba(0, 0, 0, 0.7); }
+.mock-win header { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 0 0 12px; font-size: 12px; color: var(--text-2); background: rgba(15, 23, 42, 0.04); box-shadow: inset 0 -1px 0 var(--line); }
+.mock-win header b { flex: 1; font-weight: 500; }
+.mock-win header .tile { border-radius: 4px; }
+.mock-ctl { display: flex; height: 100%; }
+.mock-ctl i { width: 44px; height: 100%; background: linear-gradient(var(--text-3) 0 0) center / 10px 1px no-repeat; }
+.mock-ctl i:nth-child(2) { background: none; box-shadow: inset 0 0 0 1px transparent; background-image: linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)); background-size: 9px 1px, 9px 1px, 1px 9px, 1px 9px; background-position: center calc(50% - 4px), center calc(50% + 4px), calc(50% - 4px) center, calc(50% + 4px) center; background-repeat: no-repeat; }
+.mock-ctl i:nth-child(3) { background: linear-gradient(45deg, transparent 47%, var(--text-3) 47% 53%, transparent 53%) center / 10px 10px no-repeat, linear-gradient(-45deg, transparent 47%, var(--text-3) 47% 53%, transparent 53%) center / 10px 10px no-repeat; }
+.mock-body { flex: 1; display: flex; flex-direction: column; gap: 9px; padding: 18px 22px; }
+.mock-body span { height: 7px; border-radius: 4px; background: color-mix(in srgb, var(--text) 9%, transparent); }
+.mock-body span:nth-child(3n) { background: color-mix(in srgb, #3b82f6 30%, transparent); }
+.mock-body span:nth-child(5n) { background: color-mix(in srgb, #a855f7 26%, transparent); }
 
 /* ── 토스트 ── */
 .v3-toast {
@@ -212,9 +242,9 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 /* ── 월간 달력 ── */
 .mc { display: contents; }
 .mc-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
-.mc-head > b { flex: 1; font: 650 15px/1 var(--font-display); }
+.mc-head > b { flex: 1; min-width: 0; font: 650 15px/1 var(--font-display); white-space: nowrap; }
 .mc-head > span { display: flex; align-items: center; gap: 2px; }
-.mc-today { padding: 4px 10px; border: 0; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mc-today { white-space: nowrap; padding: 4px 10px; border: 0; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; font-weight: 600; color: var(--text-2); }
 .mc-today:hover { background: var(--fill-2); color: var(--text); }
 .mc-seg { display: flex; padding: 2px; border-radius: var(--r-pill); background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
 .mc-seg button { width: 30px; padding: 3px 0; border: 0; border-radius: var(--r-pill); background: none; font-size: 12px; font-weight: 600; color: var(--text-2); }
@@ -257,28 +287,35 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-day[data-today='true'] b { color: var(--accent-text); }
 .mc-day[aria-selected='true'] { background: var(--accent); color: var(--on-accent); }
 .mc-day[aria-selected='true'] :is(b, small) { color: var(--on-accent); }
-.mc-dots { position: absolute; top: 5px; right: 5px; display: flex; gap: 2px; }
-.mc-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+/* 점 줄: 숫자·음력 아래 한 줄 (칸 바닥에 붙음). 최대 3개 + '+N' — 숫자와 겹치거나 줄바꿈하지 않는다 */
+.mc-dots { display: flex; align-items: center; justify-content: center; gap: 2px; height: 7px; margin-top: auto; margin-bottom: 4px; max-width: 100%; }
+.mc-dots i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+.mc-dots em { flex: none; font: 600 7.5px/1 var(--font); font-style: normal; color: var(--text-2); letter-spacing: -0.02em; }
+.mc-day[aria-selected='true'] .mc-dots em { color: var(--on-accent); }
+.mc-more { width: calc(100% - 4px); padding: 1px 3px; font-size: 9px; font-weight: 600; color: var(--text-2); text-align: left; }
 .mc-dots i.todo { background: #f59e0b; }
 .mc-day[aria-selected='true'] .mc-dots i { background: var(--on-accent); }
 .mc-sheet[data-mode='week'] .mc-day { gap: 3px; padding-top: 8px; }
 .mc-sheet[data-mode='week'] .mc-day b { font-size: 17px; }
+/* 주 보기 칸이 좁아(약 46px) 시간 한 줄 + 제목 한 줄(말줄임) */
 .mc-chip {
+  display: block;
   width: calc(100% - 4px);
-  padding: 2px 3px;
-  border-radius: 4px;
+  padding: 2px 3px 2px 4px;
+  border-radius: 5px;
   font-size: 9px;
   line-height: 1.25;
   text-align: left;
   color: var(--text);
   background: var(--accent-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.mc-daybar { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; }
-.mc-daybar b { font-size: 12.5px; font-weight: 650; }
-.mc-daybar small { font-size: 11px; color: var(--text-2); }
+.mc-sheet .mc-day .mc-chip b { display: block; font: 700 9px/1.25 var(--font); font-variant-numeric: tabular-nums; } /* 날짜 b(주 보기 17px) 규칙을 덮어씀 */
+.mc-chip i { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; }
+.mc-day[aria-selected='true'] .mc-chip { color: var(--text); background: color-mix(in srgb, var(--glass-plate) 88%, transparent); }
+.mc-daybar { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 0 0 0 4px; }
+.mc-daybar b { flex: none; font-size: 12.5px; font-weight: 650; }
+.mc-daybar small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-2); }
+.mc-daybar .gp-wrap { margin-left: auto; }
 .mc-daybar .mc-hol { color: #e5484d; }
 .mc-add input:first-child { grid-column: auto; }
 .ev-time.todo { color: #d97706; }
@@ -405,7 +442,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 
 /* ── 이동 줄이기 ── */
 @media (prefers-reduced-motion: reduce) {
-  .edge-note, .edge-note[data-show='true'] { transform: none; }
+  .app-note, .app-note[data-side], .app-note[data-show='true'], .mock-win { transform: none; }
   .v3-toast, .v3-toast[data-show='true'] { transform: translate(-50%, 0); }
   .mc-sheet.in, .mc-sheet.out { animation-name: fade; animation-duration: 160ms; }
   .mc-sheet.out { animation-direction: reverse; }

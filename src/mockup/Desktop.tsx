@@ -4,14 +4,15 @@ import {
   clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
   shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
-import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
+import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS, stressWins } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem, type TeamNews } from '../surfaces/Island'
-import { TeamDemo } from '../surfaces/Team'
+import { setGroupCount, TeamDemo } from '../surfaces/Team'
 import { Panel, type Tab } from '../surfaces/Panel'
 import { Palette } from '../surfaces/Palette'
-import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
+import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
+import { ASCII_RECORDS } from '../surfaces/Lp'
 import { V3Demo, V3Layer } from '../surfaces/Notes'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
@@ -70,7 +71,7 @@ export function Desktop({ only }: { only?: string }) {
   // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 팔레트 창 'clips' (폴링 없음)
   const [clips, setClips] = useState<Clip[]>(isTauri ? [] : seedClips)
   useEffect(() => {
-    if (!isTauri || only !== 'palette') return
+    if (!isTauri || (only !== 'palette' && only !== 'dock')) return // 팔레트 + 독(최근 복사 버튼)
     void clipList().then(setClips)
     return onEvent<Clip[]>('clips', setClips)
   }, [])
@@ -119,9 +120,11 @@ export function Desktop({ only }: { only?: string }) {
 
   // v2 아스키 전체화면: from = 위젯 rect(확대 출발점), saver = 자리 비움 화면보호기
   // 실제 앱: 아스키 창(surface=ascii)을 Rust 가 연다 — ?saver=1 화면보호기, ?from=x,y,w,h 위젯 화면 rect
-  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; saver: boolean }>(() => {
-    const q = new URLSearchParams(location.search), f = q.get('from')?.split(',').map(Number)
-    return { open: only === 'ascii', from: f?.length === 4 ? new DOMRect(f[0], f[1], f[2], f[3]) : null, saver: q.get('saver') === '1' }
+  // scene = 아스키 LP 로 고른 장면 (없으면 계절·시간대 자동), lp = Island 에 '아스키 재생 중' 으로 보여 줄 레코드 이름
+  type AsciiState = { open: boolean; from: DOMRect | null; saver: boolean; scene?: SceneId; lp?: string }
+  const [ascii, setAscii] = useState<AsciiState>(() => {
+    const q = new URLSearchParams(location.search), f = q.get('from')?.split(',').map(Number), sc = q.get('scene') as SceneId | null
+    return { open: only === 'ascii', from: f?.length === 4 ? new DOMRect(f[0], f[1], f[2], f[3]) : null, saver: q.get('saver') === '1', scene: sc && sc in SCENES ? sc : undefined }
   })
   // 화면보호기: watch 루프가 입력(키 포함)을 감지하면 'ascii-close'
   useEffect(() => (isTauri && only === 'ascii' ? onEvent('ascii-close', () => setAscii((a) => ({ ...a, open: false }))) : undefined), [])
@@ -184,7 +187,8 @@ export function Desktop({ only }: { only?: string }) {
     return () => offs.forEach((off) => off())
   }, [])
   // 작업 표시줄 대체: 실행 중 앱 창 (독 창만). 독에 고정된 레코드와 같은 앱은 실행 점만, 나머지는 구분선 뒤에 앱별로.
-  const [wins, setWins] = useState<Win[]>([])
+  const [wins, setWins] = useState<Win[]>(() => (STRESS ? stressWins() : []))
+  useEffect(() => void (STRESS && setGroupCount(12)), [])
   useEffect(() => {
     if (!isTauri || only !== 'dock') return
     void windowsList().then(setWins)
@@ -218,7 +222,14 @@ export function Desktop({ only }: { only?: string }) {
 
   // LP → Island (턴테이블 대체): 독 우클릭 'Island에 올리기' · 크레이트에서 끌어 놓기 = 실행.
   // 시안: 실행하면 playing 이 그 레코드 → Island nowPlaying 의 LP 가 돈다. 실제 앱: 포그라운드가 그 앱이 되면 Island 가 받는다.
-  const onCue = (r: LpRecord) => void run(r)
+  const onCue = (r: LpRecord) => (r.kind === 'ascii' ? playAscii(r) : void run(r))
+  // 아스키 LP: 전체화면 아스키가 Island 자리에서 커진다. Island 는 '아스키 재생 중' + 정지.
+  const playAscii = (r: LpRecord) => {
+    const scene = !r.scene || r.scene === 'auto' ? pickScene(clock) : r.scene
+    const from = document.querySelector('.island-shape')?.getBoundingClientRect() ?? null
+    if (isTauri) return void openAscii(from && [from.left + screenX, from.top + screenY, from.width, from.height], scene)
+    setAscii({ open: true, from, saver: false, scene, lp: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
+  }
   const [lpDrag, setLpDrag] = useState<'off' | 'drag' | 'over'>('off')
 
   // Hera Team 변경 소식 (시안: 데모 바에서 발생, 4초 뒤 사라짐). 실제 앱: 그룹원이 바꾸면 Hera Link 로 받아 Island 에.
@@ -329,7 +340,7 @@ export function Desktop({ only }: { only?: string }) {
   const snooze = () => ack(() => ({ snooze: new Date(Date.now() + 600_000).toISOString() }))
 
   return (
-    <div className="desktop" data-only={only ?? 'all'} data-real={isTauri}>
+    <div className="desktop" data-only={only ?? 'all'} data-real={isTauri} data-ascii={ascii.open}>
       <GlassDefs />
       {!only && (
         <>
@@ -402,6 +413,9 @@ export function Desktop({ only }: { only?: string }) {
           peek={peek}
           alive={isTauri ? !!fgRec && aliveIds.has(fgRec.id) : !!playing && ids(records.find((r) => r.id === playing.recordId) ?? { id: playing.recordId, kind: 'single' } as LpRecord).some((id) => running.has(id))}
           lp={lpDrag}
+          ascii={ascii.open && ascii.lp ? ascii.lp : null}
+          onAscii={() => playAscii(ASCII_RECORDS[0])}
+          onAsciiStop={() => setAscii((a) => ({ ...a, open: false }))}
           news={news}
           onDone={done}
           onSnooze={snooze}
@@ -426,14 +440,14 @@ export function Desktop({ only }: { only?: string }) {
           onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
           groups={dockGroups}
-          scene={scene}
+          clips={clips}
+          onCopy={copyClip}
           runApps={runApps}
           attention={attention}
           onWinClick={(w) => void winClick(w.hwnd).catch((e) => showAlert({ title: '창을 열 수 없어요', body: String(e) }))}
           onWinClose={(w) => void winClose(w.hwnd).catch(() => {})}
           onPin={(r) => void addRecord(r.target, r.title)}
           onKey={(k) => void shellKey(k).catch((e) => showAlert({ title: '키를 보내지 못했어요', body: String(e) }))}
-          onAscii={(from) => (isTauri ? void openAscii([from.left + screenX, from.top + screenY, from.width, from.height]) : setAscii({ open: true, from, saver: false }))}
         />
       )}
       {panel && show('panel') && (
@@ -484,7 +498,7 @@ export function Desktop({ only }: { only?: string }) {
       {show('ascii') && (
         <AsciiFull
           open={ascii.open}
-          id={scene}
+          id={ascii.scene ?? scene}
           from={ascii.from}
           saver={ascii.saver}
           caption={`${clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(clock)}`}

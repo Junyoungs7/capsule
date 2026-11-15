@@ -353,7 +353,7 @@ kbd {
   pointer-events: none;
   z-index: 30;
 }
-.desktop[data-only='all'] .dock { bottom: 62px; width: 1290px; } /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
+.desktop[data-only='all'] .dock { bottom: 62px; width: calc(100vw - 24px); } /* 시안: 독 창 = 화면 폭. 넘치면 Dock 의 useFit 이 접는다 */ /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
 .dock-glass,
 .dock-ring {
   position: absolute;
@@ -805,6 +805,39 @@ kbd {
 .palette-list .empty { justify-content: center; color: var(--text-3); padding: 20px; }
 .todo-ico { width: 28px; height: 28px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--accent); }
 
+/* ── island: 아스키 재생 중 (전체화면 아스키 위에 떠 있어야 정지 버튼을 누를 수 있다) ── */
+.desktop[data-ascii='true'] .island { z-index: 75; }
+.island[data-mode='ascii'] .ascii {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+  transition: opacity 240ms 110ms, transform var(--dur-bouncy) var(--spring-bouncy) 40ms;
+}
+.ascii { gap: 10px; padding: 0 8px 0 16px; }
+.ascii .txt { flex-direction: row; align-items: baseline; gap: 8px; }
+.ascii .txt b { font-size: 12.5px; }
+.isl-eq { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+.isl-eq i { width: 3px; height: 100%; border-radius: 2px; background: var(--island-accent); transform-origin: 50% 100%; animation: isl-eq 900ms ease-in-out infinite alternate; }
+.isl-eq i:nth-child(2) { animation-delay: -300ms; }
+.isl-eq i:nth-child(3) { animation-delay: -600ms; }
+@keyframes isl-eq { from { transform: scaleY(0.3); } to { transform: scaleY(1); } }
+.isl-stop, .isl-ascii {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #f4f6fa;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.isl-stop:hover, .isl-ascii:hover { background: rgba(255, 255, 255, 0.22); }
+.isl-stop svg { width: 12px; height: 12px; }
+.isl-ascii { font: 600 14px/1 ui-monospace, 'Cascadia Mono', Consolas, monospace; color: var(--island-accent); }
+
 /* ── island: 모드가 바뀔 때 빛 띠가 한 번 스쳐 지나감 (transform 만, 애니메이션 이름을 모드마다 바꿔 재시작) ── */
 .island-shape::after {
   content: '';
@@ -824,6 +857,7 @@ kbd {
 .island[data-mode='drop'] .island-shape::after { animation: isw-drop 900ms var(--ease-out) 60ms; }
 .island[data-mode='cue'] .island-shape::after { animation: isw-cue 900ms var(--ease-out) 60ms; }
 .island[data-mode='news'] .island-shape::after { animation: isw-news 900ms var(--ease-out) 60ms; }
+.island[data-mode='ascii'] .island-shape::after { animation: isw-ascii 900ms var(--ease-out) 60ms; }
 @keyframes isw-idle { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 @keyframes isw-preview { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 @keyframes isw-play { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
@@ -831,6 +865,7 @@ kbd {
 @keyframes isw-drop { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 @keyframes isw-cue { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 @keyframes isw-news { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
+@keyframes isw-ascii { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
 
 /* ── 이동 줄이기: 이동 대신 페이드 ── */
 @media (prefers-reduced-motion: reduce) {
@@ -839,6 +874,6 @@ kbd {
   .island-layer { transform: translate(-50%, 0); }
   .palette { animation: fade 160ms; }
   .tab-ind { transition: none; }
-  .island-shape::after { animation: none !important; }
+  .island-shape::after, .isl-eq i { animation: none !important; }
   :is(.primary, .demo-btns button, .demo-seg button, .alert .actions button, .mc-today, .mc-seg button, .icon-btn, .tabs button, .snip-vars button):active { transform: none; }
 }

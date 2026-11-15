@@ -168,25 +168,65 @@
 .board-add:hover { color: var(--text); background: var(--fill); }
 
 /* ── 달력: 그룹 필터 칩 · 색 점 · 일정 목록 ── */
-.gchips { display: flex; flex-wrap: wrap; gap: 5px; }
-.gchips button {
+/* 캘린더 고르기: 알약 하나 + 글라스 팝오버 (그룹이 많아도 한 줄, 8개 넘으면 검색) */
+.gp-wrap { position: relative; flex: none; }
+.gp-cap {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px 3px 8px;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px 0 8px;
   border: 0;
   border-radius: var(--r-pill);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  background: color-mix(in srgb, var(--g) 14%, var(--fill));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 30%, transparent);
-  transition: opacity 160ms, transform 520ms var(--spring-bouncy);
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-.gchips i { width: 7px; height: 7px; border-radius: 50%; background: var(--g); }
-.gchips button[aria-pressed='false'] { opacity: 0.55; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
-.gchips button[aria-pressed='false'] i { background: none; box-shadow: inset 0 0 0 1.5px var(--g); }
-.gchips button:active { transform: scale(1.06, 0.9); transition-duration: 110ms; }
+.gp-cap:hover, .gp-cap[aria-expanded='true'] { background: var(--fill-2); }
+.gp-cap svg { width: 12px; height: 12px; color: var(--text-2); transition: transform 320ms var(--spring-smooth); }
+.gp-cap[aria-expanded='true'] svg { transform: rotate(180deg); }
+.gp-dots { display: inline-flex; align-items: center; gap: 2px; }
+.gp-dots i, .gp-one { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--g); box-shadow: 0 0 0 1.5px var(--glass-plate); }
+.gp-dots i + i { margin-left: -3px; }
+.gp-dots em { margin-left: 2px; font: 600 10px/1 var(--font); font-style: normal; color: var(--text-2); }
+.gp-select { max-width: 132px; height: 100%; background: color-mix(in srgb, var(--g) 14%, var(--field)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 32%, transparent); }
+.gp-select .gp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 248px;
+  max-height: 320px;
+  padding: 6px;
+  border-radius: 18px;
+  color: var(--text);
+  background: var(--glass-sheen), var(--glass-dense);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--spec), var(--shadow);
+  transform-origin: 90% 0;
+  animation: gp-in var(--dur-smooth) var(--spring-smooth);
+}
+.gp-pop[data-up='true'] { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; transform-origin: 10% 100%; }
+@keyframes gp-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } }
+.gp-search { flex: none; padding: 7px 12px; border: 0; border-radius: 12px; font-size: 12px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+.gp-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.gp-actions { display: flex; gap: 4px; padding: 0 2px; }
+.gp-actions button { flex: 1; padding: 4px 0; border: 0; border-radius: var(--r-pill); font-size: 11.5px; font-weight: 600; color: var(--text-2); background: var(--fill); }
+.gp-actions button:hover { color: var(--text); background: var(--fill-2); }
+.gp-list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.gp-item { display: flex; align-items: center; gap: 9px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 12px; background: none; font-size: 12.5px; text-align: left; }
+.gp-item:hover { background: var(--fill-2); }
+.gp-item .gp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.gp-item small { flex: none; font-size: 11px; color: var(--text-2); }
+.gp-check { flex: none; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--g); transition: background 160ms; }
+.gp-item[aria-checked='true'] .gp-check { background: var(--g); box-shadow: inset 0 0 0 1.5px var(--g), inset 0 0 0 4px var(--glass-dense); }
+.gp-empty { margin: 8px 10px; font-size: 12px; color: var(--text-2); }
 .mc-dots i[style] { background: var(--g); }
 .mc-chip[data-group='true'] { background: color-mix(in srgb, var(--g) 22%, transparent); box-shadow: inset 2px 0 0 var(--g); }
 .list li.ev[data-group='true'] { box-shadow: inset 3px 0 0 var(--g); }
@@ -202,15 +242,6 @@
 }
 .island .gchip { color: color-mix(in srgb, var(--g) 45%, white); background: color-mix(in srgb, var(--g) 26%, transparent); }
 .mc-add { grid-template-columns: auto 1fr auto; }
-.mc-scope {
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-pill);
-  font: 600 12px var(--font);
-  color: var(--text);
-  background: color-mix(in srgb, var(--g) 18%, var(--field));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 35%, transparent);
-}
 
 /* ── 그룹 메모: 그룹 색 테두리 + 마지막 편집자 ── */
 .note-gbar { position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--g); box-shadow: 0 0 10px var(--g); z-index: 1; }

@@ -1,7 +1,7 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import type { CalendarEvent, Todo } from '../data/types'
 import { dayKey, isHoliday, lunarOf } from '../data/holidays'
-import { GroupChips, groupOf, useTeam } from './Team'
+import { CalendarFilter, CalendarSelect, groupOf, useTeam } from './Team'
 
 /* v3 패널 달력: 주/월 전환. 일요일·공휴일 빨강, 토요일 파랑, 공휴일 이름, 작은 음력 날짜, 일정·할 일 점, 오늘 링.
    달(주) 넘기기 = 새 격자가 스프링으로 밀려 들어오고 이전 격자는 반대로 빠진다. */
@@ -32,7 +32,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   const [dir, setDir] = useState(0)
   const [title, setTitle] = useState('')
   const [scope, setScope] = useState('') // '' = 내 일정, 아니면 공유 그룹 id
-  const { groups, hidden } = useTeam()
+  const { hidden } = useTeam()
   const today = dayKey(new Date())
   const colorOf = (ev: CalendarEvent) => groupOf(ev.group)?.color ?? 'var(--accent)'
 
@@ -58,13 +58,19 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
     const k = dayKey(new Date(ev.start))
     evBy.set(k, [...(evBy.get(k) ?? []), ev])
   }
-  const todoBy = new Set(todos.filter((t) => t.due && !t.done).map((t) => dayKey(new Date(t.due!))))
+  for (const list of evBy.values()) list.sort((a, b) => a.start.localeCompare(b.start))
+  const todoBy = new Map<string, number>()
+  for (const t of todos) if (t.due && !t.done) todoBy.set(dayKey(new Date(t.due)), (todoBy.get(dayKey(new Date(t.due))) ?? 0) + 1)
+  const DOTS = 3 // 월 보기: 숫자 아래 점 최대 3개, 나머지는 +N
+  const CHIPS = 4 // 주 보기: 칸 안 일정 최대 4개, 나머지는 +N
 
   const grid = (a: Date, m: Mode) => {
     const first = m === 'month' ? weekStart(a) : a
     const days = Array.from({ length: m === 'month' ? 42 : 7 }, (_, i) => addDays(first, i))
     return days.map((d) => {
       const k = dayKey(d), hol = isHoliday(d), evs = evBy.get(k) ?? []
+      // 점 = 일정(시간순, 그룹 색) 다음 마감 할 일(주황)
+      const marks = [...evs.map(colorOf), ...Array<string>(todoBy.get(k) ?? 0).fill('todo')]
       return (
         <button
           key={k}
@@ -81,11 +87,12 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           <b>{d.getDate()}</b>
           {m === 'month' ? <small className={hol ? 'mc-hol' : 'mc-lunar'}>{hol ? hol.replace(/^대체공휴일\((.+)\)$/, '대체($1)') : lunarText(d)}</small> : <small className="mc-lunar">음 {lunarOf(d)?.join('.') ?? ''}</small>}
           {m === 'week' && hol && <small className="mc-hol">{hol}</small>}
-          {m === 'week' && evs.slice(0, 3).map((ev) => <span key={ev.id} className="mc-chip" data-group={!!ev.group} style={{ '--g': colorOf(ev) } as React.CSSProperties}>{hm(ev.start)} {ev.title}</span>)}
-          {(evs.length > 0 || todoBy.has(k)) && m === 'month' && (
-            <span className="mc-dots">
-              {[...new Set(evs.map(colorOf))].slice(0, 3).map((c) => <i key={c} style={{ '--g': c } as React.CSSProperties} />)}
-              {todoBy.has(k) && <i className="todo" />}
+          {m === 'week' && evs.slice(0, evs.length > CHIPS ? CHIPS - 1 : CHIPS).map((ev) => <span key={ev.id} className="mc-chip" data-group={!!ev.group} style={{ '--g': colorOf(ev) } as React.CSSProperties} title={`${hm(ev.start)} ${ev.title}`}><b>{hm(ev.start)}</b><i>{ev.title}</i></span>)}
+          {m === 'week' && evs.length > CHIPS && <span className="mc-more">+{evs.length - CHIPS + 1}개</span>}
+          {m === 'month' && marks.length > 0 && (
+            <span className="mc-dots" aria-label={`일정 ${evs.length}개${todoBy.has(k) ? ` · 마감 ${todoBy.get(k)}개` : ''}`}>
+              {marks.slice(0, DOTS).map((c, i) => <i key={i} className={c === 'todo' ? 'todo' : undefined} style={c === 'todo' ? undefined : ({ '--g': c } as React.CSSProperties)} />)}
+              {marks.length > DOTS && <em>+{marks.length - DOTS}</em>}
             </span>
           )}
         </button>
@@ -130,7 +137,6 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           <button className="icon-btn" onClick={() => shift(1)} aria-label={mode === 'month' ? '다음 달' : '다음 주'}>›</button>
         </span>
       </div>
-      <GroupChips />
       <div className="mc-stage" role="grid">
         {out && sheet(out.anchor, out.mode, 'out', out.dir)}
         {sheet(anchor, mode, out ? 'in' : 'still', dir)}
@@ -139,12 +145,10 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
         <b>{selDate.getMonth() + 1}월 {selDate.getDate()}일 {DOW[selDate.getDay()]}요일</b>
         {lun && <small>음력 {lun[0]}월 {lun[1]}일</small>}
         {hol && <small className="mc-hol">{hol}</small>}
+        <CalendarFilter />
       </div>
       <form className="add mc-add" onSubmit={add}>
-        <select className="mc-scope" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="어느 달력에" style={{ '--g': groupOf(scope)?.color ?? 'var(--accent)' } as React.CSSProperties}>
-          <option value="">내 일정</option>
-          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-        </select>
+        <CalendarSelect value={scope} onChange={setScope} />
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${sel.slice(5).replace('-', '/')} 일정 추가 (09:00)`} aria-label="일정 제목" />
         <button className="primary">추가</button>
       </form>

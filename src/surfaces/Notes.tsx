@@ -5,6 +5,7 @@ import { Tile, reducedMotion, usePresence } from './Dock'
 import { Ocr } from './Ocr'
 import type { Tab } from './Panel'
 import { Avatar, groupOf } from './Team'
+import { EMPTY, STRESS } from '../data/mock'
 
 /* v3 바탕화면 포스트잇 · 앱별 메모 · 화면 글자 복사(OCR) 레이어.
    표면 사이 상태(메모 펼침/접힘, OCR 열림)는 작은 모듈 저장소 — 독 아이템·팔레트·데모 바가 같은 값을 본다. */
@@ -27,6 +28,15 @@ const seedNotes: Note[] = [
   { id: 'n5', text: '배포 체크리스트\n- [x] QA 확인\n- [ ] 릴리즈 노트', color: 3, x: 590, y: 318, w: 220, h: 140, pinned: false, group: 'tg-dev', by: '민수' },
   { id: 'n4', text: '- [ ] PR #142 리뷰 코멘트 반영\n- [x] lint 통과\n배포 전 .env.production 확인!', color: 2, x: 0, y: 0, w: 248, h: 150, pinned: false, appId: 'vscode' },
 ]
+
+if (STRESS)
+  seedNotes.push(
+    { id: 'qn1', text: '아주 긴 메모 — Hera Team 동기화 규칙 정리: 항목별 최종 수정 우선, 삭제는 표시만 하고 7일 뒤 정리, 늦게 켠 PC 는 온라인 그룹원 누구에게서든 따라잡는다. Long English line without spaces: https://example.com/a/very/long/url/that/should/wrap/inside/the/note/body/without/overflowing', color: 1, x: 830, y: 96, w: 210, h: 140, pinned: false },
+    { id: 'qn2', text: '- [ ] 하나\n- [ ] 둘\n- [ ] 셋\n- [ ] 넷\n- [ ] 다섯\n- [ ] 여섯\n- [ ] 일곱\n- [ ] 여덟', color: 5, x: 860, y: 260, w: 200, h: 130, pinned: false },
+    { id: 'qn3', text: '', color: 2, x: 1080, y: 120, w: 180, h: 110, pinned: false },
+    { id: 'qn4', text: 'VS Code 두 번째 메모 — 앱 메모가 여러 장이면 아래로 쌓인다', color: 4, x: 0, y: 0, w: 248, h: 150, pinned: false, appId: 'vscode' },
+  )
+if (EMPTY) seedNotes.length = 0
 
 const CHECK = /^- \[( |x)\] ?/i
 
@@ -56,8 +66,75 @@ function dockTarget() {
   return r ? { x: r.left + r.width / 2, y: icon ? r.top + r.height / 2 : r.bottom - 10 } : { x: innerWidth / 2, y: innerHeight }
 }
 
+/* ── 앱 메모 자리: 붙은 앱 창(anchor) 옆 ──────────────────────────────
+   오른쪽 → 안 되면 왼쪽 → 그래도 안 되면 창 안 오른쪽 위. 화면 가장자리·Island(위 가운데)·독(아래)과 띄우고 화면 밖으로 안 나간다.
+   anchor 가 없으면 화면 오른쪽 가운데. 여러 장이면 아래로 쌓는다. */
+export const APP_NOTE = { w: 248, h: 168, gap: 12, edge: 16 }
+export function placeAppNote(a: DOMRect | null, i: number, W = innerWidth, H = innerHeight) {
+  const { w, h, gap, edge } = APP_NOTE
+  const top = 64 // Island 접힘(36) + 여백
+  const bottom = H - (H < 820 ? 132 : 150) // 독 영역 위
+  const island = { l: W / 2 - 220, r: W / 2 + 220, b: 150 } // 펼친 Island(알림 122 + 위 8) + 여백
+  let x: number, y: number, side: 'right' | 'left' | 'inside'
+  if (!a) {
+    side = 'right'
+    x = W - edge - w
+    y = H / 2 - h / 2
+  } else if (a.right + gap + w <= W - edge) {
+    side = 'right'
+    x = a.right + gap
+    y = a.top + 44
+  } else if (a.left - gap - w >= edge) {
+    side = 'left'
+    x = a.left - gap - w
+    y = a.top + 44
+  } else {
+    side = 'inside'
+    x = Math.min(a.right, W - edge) - w - 16
+    y = a.top + 48
+  }
+  y += i * (h + 10)
+  y = Math.max(top, Math.min(y, bottom - h))
+  if (x < island.r && x + w > island.l && y < island.b) y = island.b
+  return { x: Math.max(edge, x), y, side }
+}
+
+// 시안: 붙은 앱의 그럴듯한 창 자리 (데모 카드 오른쪽 영역에 창 + 메모가 함께 들어가게 가운데 정렬)
+function mockWindow(W = innerWidth, H = innerHeight) {
+  const w = Math.min(860, W * 0.56), h = Math.min(580, H * 0.62)
+  const left = 320, x = left + Math.max(0, (W - left - (w + APP_NOTE.gap + APP_NOTE.w)) / 2)
+  return new DOMRect(x, Math.max(84, (H - h) / 2 - 40), w, h)
+}
+
+function useViewport() {
+  const [, set] = useState(0)
+  useEffect(() => {
+    const f = () => set((n) => n + 1)
+    addEventListener('resize', f)
+    return () => removeEventListener('resize', f)
+  }, [])
+}
+
+/** 시안 전용 앱 창 (앱 메모가 붙을 자리를 보여 주기 위한 가짜 창) */
+function MockWindow({ rec, rect }: { rec?: LpRecord; rect: DOMRect }) {
+  const p = usePresence<HTMLDivElement>(true)
+  return (
+    <div ref={p.ref} className="mock-win" style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }} aria-hidden>
+      <header>
+        {rec && <Tile rec={rec} size={16} />}
+        <b>{rec ? `hera — ${rec.title}` : '앱'}</b>
+        <span className="mock-ctl"><i /><i /><i /></span>
+      </header>
+      <div className="mock-body">
+        {Array.from({ length: 14 }, (_, i) => <span key={i} style={{ width: `${30 + ((i * 37) % 55)}%`, marginLeft: `${(i % 4) * 4}%` }} />)}
+      </div>
+    </div>
+  )
+}
+
 /* ── 레이어 (시안: 가짜 바탕화면 위) ── */
-export function V3Layer({ records, fgId }: { records: LpRecord[]; fgId?: string }) {
+// anchor = 지금 앞에 있는 앱 창 rect (실제 앱에서 넘겨줌). 없으면 시안은 가짜 창을 그려 그 옆에 붙인다.
+export function V3Layer({ records, fgId, anchor }: { records: LpRecord[]; fgId?: string; anchor?: DOMRect }) {
   const { notes: shown, ocr } = useV3()
   const [notes, setNotes] = useItems<Note>('note', seedNotes)
   const [front, setFront] = useState<string | null>(null)
@@ -112,6 +189,10 @@ export function V3Layer({ records, fgId }: { records: LpRecord[]; fgId?: string 
   }, [shown])
 
   const desk = notes.filter((n) => !n.appId)
+  useViewport()
+  const appNotes = notes.filter((n) => n.appId && n.appId === fgId)
+  const mock = !anchor && !isTauri && appNotes.length > 0
+  const win = anchor ?? (mock ? mockWindow() : null)
   return (
     <div ref={layer} className="v3-layer">
       <div className="desk-notes" data-shown={shown}>
@@ -120,23 +201,30 @@ export function V3Layer({ records, fgId }: { records: LpRecord[]; fgId?: string 
             onFront={() => setFront(n.id)} onPatch={(p) => patch(n.id, p)} onNew={() => add(n)} onDelete={() => setNotes((all) => all.filter((x) => x.id !== n.id))} />
         ))}
       </div>
-      <div className="edge-notes">
-        {notes.filter((n) => n.appId).map((n) => (
-          <EdgeNote key={n.id} open={n.appId === fgId}>
+      {mock && win && <MockWindow rec={records.find((r) => r.id === fgId)} rect={win} />}
+      {notes.filter((n) => n.appId).map((n) => {
+        const i = appNotes.indexOf(n)
+        return (
+          <AppNote key={n.id} open={i >= 0} at={placeAppNote(win, Math.max(0, i))}>
             <NoteCard n={n} records={records} edge onPatch={(p) => patch(n.id, p)} onDelete={() => setNotes((all) => all.filter((x) => x.id !== n.id))} />
-          </EdgeNote>
-        ))}
-      </div>
+          </AppNote>
+        )
+      })}
       <Ocr open={ocr} onClose={() => setV3({ ocr: false })} onToast={say} />
       <Toast toast={toast} onDone={() => setToast(null)} />
     </div>
   )
 }
 
-function EdgeNote({ open, children }: { open: boolean; children: React.ReactNode }) {
+/** 앱 메모 한 장: 자리(left/top)는 고정값, 등장은 붙은 쪽에서 살짝 밀려 나오는 스프링 (transform·opacity 만) */
+function AppNote({ open, at, children }: { open: boolean; at: { x: number; y: number; side: string }; children: React.ReactNode }) {
   const p = usePresence<HTMLDivElement>(open)
   if (!p.mounted) return null
-  return <div ref={p.ref} className="edge-note" onTransitionEnd={p.onTransitionEnd}>{children}</div>
+  return (
+    <div ref={p.ref} className="app-note" data-side={at.side} style={{ left: at.x, top: at.y, width: APP_NOTE.w, height: APP_NOTE.h }} onTransitionEnd={p.onTransitionEnd}>
+      {children}
+    </div>
+  )
 }
 
 /* 메모 카드. 바(위 22px)를 끌어 이동, 오른쪽 아래 모서리로 크기. 이동·크기 중엔 style 직접 쓰고 놓을 때 저장. */

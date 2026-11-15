@@ -26,6 +26,15 @@
 .lp-label { display: grid; place-items: center; }
 .lp-label .tile { background: none; box-shadow: none; color: var(--ink); }
 .lp-label .tile svg { stroke-width: 2.3; }
+/* 아스키 LP 라벨: 장면 기호 (크기는 디스크에 비례 — .lp 의 font-size = 지름) */
+.lp-ascii { font: 600 0.2em/1 ui-monospace, 'Cascadia Mono', Consolas, monospace; color: var(--ink); }
+.lp[data-kind='ascii'] .lp-spin {
+  background:
+    radial-gradient(circle, var(--lab) 0 31%, color-mix(in oklab, var(--lab) 50%, white) 31.5% 34%, transparent 34.5%),
+    repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.09) 0 2deg, transparent 2deg 12deg),
+    repeating-radial-gradient(circle, rgba(255, 255, 255, 0.07) 0 0.6px, transparent 0.6px 2.2px),
+    radial-gradient(circle, color-mix(in srgb, var(--c) 32%, rgba(14, 16, 22, 0.86)) 0 72%, color-mix(in srgb, var(--c) 44%, rgba(14, 16, 22, 0.72)));
+}
 /* 정적 반사 + 림 빛 (Liquid Glass 스펙큘러): 라벨 위는 가린다 */
 .lp-sheen {
   position: absolute;
@@ -52,6 +61,7 @@
 .crate-btn:hover .crate-lp { transform: translate(calc((var(--i) - 1) * 3px), -4px) rotate(calc((var(--i) - 1) * 15deg)); }
 .crate-btn:hover .crate-lp:last-child { transform: translateY(-7px) rotate(-10deg); } /* 맨 앞 LP 가 살짝 들림 = 끌 수 있음 */
 .crate[data-open='true'] > .dock-label { opacity: 0; }
+.crate-empty { position: absolute; inset: 6px 30px; display: grid; place-items: center; border-radius: 50%; font: 700 10px/1 var(--font); color: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--line-strong); }
 .crate:hover > .dock-label { opacity: 1; transform: translate(-50%, 0); }
 
 /* ── 라이브러리 팝오버 (독 묶음 팝오버와 같은 스프링) ── */

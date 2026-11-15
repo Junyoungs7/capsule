@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
 
 /* Hera Team 시안 (계획: .omc/plans/hera-team.md) — 동료 PC 와 달력·메모만 공유하는 '공유 그룹'.
    시안 전용 모듈 저장소: 그룹·숨긴 그룹(달력 필터)·열린 시트. 실제 통신(P2P·암호화·동기화)은 Hera Link 위에서 나중에. */
@@ -9,7 +9,7 @@ export type TeamNote = { id: string; group: string; text: string; by: string; ag
 type Sheet = { kind: 'invite' | 'board'; group: string } | { kind: 'join' | 'create' }
 type TeamState = { groups: TeamGroup[]; hidden: string[]; sheet: Sheet | null }
 
-export const GROUP_COLORS = ['#14b8a6', '#8b5cf6', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899']
+export const GROUP_COLORS = ['#14b8a6', '#8b5cf6', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#84cc16', '#06b6d4', '#f97316', '#a855f7', '#22c55e', '#e11d48']
 
 let st: TeamState = {
   groups: [
@@ -33,6 +33,17 @@ export const setTeam = (p: Partial<TeamState> | ((s: TeamState) => Partial<TeamS
 )
 export const useTeam = () => useSyncExternalStore((f) => (subs.add(f), () => void subs.delete(f)), () => st)
 export const groupOf = (id?: string) => (id ? st.groups.find((g) => g.id === id) : undefined)
+
+// 시안·QA: 그룹 수 바꾸기 (1·3·12). 앞의 두 그룹은 시드 그대로, 나머지는 이름·색을 만들어 붙인다.
+const EXTRA = ['디자인팀', '운영', '마케팅', 'QA', '모바일', '데이터', '인프라', '고객지원', '기획', '보안 점검 TF', 'Global Partnerships & Long Name Team']
+const SEED_GROUPS = st.groups
+export function setGroupCount(n: number) {
+  const extra = EXTRA.slice(0, Math.max(0, n - 2)).map((name, i): TeamGroup => ({
+    id: `tg-x${i}`, name, color: GROUP_COLORS[(i + 2) % GROUP_COLORS.length], alarms: true, news: i % 2 === 0,
+    members: [{ id: 'me', name: '나', online: true, me: true }, ...Array.from({ length: 1 + (i % 5) }, (_, j) => ({ id: `m${i}-${j}`, name: '가나다라마바사'[(i + j) % 7] + '원', online: j % 2 === 0 }))],
+  }))
+  setTeam({ groups: [...SEED_GROUPS.slice(0, Math.min(n, 2)), ...extra], hidden: [] })
+}
 
 // 공유 메모판 시드 (n5 는 바탕화면에도 떠 있는 그룹 메모)
 export const TEAM_NOTES: TeamNote[] = [
@@ -190,23 +201,110 @@ function Board({ g }: { g: TeamGroup }) {
   )
 }
 
-/** 달력 필터 칩: 내 일정 + 그룹들 (눌러서 숨기기/보이기) */
-export function GroupChips() {
+type Cal = { id: string; name: string; color: string; members?: number }
+const ME: Cal = { id: 'me', name: '내 일정', color: 'var(--accent)' }
+const calsOf = (groups: TeamGroup[]): Cal[] => [ME, ...groups.map((g) => ({ id: g.id, name: g.name, color: g.color, members: g.members.length }))]
+const SEARCH_FROM = 8 // 이보다 많으면 검색 칸
+
+/** 그룹 목록 팝오버 (글라스). multi = 체크리스트(보이기/숨기기), 아니면 하나 고르기. 바깥 클릭·Esc 로 닫힘. */
+function GroupMenu({ cals, checked, multi, up, onPick, onAll, onClose }: {
+  cals: Cal[]
+  checked: (id: string) => boolean
+  multi?: boolean
+  up?: boolean
+  onPick: (id: string) => void
+  onAll?: (show: boolean) => void
+  onClose: () => void
+}) {
+  const [q, setQ] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    // 여는 클릭이 바로 닫지 않게 다음 틱부터
+    const down = (e: PointerEvent) => !box.current?.parentElement?.contains(e.target as Node) && close.current()
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), close.current())
+    const t = setTimeout(() => addEventListener('pointerdown', down))
+    addEventListener('keydown', key, true)
+    return () => (clearTimeout(t), removeEventListener('pointerdown', down), removeEventListener('keydown', key, true))
+  }, [])
+  const list = q ? cals.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : cals
+  return (
+    <div ref={box} className="gp-pop" data-up={!!up} role={multi ? 'group' : 'listbox'} aria-label={multi ? '보이는 캘린더' : '캘린더 고르기'}>
+      {cals.length > SEARCH_FROM && <input className="gp-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`캘린더 검색 (${cals.length}개)`} aria-label="캘린더 검색" autoFocus />}
+      {multi && onAll && (
+        <div className="gp-actions">
+          <button onClick={() => onAll(true)}>모두 보기</button>
+          <button onClick={() => onAll(false)}>모두 숨기기</button>
+        </div>
+      )}
+      <div className="gp-list">
+        {list.map((c) => (
+          <button key={c.id} className="gp-item" role={multi ? 'checkbox' : 'option'} aria-checked={checked(c.id)} aria-selected={multi ? undefined : checked(c.id)} style={{ '--g': c.color } as CSSProperties} onClick={() => onPick(c.id)}>
+            <i className="gp-check" />
+            <span className="gp-name">{c.name}</span>
+            {c.members && <small>{c.members}명</small>}
+          </button>
+        ))}
+        {list.length === 0 && <p className="gp-empty">“{q}” 캘린더가 없어요</p>}
+      </div>
+    </div>
+  )
+}
+
+/** 달력 필터: '캘린더 ▾' 알약 하나 (켜진 캘린더 색 점 ●●● +N) → 체크리스트 팝오버. 그룹이 많아도 한 줄. */
+export function CalendarFilter() {
   const { groups, hidden } = useTeam()
+  const [open, setOpen] = useState(false)
+  const cals = calsOf(groups)
+  const on = cals.filter((c) => !hidden.includes(c.id))
   const toggle = (id: string) => setTeam((s) => ({ hidden: s.hidden.includes(id) ? s.hidden.filter((x) => x !== id) : [...s.hidden, id] }))
   return (
-    <div className="gchips" role="group" aria-label="보이는 달력">
-      {[{ id: 'me', name: '내 일정', color: 'var(--accent)' }, ...groups].map((g) => (
-        <button key={g.id} aria-pressed={!hidden.includes(g.id)} style={{ '--g': g.color } as CSSProperties} onClick={() => toggle(g.id)}>
-          <i />{g.name}
-        </button>
-      ))}
+    <div className="gp-wrap">
+      <button className="gp-cap" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)} aria-label={`보이는 캘린더 ${on.length}/${cals.length}`}>
+        <span className="gp-dots">
+          {on.slice(0, 3).map((c) => <i key={c.id} style={{ '--g': c.color } as CSSProperties} />)}
+          {on.length > 3 && <em>+{on.length - 3}</em>}
+          {on.length === 0 && <em>없음</em>}
+        </span>
+        캘린더
+        <svg viewBox="0 0 12 12" aria-hidden><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <GroupMenu
+          multi
+          cals={cals}
+          checked={(id) => !hidden.includes(id)}
+          onPick={toggle}
+          onAll={(show) => setTeam({ hidden: show ? [] : cals.map((c) => c.id) })}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 일정 추가 폼의 '어느 캘린더에' 고르기: 알약 → 하나 고르기 팝오버 (그룹이 많으면 검색) */
+export function CalendarSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { groups } = useTeam()
+  const [open, setOpen] = useState(false)
+  const cals = calsOf(groups)
+  const cur = cals.find((c) => c.id === (value || 'me')) ?? ME
+  return (
+    <div className="gp-wrap">
+      <button type="button" className="gp-cap gp-select" style={{ '--g': cur.color } as CSSProperties} aria-expanded={open} aria-haspopup="listbox" onClick={() => setOpen((o) => !o)} aria-label={`어느 캘린더에: ${cur.name}`}>
+        <i className="gp-one" />
+        <span className="gp-name">{cur.name}</span>
+        <svg viewBox="0 0 12 12" aria-hidden><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && <GroupMenu up cals={cals} checked={(id) => id === cur.id} onPick={(id) => (onChange(id === 'me' ? '' : id), setOpen(false))} onClose={() => setOpen(false)} />}
     </div>
   )
 }
 
 /* ── 데모 바 '팀' 묶음 (시안 전용) ── */
 export function TeamDemo({ onSettings, onCalendar, onNews, onAlarm }: { onSettings: () => void; onCalendar: () => void; onNews: () => void; onAlarm: () => void }) {
+  const { groups } = useTeam()
   return (
     <>
       <header className="demo-sub">
@@ -220,6 +318,9 @@ export function TeamDemo({ onSettings, onCalendar, onNews, onAlarm }: { onSettin
         <button onClick={() => (onSettings(), setTeam({ sheet: { kind: 'board', group: 'tg-dev' } }))}>공유 메모판</button>
         <button onClick={onNews}>변경 소식</button>
         <button onClick={onAlarm}>팀 일정 알림</button>
+      </div>
+      <div className="demo-seg" role="group" aria-label="그룹 수 (QA)">
+        {[1, 3, 12].map((n) => <button key={n} aria-pressed={groups.length === n} onClick={() => setGroupCount(n)}>그룹 {n}</button>)}
       </div>
     </>
   )

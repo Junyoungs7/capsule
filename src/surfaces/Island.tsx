@@ -6,7 +6,7 @@ import { Disc, useSpin } from './Lp'
 import { Avatar, groupOf } from './Team'
 
 export type NextItem = { title: string; at?: string; kind: 'todo' | 'event' }
-type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news'
+type Mode = 'idle' | 'preview' | 'alert' | 'nowPlaying' | 'drop' | 'cue' | 'news' | 'ascii'
 // Hera Team 변경 소식: 누가 · 어느 그룹 · 무엇을 (짧게 떴다 사라짐)
 export type TeamNews = { who: string; group: string; what: string; detail: string; n: number }
 
@@ -18,6 +18,7 @@ const SIZES: Record<Mode, [number, number, number]> = {
   alert: [404, 122, 30],
   drop: [372, 92, 30],
   news: [392, 58, 29],
+  ascii: [252, 44, 22], // 아스키 재생 중: 작은 알약 + 정지
   cue: [372, 68, 30], // LP 를 끌고 오는 중 = nowPlaying 과 같은 모양 → 놓으면 내용만 바뀜
 }
 const CYCLE = 25 // 진행바 기준(분) — Open Question 1 기본안
@@ -55,9 +56,12 @@ type Props = {
   alive?: boolean // 지금 레코드의 앱이 살아 있음 = LP 회전 (턴테이블 규칙)
   lp?: 'off' | 'drag' | 'over' // 독에서 LP 를 끌고 오는 중
   news?: TeamNews | null
+  ascii?: string | null // 재생 중인 아스키 장면 이름
+  onAscii?: () => void // ✦ 자동 장면 시작
+  onAsciiStop?: () => void
 }
 
-export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null }: Props) {
+export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooze, onOpen, onDropFiles, alive = false, lp = 'off', news = null, ascii = null, onAscii, onAsciiStop }: Props) {
   const [hover, setHover] = useState(false)
   // v2: 파일을 끌고 오면 '선반에 놓기' 드롭존. 시안 = HTML5 드래그(파일 이름만).
   // 실제 앱: island 창 네이티브 드롭(경로). 클릭 통과는 watch 루프가 창 밖에서 누른 채 들어오는 드래그일 때 모양 +24px 를 받아 준다
@@ -75,7 +79,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
     })
     return () => void off.then((f) => f())
   }, [])
-  const mode: Mode = drag ? 'drop' : alert ? 'alert' : lp !== 'off' ? 'cue' : news ? 'news' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
+  const mode: Mode = drag ? 'drop' : alert ? 'alert' : lp !== 'off' ? 'cue' : ascii ? 'ascii' : news ? 'news' : hover || peek ? 'preview' : playing ? 'nowPlaying' : 'idle'
   const files = (e: DragEvent) => e.dataTransfer.types.includes('Files')
   const dnd = {
     onDragEnter: (e: DragEvent) => files(e) && (e.preventDefault(), setDrag(true)),
@@ -144,6 +148,17 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
           <small>{next ? `${next.kind === 'event' ? '일정' : '할 일'} · ${fmtWhen(next.at)}` : '패널에서 할 일을 추가하세요'}</small>
         </span>
         <span className="chip">{until(next?.at) || '열기'}</span>
+        {onAscii && (
+          <button className="isl-ascii" onClick={(e) => (e.stopPropagation(), onAscii())} tabIndex={mode === 'preview' ? 0 : -1} aria-label="아스키 아트 전체화면 (계절 장면)" title="아스키 아트">✦</button>
+        )}
+      </div>
+
+      <div className="island-layer ascii" style={{ width: SIZES.ascii[0], height: SIZES.ascii[1] }} aria-hidden={mode !== 'ascii'}>
+        <span className="isl-eq" aria-hidden><i /><i /><i /></span>
+        <span className="txt"><b>아스키 재생 중</b><small>{ascii}</small></span>
+        <button className="isl-stop" onClick={(e) => (e.stopPropagation(), onAsciiStop?.())} tabIndex={mode === 'ascii' ? 0 : -1} aria-label="아스키 끄기">
+          <svg viewBox="0 0 12 12" aria-hidden><rect x="3" y="3" width="6" height="6" rx="1.2" fill="currentColor" /></svg>
+        </button>
       </div>
 
       <div className="island-layer nowPlaying" style={{ width: SIZES.nowPlaying[0], height: SIZES.nowPlaying[1] }} aria-hidden={mode !== 'nowPlaying'}>

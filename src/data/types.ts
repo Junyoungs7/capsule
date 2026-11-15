@@ -1,12 +1,13 @@
 // Record 는 TS 내장 타입과 겹쳐서 LpRecord 로 부른다.
-export type Glyph = 'calc' | 'notepad' | 'code' | 'chrome' | 'set' | 'text'
+export type Glyph = 'calc' | 'notepad' | 'code' | 'chrome' | 'set' | 'text' | 'ascii'
 
 export type LpRecord = {
   id: string
   title: string
   target: string // exe / lnk / shell:AppsFolder\AUMID / url
-  kind: 'single' | 'set'
+  kind: 'single' | 'set' | 'ascii'
   targets?: string[] // kind:'set' → 묶인 레코드 id
+  scene?: 'xmas' | 'city' | 'autumn' | 'calm' | 'auto' // kind:'ascii' → 아스키 장면 (auto = 계절·시간대)
   cover: string // 커버 컬러
   glyph: Glyph
   exe?: string // .lnk 의 대상 exe (추가 시 해석) — 실행 점·Now Playing 매칭용

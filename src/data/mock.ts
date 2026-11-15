@@ -1,4 +1,5 @@
 import type { AppGroup, CalendarEvent, Clip, LpRecord, ShelfFile, Todo } from './types'
+import type { Win } from './api'
 
 export const seedShelf: ShelfFile[] = [
   { id: 's1', path: String.raw`C:\Users\me\Documents\기획서_v3.pdf`, at: 1 },
@@ -53,3 +54,44 @@ export const seedClips: Clip[] = [
   { id: 'c5', text: '#2F80ED', at: ago(95) },
   { id: 'c6', text: '010-1234-5678', at: ago(180) },
 ]
+
+/* ── QA 시드 (시안 전용, URL 로만): ?stress=1 = 많은 일정·긴 제목·12 그룹·실행 중 앱 15개·메모 많음, ?empty=1 = 빈 상태 ── */
+const qa = typeof location === 'undefined' ? new URLSearchParams() : new URLSearchParams(location.search)
+export const STRESS = qa.has('stress')
+export const EMPTY = qa.has('empty')
+const LONG = [
+  '분기 OKR 리뷰 및 다음 분기 로드맵 확정 회의 (전사 공유, 녹화 있음)',
+  'Quarterly business review with Global Partnerships — APAC kickoff',
+  '배너 관리 화면 접근성 점검',
+  '1:1',
+  'Release train sync: hera-team P2P transport & encryption handshake',
+  '점심',
+  '디자인 시스템 토큰 정리 — 색·반경·그림자 (Liquid Glass 반영)',
+  '고객사 미팅 사전 리허설',
+  'Infra on-call handover',
+  '사내 보안 교육 (필수 이수, 미이수 시 계정 제한)',
+  '스탠드업',
+  'Retro + 회고 액션아이템 정리',
+]
+if (STRESS) {
+  const gs = ['tg-dev', 'tg-banner', 'tg-x0', 'tg-x1', 'tg-x2', 'tg-x3', 'tg-x4', 'tg-x5', 'tg-x6', 'tg-x7', 'tg-x8', 'tg-x9', undefined]
+  LONG.forEach((title, i) => seedEvents.push({ id: 'q0-' + i, title, start: at(0, 8 + i, i % 2 ? 30 : 0), end: at(0, 9 + i), source: 'local', group: gs[i % gs.length], by: gs[i % gs.length] ? '민수' : undefined }))
+  for (let d = 1; d < 20; d += 3) for (let i = 0; i < (d % 5) + 2; i++) seedEvents.push({ id: `q${d}-${i}`, title: LONG[(d + i) % LONG.length], start: at(d, 9 + i), end: at(d, 10 + i), source: 'local', group: gs[(d + i) % gs.length], by: '지은' })
+  for (let i = 0; i < 4; i++) seedTodos.push({ id: 'qt' + i, title: LONG[(i * 3) % LONG.length], due: at(0, 18, i * 10), done: false, source: 'local' })
+  seedRecords.push(
+    { id: 'q-figma', title: 'Figma — Hera Design System (Liquid Glass)', target: 'https://figma.com', kind: 'single', cover: '#A259FF', glyph: 'text' },
+    { id: 'q-slack', title: 'Slack', target: 'https://slack.com', kind: 'single', cover: '#4A154B', glyph: 'text' },
+    { id: 'q-jira', title: '지라 · 배너 관리 스프린트 보드', target: 'https://jira.example.com', kind: 'single', cover: '#2684FF', glyph: 'text' },
+  )
+  seedClips.unshift(
+    { id: 'qc1', text: 'SELECT b.banner_id, b.title, b.start_dt, b.end_dt FROM banner b WHERE b.use_yn = ' + "'Y'" + ' AND sysdate BETWEEN b.start_dt AND b.end_dt ORDER BY b.sort_no', at: Date.now() - 60_000 },
+    { id: 'qc2', text: '가을 특가 · 단풍 여행 기획전 메인 배너 카피 (최종) — 최대 30% 할인, 11/30 까지', at: Date.now() - 4 * 60_000 },
+  )
+}
+if (EMPTY) for (const a of [seedEvents, seedTodos, seedClips, seedShelf, seedRecords, seedGroups] as unknown[][]) a.length = 0
+
+/** QA: 고정 안 된 실행 중 앱 15개 (독 '작업 표시줄' 칸 스트레스) */
+export function stressWins(): Win[] {
+  const apps = ['Excel', 'PowerPoint', 'Outlook', 'Teams', 'Explorer', 'Terminal', 'Paint', 'Photos', 'Settings', 'Edge', 'Spotify', 'Discord', 'Zoom', 'OneNote', 'Visual Studio 2022 — hera.sln']
+  return apps.map((t, i) => ({ hwnd: 9000 + i, key: 'qa' + i, keys: ['qa' + i], title: t, exe: `C:\\Apps\\${t.split(' ')[0]}.exe`, aumid: '', min: i % 4 === 0, flash: i === 3 }))
+}
