@@ -10,7 +10,6 @@ use tauri_plugin_store::StoreExt;
 use windows::core::{w, PCWSTR, PWSTR};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
 use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
@@ -54,10 +53,10 @@ pub fn set_rects(label: &str, rects: Vec<[f64; 4]>) {
 #[serde(rename_all = "camelCase")]
 pub struct Fg {
     hwnd: isize,
-    pid: u32,
-    exe_path: String,
+    pub(crate) pid: u32,
+    pub(crate) exe_path: String,
     title: String,
-    aumid: String,
+    pub(crate) aumid: String,
 }
 
 /// 마지막 포그라운드 + 실행 집합 — 늦게 뜬 창(패널 등)이 `watch_state` 로 즉시 가져간다.
@@ -97,7 +96,7 @@ pub unsafe fn info(hwnd: HWND) -> Fg {
     Fg { hwnd: hwnd.0 as isize, pid, exe_path, title: wstr(&buf[..n]), aumid }
 }
 
-/// 보이는 최상위 앱 창(소유자 없음, 툴윈도우·클로킹 제외, 자기 프로세스 제외) → (창, 키들). 키 = exe 경로·`shell:appsfolder\<aumid>` (소문자). z-순서(위→아래).
+/// 작업 표시줄에 뜨는 앱 창(shell::eligible — Explorer 규칙, 자기 프로세스 제외) → (창, 키들). 키 = exe 경로·`shell:appsfolder\<aumid>` (소문자). z-순서(위→아래).
 unsafe fn app_windows(me: u32) -> Vec<(HWND, Vec<String>)> {
     unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> BOOL {
         (*(l.0 as *mut Vec<HWND>)).push(h);
@@ -107,14 +106,7 @@ unsafe fn app_windows(me: u32) -> Vec<(HWND, Vec<String>)> {
     let _ = EnumWindows(Some(collect), LPARAM(&mut all as *mut _ as isize));
     let mut out = vec![];
     for h in all {
-        let mut cloaked = 0u32;
-        let _ = DwmGetWindowAttribute(h, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4);
-        if !IsWindowVisible(h).as_bool()
-            || cloaked != 0
-            || GetWindow(h, GW_OWNER).is_ok_and(|o| !o.is_invalid())
-            || GetWindowLongPtrW(h, GWL_EXSTYLE) & WS_EX_TOOLWINDOW.0 as isize != 0
-            || GetWindowTextLengthW(h) == 0
-        {
+        if !crate::shell::eligible_hwnd(h) {
             continue;
         }
         let i = info(h);
@@ -133,28 +125,27 @@ unsafe fn app_windows(me: u32) -> Vec<(HWND, Vec<String>)> {
     out
 }
 
-/// 실행 집합: 앱 창 키들의 합집합
-pub unsafe fn running(me: u32) -> Vec<String> {
-    let mut keys: Vec<String> = app_windows(me).into_iter().flat_map(|(_, k)| k).collect();
-    keys.sort();
-    keys.dedup();
-    keys
-}
-
 /// C1 플래터 클릭: 키가 맞는 가장 위의 앱 창을 전면으로 (최소화면 복원). 사용자 클릭 직후라 SetForegroundWindow 가 허용된다.
 /// `launch::sta` 스레드에서 부를 것 (창 AUMID 조회 = COM).
 pub fn activate(keys: &[String]) -> Result<(), String> {
-    unsafe {
+    let h = unsafe {
         let Some((h, _)) = app_windows(GetCurrentProcessId()).into_iter().find(|(_, ks)| ks.iter().any(|k| keys.contains(k))) else {
             return Err("실행 중인 창이 없어요".into());
         };
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
         }
+        h
+    };
+    focus(h)
+}
+
+/// 창을 전면으로 (사용자 클릭 직후라 허용된다). 포그라운드 잠금이면 입력 큐에 잠깐 붙어 1회 재시도 (키 입력 주입 없음).
+pub fn focus(h: HWND) -> Result<(), String> {
+    unsafe {
         if SetForegroundWindow(h).as_bool() {
             return Ok(());
         }
-        // 포그라운드 잠금: 현재 포그라운드 스레드의 입력 큐에 잠깐 붙어 전환 후 1회 재시도 (키 입력 주입 없음)
         use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
         let (me, fg) = (GetCurrentThreadId(), GetWindowThreadProcessId(GetForegroundWindow(), None));
         let attached = fg != 0 && fg != me && AttachThreadInput(me, fg, true).as_bool();
@@ -303,7 +294,7 @@ fn saver_due(idle_ms: u32, idle_min: u64, blocked: bool, open: bool) -> bool {
     idle_min > 0 && !blocked && !open && idle_ms as u64 >= idle_min * 60_000
 }
 
-/// v2 효과 시간대. ponytail: 고정 시각(새벽 5–8, 노을 17–19, 밤 19–5) — 계절별 일출·일몰이 필요하면 Open-Meteo daily sunrise/sunset 로
+/// v2 효과 시간대: 일출·일몰(현지 분)로 — 새벽 = 일출 −30분~+60분, 노을 = 일몰 −30분~+40분, 밤 = 일몰 +40분~일출 −30분
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Tod {
     Day,
@@ -312,13 +303,50 @@ enum Tod {
     Night,
 }
 
-fn tod(hour: u16) -> Tod {
-    match hour {
-        5..=7 => Tod::Dawn,
-        17..=18 => Tod::Sunset,
-        19..=23 | 0..=4 => Tod::Night,
-        _ => Tod::Day,
+/// 해를 못 구할 때(극야·백야) 쓰는 일출 05:30 / 일몰 17:30
+const SUN_FALLBACK: (i32, i32) = (330, 1050);
+
+fn tod(min: i32, (rise, set): (i32, i32)) -> Tod {
+    if min >= rise - 30 && min < rise + 60 {
+        Tod::Dawn
+    } else if min >= set - 30 && min < set + 40 {
+        Tod::Sunset
+    } else if min >= rise + 60 && min < set - 30 {
+        Tod::Day
+    } else {
+        Tod::Night
     }
+}
+
+/// 1월 1일 = 1
+fn day_of_year(y: i32, m: u32, d: u32) -> u32 {
+    const CUM: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    CUM[(m as usize - 1).min(11)] + d + (leap && m > 2) as u32
+}
+
+/// NOAA 일출·일몰 (General Solar Position 근사식, 대기 굴절 0.833°) → 현지 시각(분). 극야/백야 = None.
+fn sun_times(lat: f64, lon: f64, doy: u32, tz_min: i32) -> Option<(i32, i32)> {
+    let g = std::f64::consts::TAU / 365.0 * (doy as f64 - 1.0);
+    let eq = 229.18 * (0.000075 + 0.001868 * g.cos() - 0.032077 * g.sin() - 0.014615 * (2.0 * g).cos() - 0.040849 * (2.0 * g).sin());
+    let decl = 0.006918 - 0.399912 * g.cos() + 0.070257 * g.sin() - 0.006758 * (2.0 * g).cos() + 0.000907 * (2.0 * g).sin() - 0.002697 * (3.0 * g).cos()
+        + 0.00148 * (3.0 * g).sin();
+    let la = lat.to_radians();
+    let c = 90.833f64.to_radians().cos() / (la.cos() * decl.cos()) - la.tan() * decl.tan();
+    if !(-1.0..=1.0).contains(&c) {
+        return None;
+    }
+    let ha = c.acos().to_degrees();
+    let at = |h: f64| (720.0 - 4.0 * (lon + h) - eq + tz_min as f64).round() as i32;
+    Some((at(ha), at(-ha)))
+}
+
+/// 현지 표준시/일광 절약 시간 오프셋(분, UTC+9 = 540)
+fn tz_offset() -> i32 {
+    use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
+    let mut z = TIME_ZONE_INFORMATION::default();
+    let r = unsafe { GetTimeZoneInformation(&mut z) };
+    -(z.Bias + if r == 2 { z.DaylightBias } else { z.StandardBias })
 }
 
 /// 날씨 글자(JS 가 store `fx.weather` 에 씀) → 0 맑음/흐림, 1 비, 2 눈
@@ -361,6 +389,8 @@ fn fx_trigger(prev: Option<(Tod, u8)>, cur: (Tod, u8), season: Option<&'static s
 
 /// 트레이 '날씨·계절 효과' 체크 항목 (패널에서 바꾸면 watch 루프가 맞춰 준다)
 pub struct FxMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
+/// 트레이 'Windows 작업 표시줄 숨기기' 체크 항목
+pub struct TbMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
 
 fn last_input() -> u32 {
     let mut li = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
@@ -388,6 +418,7 @@ pub fn start(app: AppHandle) {
         let mut sky: Option<(Tod, u8)> = None;
         let mut season_shown = (0u16, 0u16);
         let mut fx_on: Option<bool> = None;
+        let mut tb_hide: Option<bool> = None; // 시작 시 적용은 lib.rs setup 이 한다 → 첫 틱은 기록만
 
         loop {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
@@ -494,9 +525,23 @@ pub fn start(app: AppHandle) {
                             let _ = m.0.set_checked(on);
                         }
                     }
+                    // 작업 표시줄 숨기기: 패널에서 바뀌면 적용 + 트레이 체크 맞춤
+                    let hide = s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if tb_hide != Some(hide) {
+                        if tb_hide.is_some() {
+                            crate::taskbar::set(hide, crate::taskbar::Ev::Setting);
+                        }
+                        tb_hide = Some(hide);
+                        if let Some(m) = app.try_state::<TbMenu>() {
+                            let _ = m.0.set_checked(hide);
+                        }
+                    }
                     let lt = GetLocalTime();
                     let w = s.get("fx.weather");
-                    let cur = (tod(lt.wHour), wet(w.as_ref().and_then(|w| w["text"].as_str()).unwrap_or_default()));
+                    // 도시 좌표(JS 가 지오코딩해 store `fx.coords` = [위도, 경도]), 없으면 서울
+                    let (lat, lon) = s.get("fx.coords").and_then(|v| serde_json::from_value::<(f64, f64)>(v).ok()).unwrap_or((37.57, 126.98));
+                    let sun = sun_times(lat, lon, day_of_year(lt.wYear as i32, lt.wMonth as u32, lt.wDay as u32), tz_offset()).unwrap_or(SUN_FALLBACK);
+                    let cur = (tod(lt.wHour as i32 * 60 + lt.wMinute as i32, sun), wet(w.as_ref().and_then(|w| w["text"].as_str()).unwrap_or_default()));
                     let today = (lt.wMonth, lt.wDay);
                     let season = season_fx(lt.wMonth, lt.wDay).filter(|_| season_shown != today);
                     if let Some(kind) = fx_trigger(sky, cur, season) {
@@ -524,14 +569,7 @@ pub fn start(app: AppHandle) {
                 if !hidden && ALARMS_READY.load(Ordering::Relaxed) {
                     check_alarms(&app);
                 }
-                // B3: 실행 인디케이터. ponytail: 2s 폴링 — 지연이 거슬리면 주기 단축
-                let r = running(me);
-                let mut st = STATE.lock().unwrap();
-                if r != st.1 {
-                    st.1 = r.clone();
-                    let _ = app.emit("running", r);
-                }
-                drop(st);
+                // B3 실행 집합은 shell.rs 가 창 이벤트로 갱신한다 (예전 2s EnumWindows 폴링 대체)
                 // C4: 전원 상태는 바뀔 때만 emit (JS 폴링 없음)
                 let p = power();
                 if p != pow {
@@ -597,7 +635,7 @@ mod tests {
         let calc = r"shell:appsfolder\microsoft.windowscalculator_8wekyb3d8bbwe!app";
         let (keys, frame) = unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let keys = running(GetCurrentProcessId());
+            let keys: Vec<String> = app_windows(GetCurrentProcessId()).into_iter().flat_map(|(_, k)| k).collect();
             // 포그라운드 이벤트가 쓰는 info(): 계산기의 ApplicationFrameHost 창에서 AUMID 가 풀리는가
             unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> BOOL {
                 (*(l.0 as *mut Vec<HWND>)).push(h);
@@ -666,7 +704,11 @@ mod tests {
 
     #[test]
     fn fx_rules() {
-        assert_eq!((tod(4), tod(5), tod(8), tod(17), tod(19), tod(0)), (Tod::Night, Tod::Dawn, Tod::Day, Tod::Sunset, Tod::Night, Tod::Night));
+        let sun = (311, 1197); // 서울 하지
+        let t = |h: i32, m: i32| tod(h * 60 + m, sun);
+        assert_eq!((t(4, 40), t(4, 41), t(6, 10), t(6, 11), t(19, 26), t(19, 27), t(20, 36), t(20, 37), t(0, 0)), (
+            Tod::Night, Tod::Dawn, Tod::Dawn, Tod::Day, Tod::Day, Tod::Sunset, Tod::Sunset, Tod::Night, Tod::Night
+        ));
         let day = (Tod::Day, 0);
         // 시작 직후: 시간대·날씨로는 안 뜸, 계절 첫날만
         assert_eq!(fx_trigger(None, (Tod::Sunset, 1), None), None);
@@ -685,6 +727,22 @@ mod tests {
         assert_eq!(fx_trigger(Some(day), (Tod::Sunset, 0), Some("snow")), Some("snow"));
         assert_eq!((season_fx(9, 1), season_fx(12, 1), season_fx(3, 1), season_fx(9, 2)), (Some("leaves"), Some("snow"), None, None));
         assert_eq!((wet("비"), wet("눈"), wet("흐림"), wet("")), (1, 2, 0, 0));
+    }
+
+    #[test]
+    fn sun_seoul() {
+        // 서울 2026-06-21: 일출 ≈ 05:11, 일몰 ≈ 19:57 KST (±5분)
+        let doy = day_of_year(2026, 6, 21);
+        assert_eq!(doy, 172);
+        let (rise, set) = sun_times(37.57, 126.98, doy, 540).unwrap();
+        assert!((rise - 311).abs() <= 5, "rise {rise}");
+        assert!((set - 1197).abs() <= 5, "set {set}");
+        // 동지: 07:43 / 17:17 근처
+        let (rise, set) = sun_times(37.57, 126.98, day_of_year(2026, 12, 21), 540).unwrap();
+        assert!((rise - 463).abs() <= 6 && (set - 1037).abs() <= 6, "{rise} {set}");
+        assert_eq!(day_of_year(2024, 3, 1), 61); // 윤년
+        // 백야(북극권 하지) = None → SUN_FALLBACK
+        assert!(sun_times(78.2, 15.6, 172, 60).is_none());
     }
 
     #[test]

@@ -1,6 +1,8 @@
 mod clip;
 mod icons;
 mod launch;
+mod shell;
+mod taskbar;
 mod watch;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -18,6 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 // 논리 px. 창은 최대 크기 고정, 모양은 CSS clip-path/크기 프리셋 (glass.css 의 .dock/.island + 여백 8px).
 const DOCK: (f64, f64) = (960.0, 178.0);
+/// 독 창 최대 폭 (실행 중 앱이 늘면 줄이 길어진다) — 작업 영역 폭으로 제한
+const DOCK_MAX_W: f64 = 1600.0;
 /// v2 앱 묶음 팝오버가 열린 동안 독 창을 위로 키운 높이 (팝오버 3줄 + 여유). 내용은 CSS 로 하단 고정이라 그대로.
 const DOCK_TALL: f64 = 560.0;
 static DOCK_IS_TALL: AtomicBool = AtomicBool::new(false);
@@ -68,7 +72,8 @@ pub(crate) fn place(app: &AppHandle) {
     let (s, wa) = (m.scale_factor(), *m.work_area());
     let (x, y, w, h) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
     let dock_h = if DOCK_IS_TALL.load(Ordering::Relaxed) { DOCK_TALL } else { DOCK.1 };
-    for (label, (lw, lh)) in [("dock", (DOCK.0, dock_h)), ("island", ISLAND)] {
+    let dock_w = DOCK_MAX_W.min(w / s);
+    for (label, (lw, lh)) in [("dock", (dock_w, dock_h)), ("island", ISLAND)] {
         let Some(Ok(hwnd)) = app.get_webview_window(label).map(|w| w.hwnd()) else { continue };
         let top = if label == "island" { y } else { y + h - lh * s };
         // 크기·위치를 한 번에 (set_size → set_position 두 번이면 독이 한 프레임 아래로 튄다)
@@ -331,6 +336,33 @@ async fn fx(app: AppHandle, kind: String) -> Result<(), String> {
     open_fx(&app, &kind).map_err(|e| e.to_string())
 }
 
+/* ── 작업 표시줄 대체 (shell.rs / taskbar.rs) ── */
+#[tauri::command]
+fn windows_list() -> Vec<shell::Win> {
+    shell::list()
+}
+
+#[tauri::command]
+async fn win_click(hwnd: isize) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || shell::click(hwnd)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn win_close(hwnd: isize) -> Result<(), String> {
+    shell::close(hwnd)
+}
+
+#[tauri::command]
+async fn shell_key(kind: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || shell::key(&kind)).await.map_err(|e| e.to_string())?
+}
+
+/// 창 목록 팝오버의 DWM 썸네일 (호출한 창 = 독에 그린다). 빈 목록 = 모두 해제.
+#[tauri::command]
+fn thumbs(window: WebviewWindow, list: Vec<(isize, [f64; 4])>) -> Result<usize, String> {
+    Ok(shell::thumbs(window.hwnd().map_err(|e| e.to_string())?, list))
+}
+
 #[tauri::command]
 async fn toggle_panel(app: AppHandle, tab: String) -> Result<(), String> {
     toggle(&app, &tab).map_err(|e| e.to_string())
@@ -430,7 +462,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
-            turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx
+            turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
+            shell_key, thumbs
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -453,6 +486,8 @@ pub fn run() {
                 s.set("dock.pinned", serde_json::json!(["calc", "notepad", "github"]));
                 s.set("seeded", true);
             }
+            // 작업 표시줄 숨기기: 켜져 있으면 적용, 꺼져 있는데 숨겨진 채면(이전 실행이 죽음) 복원
+            taskbar::set(s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false), taskbar::Ev::Startup);
             let h = app.handle();
             let dock = overlay(h, "dock", "", DOCK)?;
             let island = overlay(h, "island", "", ISLAND)?;
@@ -468,6 +503,7 @@ pub fn run() {
             }
             watch::start(h.clone());
             clip::start(h.clone());
+            shell::start(h.clone());
             // 팔레트·턴테이블은 부가 기능 — 실패해도 시작은 계속 (팔레트는 첫 단축키 때 다시 만든다)
             if let Err(e) = palette_window(h) {
                 eprintln!("palette window: {e}");
@@ -496,6 +532,9 @@ pub fn run() {
             let fx_on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
             let fx_item = CheckMenuItem::with_id(app, "fx", "날씨·계절 효과", true, fx_on, None::<&str>)?;
             app.manage(watch::FxMenu(fx_item.clone()));
+            let tb_on = s.get("taskbar.hide").and_then(|v| v.as_bool()).unwrap_or(false);
+            let tb_item = CheckMenuItem::with_id(app, "taskbar", "Windows 작업 표시줄 숨기기", true, tb_on, None::<&str>)?;
+            app.manage(watch::TbMenu(tb_item.clone()));
             let menu = Menu::with_items(
                 app,
                 &[
@@ -503,6 +542,7 @@ pub fn run() {
                     &MenuItem::with_id(app, "palette", format!("검색 ({PALETTE_HOTKEY})"), true, None::<&str>)?,
                     &MenuItem::with_id(app, "turntable", "턴테이블 보이기/숨기기", true, None::<&str>)?,
                     &fx_item,
+                    &tb_item,
                     &auto,
                     &MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?,
                 ],
@@ -531,6 +571,12 @@ pub fn run() {
                             s.set("fx.enabled", m.0.is_checked().unwrap_or(true));
                         }
                     }
+                    "taskbar" => {
+                        // 적용은 watch 루프가 store 변화를 보고 한다 (패널 스위치와 같은 경로)
+                        if let (Ok(s), Some(m)) = (app.store("hera.json"), app.try_state::<watch::TbMenu>()) {
+                            s.set("taskbar.hide", m.0.is_checked().unwrap_or(false));
+                        }
+                    }
                     "autostart" => {
                         let a = app.autolaunch();
                         let _ = if a.is_enabled().unwrap_or(false) { a.disable() } else { a.enable() };
@@ -541,6 +587,7 @@ pub fn run() {
                         if let Ok(s) = app.store("hera.json") {
                             let _ = s.save();
                         }
+                        taskbar::handle(taskbar::Ev::Exit); // 숨겨 둔 작업 표시줄·작업 영역 복원
                         app.exit(0)
                     }
                     _ => {}

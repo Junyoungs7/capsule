@@ -205,7 +205,74 @@
 .fx[data-sky='true'][data-show='true'] { opacity: 0.85; } /* 하늘 효과: 바탕화면이 살짝 비치게 */
 .fx[data-show='false'] { transition: opacity 2500ms ease-in-out; }
 
+
+/* ── 작업 표시줄 대체 ── */
+/* 단일 표면 창: 독 창 폭(작업 영역에 맞춰 최대 1600)을 그대로 쓴다 — 실행 중 앱이 늘어도 줄이 잘리지 않게 */
+.desktop:not([data-only='all']) .dock { width: 100%; }
+/* 왼쪽 2×2 작은 버튼 (시작 · 숨은 아이콘 · 빠른 설정 · 알림 센터) */
+.sys-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 52px; }
+.sys-keys button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: default;
+  transition: transform 140ms var(--ease-out), background 140ms, color 140ms;
+}
+.sys-keys button:hover { color: var(--text); background: var(--fill-2); }
+.sys-keys button:active { transform: scale(0.9); }
+.sys-keys svg { width: 15px; height: 15px; }
+/* 창 목록 팝오버: 썸네일 칸(DWM 이 위에 그림, 아래 아이콘은 최소화·실패 시 보임) + 제목 + 닫기 */
+.win-grid { display: grid; grid-template-columns: repeat(var(--n, 3), 172px); gap: 6px; }
+.win-pop .win-grid { grid-template-columns: repeat(auto-fill, 172px); max-width: 712px; }
+.win-pop { max-width: 740px; }
+.win-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 14px; cursor: default; }
+.win-card:hover { background: var(--fill-2); }
+.win-card:active .win-thumb { transform: scale(0.97); }
+.win-thumb { display: grid; place-items: center; height: 100px; border-radius: 10px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); transition: transform 160ms var(--ease-out); }
+.win-card small { overflow: hidden; padding: 0 2px; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 550; }
+.win-card[data-flash='true'] small { color: #ff9f0a; }
+.win-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--glass-strong);
+  box-shadow: inset 0 0 0 1px var(--edge), var(--shadow);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 120ms, transform 160ms var(--ease-out);
+}
+.win-card:hover .win-x, .win-x:focus-visible { opacity: 1; transform: none; }
+/* 우클릭 메뉴 */
+.run-menu { display: flex; flex-direction: column; gap: 2px; padding: 6px; min-width: 132px; border-radius: 14px; }
+.run-menu button { padding: 7px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 12.5px; font-weight: 550; cursor: default; white-space: nowrap; }
+.run-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+/* 깜빡임(주의): 주황 점 맥박 + 맥처럼 가끔 통통 튐. 접힌 독 점도 주황으로 맥박 */
+.dock-slot[data-attention='true'] > .dock-dot { opacity: 1; background: #ff9f0a; animation: attn-dot 900ms ease-in-out infinite alternate; }
+.dock-slot[data-attention='true'] .icon-bounce { animation: attn-bounce 2.6s var(--ease-out) infinite; }
+.dock[data-attention='true'][data-open='false'] .dock-glass::after { background: #ff9f0a; animation: attn-dot 900ms ease-in-out infinite alternate; }
+@keyframes attn-dot { from { opacity: 1; } to { opacity: 0.4; } }
+@keyframes attn-bounce {
+  0%, 34%, 100% { transform: none; }
+  10% { transform: translateY(-14px); }
+  20% { transform: none; }
+  27% { transform: translateY(-5px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .dock-slot[data-attention='true'] .icon-bounce { animation: none; }
   .folder-pop, .folder-pop[data-show='true'] { transform: translateX(-50%); }
   .ascii-full, .ascii-full[data-show='true'], .ascii-full[data-zoom='true'] { transform: none; clip-path: none; transition: opacity 240ms; }
   .palette-list li.clip { animation: fade 160ms; }

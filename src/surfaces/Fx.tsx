@@ -21,14 +21,18 @@ export const fakeWeather = (city: string): Weather => {
 const wmo = (c: number): Weather['text'] =>
   c === 0 ? '맑음' : c <= 2 ? '구름 조금' : c <= 48 ? '흐림' : (c >= 71 && c <= 77) || c === 85 || c === 86 ? '눈' : '비'
 const geo = new Map<string, [number, number]>()
-/** 실제 앱: Open-Meteo (키 없음). 보내는 것은 도시 이름(지오코딩)과 좌표뿐. */
-export async function fetchWeather(city: string): Promise<Weather> {
+/** 실제 앱: Open-Meteo 지오코딩 (도시 이름만 보냄) → [위도, 경도]. 좌표는 Rust 일출·일몰 계산에도 쓴다(store `fx.coords`). */
+export async function geocode(city: string): Promise<[number, number]> {
   let c = geo.get(city)
   if (!c) {
     const g = (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=ko&name=${encodeURIComponent(city)}`).then((r) => r.json())).results?.[0]
     if (!g) throw new Error(`도시를 찾지 못했어요: ${city}`)
     geo.set(city, (c = [g.latitude, g.longitude]))
   }
+  return c
+}
+/** 실제 앱: Open-Meteo 현재 날씨 (키 없음, 좌표만 보냄) */
+export async function fetchWeather(c: [number, number]): Promise<Weather> {
   const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c[0]}&longitude=${c[1]}&current=temperature_2m,weather_code`).then((r) => r.json())
   return { text: wmo(w.current.weather_code), temp: Math.round(w.current.temperature_2m) }
 }

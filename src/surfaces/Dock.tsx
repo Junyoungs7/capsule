@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type TransitionEvent } from 'react'
 import type { AppGroup, LpRecord, ShelfFile } from '../data/types'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, wallpaper } from '../data/api'
+import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, thumbs, wallpaper, type Win } from '../data/api'
 import { Shelf } from './Shelf'
 import { AsciiWidget, type SceneId } from './Ascii'
 
@@ -89,9 +89,16 @@ type Props = {
   groups: { group: AppGroup; recs: LpRecord[] }[]
   scene: SceneId
   onAscii: (from: DOMRect) => void
+  // 작업 표시줄 대체
+  runApps: { rec: LpRecord; wins: Win[] }[] // 고정 안 된 실행 중 앱 (앱별 창 묶음)
+  attention: Set<string> // 깜빡이는 앱: 레코드 id · run:<키>
+  onWinClick: (w: Win) => void
+  onWinClose: (w: Win) => void
+  onPin: (r: LpRecord) => void
+  onKey: (k: 'start' | 'tray' | 'quick' | 'notify') => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
   const [open, setOpen] = useState(false)
   const [folder, setFolder] = useState<string | null>(null) // 열린 앱 묶음 id
   const root = useRef<HTMLDivElement>(null)
@@ -127,7 +134,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
     // 펼침: 바 + 확대 여유(좌우 SPREAD, 위로 확대된 아이콘 높이 — CSS .dock-hit 높이) → 확대 아이콘 윗부분 클릭도 독이 받는다
     hit.current!.style.width = open ? row.current!.offsetWidth + 20 + SPREAD + 'px' : ''
     report.current()
-  }, [open, records.length, shelf.length, groups.length, folder])
+  }, [open, records.length, shelf.length, groups.length, folder, runApps.length])
   useEffect(() => {
     if (!isTauri) return
     const f = () => report.current()
@@ -265,13 +272,15 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   }
 
   return (
-    <div ref={root} className="dock" data-open={open} data-wall={hasWall} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
+    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-attention={attention.size > 0} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
       <div ref={glass} className="dock-glass">{isTauri && <canvas ref={wall} className="dock-wall" />}</div>
       <div ref={ring} className="dock-ring" />
       <div ref={hit} className="dock-hit" />
       <div ref={row} className="dock-row" role="toolbar" aria-label="독">
+        <SysKeys onKey={onKey} />
+        <span className="dock-sep" />
         {records.map((r) => (
-          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: 턴테이블에 올리기)`}>
+          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} data-attention={attention.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: 턴테이블에 올리기)`}>
             <span className="icon-mag">
               <span className="icon-bounce"><Tile rec={r} /></span>
             </span>
@@ -289,6 +298,21 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
             onToggle={(o) => void openFolder(o ? group.id : null)}
             onClose={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
             onLaunch={onLaunch}
+          />
+        ))}
+        {runApps.length > 0 && <span className="dock-sep" />}
+        {runApps.map(({ rec, wins }) => (
+          <RunApp
+            key={rec.id}
+            rec={rec}
+            wins={wins}
+            attention={attention.has(rec.id)}
+            pop={folder === rec.id ? 'wins' : folder === 'menu:' + rec.id ? 'menu' : null}
+            onPop={(kind) => void openFolder(kind ? (kind === 'menu' ? 'menu:' : '') + rec.id : null)}
+            onClosed={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+            onWinClick={onWinClick}
+            onWinClose={onWinClose}
+            onPin={onPin}
           />
         ))}
         <span className="dock-sep" />
@@ -326,16 +350,7 @@ function Folder({ group, recs, running, open, onToggle, onClose, onLaunch }: {
 }) {
   const p = usePresence<HTMLDivElement>(open)
   const slot = useRef<HTMLDivElement>(null)
-  const close = useRef(onClose)
-  close.current = onClose
-  useEffect(() => {
-    if (!open) return
-    const down = (e: globalThis.PointerEvent) => !slot.current!.contains(e.target as Node) && close.current(!!(e.target as Element).closest?.('.dock-row'))
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && close.current(true)
-    addEventListener('pointerdown', down)
-    addEventListener('keydown', key)
-    return () => (removeEventListener('pointerdown', down), removeEventListener('keydown', key))
-  }, [open])
+  const close = useDismiss(open, slot, onClose)
   return (
     <div ref={slot} className="dock-slot folder" data-running={recs.some((r) => running.has(r.id))} data-open={open}>
       <button className="folder-btn" onClick={() => onToggle(!open)} aria-expanded={open} aria-label={`${group.title} 묶음 · 앱 ${recs.length}개`}>
@@ -360,6 +375,113 @@ function Folder({ group, recs, running, open, onToggle, onClose, onLaunch }: {
               </button>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 팝오버 닫기: 슬롯 바깥 pointerdown(독 줄 안이면 inside=true) · Esc. 반환 = 최신 onClose ref */
+function useDismiss(open: boolean, slot: React.RefObject<HTMLElement | null>, onClose: (inside: boolean) => void) {
+  const close = useRef(onClose)
+  close.current = onClose
+  useEffect(() => {
+    if (!open) return
+    const down = (e: globalThis.PointerEvent) => !slot.current!.contains(e.target as Node) && close.current(!!(e.target as Element).closest?.('.dock-row'))
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && close.current(true)
+    addEventListener('pointerdown', down)
+    addEventListener('keydown', key)
+    return () => (removeEventListener('pointerdown', down), removeEventListener('keydown', key))
+  }, [open])
+  return close
+}
+
+/* 작업 표시줄 대체: 독 왼쪽 2×2 작은 버튼 — 시작 · 숨은 트레이 · 빠른 설정 · 알림 센터 (Rust 가 Win 키 조합을 보낸다) */
+function SysKeys({ onKey }: { onKey: Props['onKey'] }) {
+  const keys = [
+    ['start', '시작', <path key="s" d="M5 5h6v6H5zM13 5h6v6h-6zM5 13h6v6H5zM13 13h6v6h-6z" />],
+    ['tray', '숨은 아이콘', <path key="t" d="M7 14l5-5 5 5" />],
+    ['quick', '빠른 설정', <path key="q" d="M5 8h9M18 8h1M5 16h1M10 16h9M16 6v4M8 14v4" />],
+    ['notify', '알림 센터', <path key="n" d="M7 16V11a5 5 0 0 1 10 0v5l1.5 2h-13zM10.5 20h3" />],
+  ] as const
+  return (
+    <div className="dock-slot sys-keys" role="group" aria-label="Windows">
+      {keys.map(([k, label, icon]) => (
+        <button key={k} onClick={() => onKey(k)} aria-label={label} title={label}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{icon}</svg>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* 고정 안 된 실행 중 앱: 창 1개 = 클릭으로 활성/최소화/복원, 여러 개 = 창 목록 팝오버(DWM 썸네일). 우클릭 = 고정·닫기 메뉴.
+   팝오버는 앱 묶음과 같은 독 키우기·닫기 경로(folder 상태)를 쓴다. */
+function RunApp({ rec, wins, attention, pop, onPop, onClosed, onWinClick, onWinClose, onPin }: {
+  rec: LpRecord
+  wins: Win[]
+  attention: boolean
+  pop: 'wins' | 'menu' | null
+  onPop: (kind: 'wins' | 'menu' | null) => void
+  onClosed: (pointerInside: boolean) => void
+  onWinClick: (w: Win) => void
+  onWinClose: (w: Win) => void
+  onPin: (r: LpRecord) => void
+}) {
+  const slot = useRef<HTMLDivElement>(null)
+  const close = useDismiss(!!pop, slot, onClosed)
+  const wp = usePresence<HTMLDivElement>(pop === 'wins')
+  const mp = usePresence<HTMLDivElement>(pop === 'menu')
+  // 썸네일: 팝오버 스프링이 끝난 뒤(transform transitionend) 칸 위치에 등록, 닫히기 시작하면 바로 해제 (DWM 은 CSS 변형을 못 따라간다)
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    if (pop !== 'wins' || !settled) return
+    const el = wp.ref.current
+    if (!el) return
+    const slots = [...el.querySelectorAll<HTMLElement>('.win-thumb[data-min="false"]')]
+    void thumbs(slots.map((s) => [Number(s.dataset.hwnd), s.getBoundingClientRect()]))
+    return () => void thumbs([])
+  }, [pop, settled, wins])
+  useEffect(() => void (pop !== 'wins' && setSettled(false)), [pop])
+  const click = () => (wins.length === 1 ? onWinClick(wins[0]) : onPop(pop === 'wins' ? null : 'wins'))
+  return (
+    <div ref={slot} className="dock-slot folder run-app" data-running data-attention={attention} data-open={!!pop}>
+      <button className="folder-btn" onClick={click} onContextMenu={(e) => (e.preventDefault(), onPop('menu'))} aria-label={`${rec.title} · 창 ${wins.length}개 (우클릭: 메뉴)`}>
+        <span className="icon-mag">
+          <span className="icon-bounce"><Tile rec={rec} /></span>
+        </span>
+      </button>
+      <span className="dock-label">{rec.title}</span>
+      <span className="dock-dot" />
+      {wp.mounted && (
+        <div
+          ref={wp.ref}
+          className="folder-pop glass-card win-pop"
+          onTransitionEnd={(e) => (wp.onTransitionEnd(e), e.target === e.currentTarget && e.propertyName === 'transform' && pop === 'wins' && setSettled(true))}
+          onPointerMove={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label={`${rec.title} 창 목록`}
+        >
+          <b>{rec.title}</b>
+          <div className="win-grid">
+            {wins.map((w) => (
+              <div key={w.hwnd} className="win-card" role="button" tabIndex={0} data-flash={w.flash}
+                onClick={() => (onWinClick(w), close.current(true))}
+                onAuxClick={(e) => e.button === 1 && onWinClose(w)}
+                onKeyDown={(e) => e.key === 'Enter' && (onWinClick(w), close.current(true))}
+              >
+                <span className="win-thumb" data-hwnd={w.hwnd} data-min={w.min}><Tile rec={rec} size={34} /></span>
+                <small>{w.title}</small>
+                <button className="win-x" onClick={(e) => (e.stopPropagation(), onWinClose(w))} aria-label={`${w.title} 닫기`}>×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {mp.mounted && (
+        <div ref={mp.ref} className="folder-pop glass-card run-menu" onTransitionEnd={mp.onTransitionEnd} role="menu" aria-label={`${rec.title} 메뉴`}>
+          <button role="menuitem" onClick={() => (onPin(rec), close.current(true))}>독에 고정</button>
+          <button role="menuitem" onClick={() => (wins.forEach(onWinClose), close.current(true))}>{wins.length > 1 ? `창 ${wins.length}개 닫기` : '창 닫기'}</button>
         </div>
       )}
     </div>

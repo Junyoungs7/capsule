@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   activate, clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
-  setTurntable, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg,
+  setTurntable, shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
@@ -12,13 +12,15 @@ import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
-import { FX_LABEL, Fx, fakeWeather, fetchWeather, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
+import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
 const appName = (f: Fg) => (f.title.includes(' - ') ? f.title.split(' - ').pop()! : f.title) || titleOf(f.exePath)
 const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has((r.exe ?? r.target).toLowerCase())
 const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 const key = (r: LpRecord) => (r.exe ?? r.target).toLowerCase()
+// 실행 중 앱 이름: 제목의 마지막 " - " 조각, 패키지 앱은 창 제목(예: 계산기), 그 외 exe 이름
+const winName = (w: Win) => (w.title.includes(' - ') ? w.title.split(' - ').pop()! : w.aumid ? w.title : titleOf(w.exe)) || titleOf(w.exe)
 const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
@@ -84,8 +86,13 @@ export function Desktop({ only }: { only?: string }) {
 
   // v2 효과: 스위치·도시는 저장 (스위치는 트레이와 공유, Rust 가 판정). 날씨: 시안 = 가짜, 실제 앱 = 독 창이 30분마다 받아 store 에.
   const [fxOn, setFxOn] = useValue('fx.enabled', true)
+  // 작업 표시줄 숨기기 (Rust watch 루프가 store 변화를 보고 적용 · 트레이 체크와 공유)
+  const [tbHide, setTbHide] = useValue('taskbar.hide', false)
   const [city, setCity] = useValue('fx.city', '서울')
   const [liveWeather, setLiveWeather] = useValue<Weather | null>('fx.weather', null)
+  const [coords, setCoords] = useValue<[number, number] | null>('fx.coords', null)
+  const coordsNow = useRef(coords)
+  coordsNow.current = coords
   const [weatherOverride, setWeatherOverride] = useState<Weather | null>(null)
   const weather = weatherOverride ?? (isTauri ? liveWeather : fakeWeather(city))
   useEffect(() => {
@@ -93,7 +100,10 @@ export function Desktop({ only }: { only?: string }) {
     let live = true, t = 0
     const tick = () => {
       // 실패하면 그대로 둔다 → 효과는 계절·시간대만으로
-      fetchWeather(city).then((w) => live && setLiveWeather(w), (e) => console.warn('weather', e))
+      // 좌표(일출·일몰 계산용)는 날씨 서버가 막혀도 저장된다 — 바뀌었을 때만 쓴다
+      geocode(city)
+        .then((c) => (live && String(c) !== String(coordsNow.current) && setCoords(c), fetchWeather(c)))
+        .then((w) => live && setLiveWeather(w), (e) => console.warn('weather', e))
       t = window.setTimeout(tick, 30 * 60_000)
     }
     tick()
@@ -173,6 +183,30 @@ export function Desktop({ only }: { only?: string }) {
       )
     return () => offs.forEach((off) => off())
   }, [])
+  // 작업 표시줄 대체: 실행 중 앱 창 (독 창만). 독에 고정된 레코드와 같은 앱은 실행 점만, 나머지는 구분선 뒤에 앱별로.
+  const [wins, setWins] = useState<Win[]>([])
+  useEffect(() => {
+    if (!isTauri || only !== 'dock') return
+    void windowsList().then(setWins)
+    return onEvent<Win[]>('windows', setWins)
+  }, [])
+  const runApps = useMemo(() => {
+    const pinnedKeys = new Set(dockRecords.filter((r) => r.kind === 'single').map(key))
+    const m = new Map<string, Win[]>()
+    for (const w of wins) if (!w.keys.some((k) => pinnedKeys.has(k))) m.set(w.key, [...(m.get(w.key) ?? []), w])
+    return [...m.values()].map((ws) => {
+      const w = ws[0]
+      const rec: LpRecord = { id: 'run:' + w.key, title: winName(w), target: w.aumid ? `shell:AppsFolder\\${w.aumid}` : w.exe, kind: 'single', cover: '#64748B', glyph: 'text' }
+      return { rec, wins: ws }
+    })
+  }, [wins, dockRecords])
+  // 깜빡임(주의): 레코드 id · 'run:<키>' — 창이 맨 앞으로 오면 Rust 가 지운다
+  const attention = useMemo(() => {
+    const keys = new Set(wins.filter((w) => w.flash).flatMap((w) => w.keys))
+    const ids = new Set(dockRecords.filter((r) => r.kind === 'single' && keys.has(key(r))).map((r) => r.id))
+    for (const a of runApps) if (a.wins.some((w) => w.flash)) ids.add(a.rec.id)
+    return ids
+  }, [wins, dockRecords, runApps])
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
   // 살아 있는 레코드 id: 단일 = 실행 집합에 대상이 있음, 세트 = 멤버 중 하나라도 (독 실행 점·턴테이블 회전 공용)
   const aliveIds = useMemo(() => {
@@ -379,6 +413,12 @@ export function Desktop({ only }: { only?: string }) {
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
           groups={dockGroups}
           scene={scene}
+          runApps={runApps}
+          attention={attention}
+          onWinClick={(w) => void winClick(w.hwnd).catch((e) => showAlert({ title: '창을 열 수 없어요', body: String(e) }))}
+          onWinClose={(w) => void winClose(w.hwnd).catch(() => {})}
+          onPin={(r) => void addRecord(r.target, r.title)}
+          onKey={(k) => void shellKey(k).catch((e) => showAlert({ title: '키를 보내지 못했어요', body: String(e) }))}
           onAscii={(from) => (isTauri ? void openAscii([from.left + screenX, from.top + screenY, from.width, from.height]) : setAscii({ open: true, from, saver: false }))}
         />
       )}
@@ -411,6 +451,8 @@ export function Desktop({ only }: { only?: string }) {
           idleMin={idleMin}
           setIdleMin={setIdleMin}
           onFxNow={() => playFx(pickFx(clock, weather))}
+          tbHide={tbHide}
+          setTbHide={setTbHide}
         />
       )}
       {palette && show('palette') && (

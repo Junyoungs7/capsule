@@ -201,3 +201,15 @@ export const openAscii = (from: [number, number, number, number]) => invoke('asc
 export const openFx = (kind: string) => invoke('fx', { kind })
 // 호출한 창 파괴 (패널·아스키·효과 공용 — Rust close_panel 은 호출 창을 닫는다)
 export const closeSelf = () => invoke('close_panel')
+
+/* ── 작업 표시줄 대체: 실행 중 앱 창 (Rust shell.rs 가 창 이벤트로 'windows' emit) ── */
+export type Win = { hwnd: number; key: string; keys: string[]; title: string; exe: string; aumid: string; min: boolean; flash: boolean }
+export const windowsList = () => invoke<Win[]>('windows_list')
+// 클릭: 최소화면 복원 / 맨 앞이면 최소화 / 아니면 앞으로
+export const winClick = (hwnd: number) => invoke('win_click', { hwnd })
+export const winClose = (hwnd: number) => invoke('win_close', { hwnd })
+// 시작 · 숨은 트레이 · 빠른 설정 · 알림 센터
+export const shellKey = (kind: 'start' | 'tray' | 'quick' | 'notify') => (isTauri ? invoke('shell_key', { kind }) : Promise.resolve(console.info('[hera] key', kind)))
+// 창 목록 팝오버 DWM 썸네일: [hwnd, [x, y, w, h] 독 창 기준 CSS px] → 물리 px 로 보냄. 빈 배열 = 해제
+export const thumbs = (list: [number, DOMRect][]) =>
+  isTauri ? invoke<number>('thumbs', { list: list.map(([h, r]) => [h, [r.x, r.y, r.width, r.height].map((v) => v * devicePixelRatio)]) }) : Promise.resolve(0)
