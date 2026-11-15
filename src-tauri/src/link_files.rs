@@ -573,7 +573,13 @@ mod tests {
             }
             let (c, s, f) = (c.clone(), s2.clone(), file.clone());
             std::thread::spawn(move || {
-                println!("SEND {:?}", c.send_file(&f, &s));
+                // 3b 메시지: 맥 모니터 · 할 일 동기화 · 상대 화면 효과 · 가장자리로 보낸 파일
+                let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+                let _ = c.send(json!({ "t": "monitors", "list": [{ "id": "TestMac A", "rect": [0, 0, 1512, 982], "scale": 2.0, "primary": true }, { "id": "TestMac B", "rect": [1512, 0, 1920, 1080], "scale": 1.0, "primary": false }] }));
+                let _ = c.send(json!({ "t": "sync", "items": [{ "key": "todo:hera-live-test", "value": { "id": "hera-live-test", "title": "맥에서 온 할 일", "done": false, "source": "local" }, "at": at, "scope": "personal" }] }));
+                let _ = c.send(json!({ "t": "ambient", "kind": "fx", "fx": "moon", "action": "start" }));
+                println!("SEND {:?}", c.send_file_meta(&f, &s, json!({ "via": "edge", "edge": "left", "pos": 0.5 })));
+                std::thread::sleep(Duration::from_millis(800));
                 c.close();
             });
         })

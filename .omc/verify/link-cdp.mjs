@@ -48,8 +48,15 @@ if (file) {
   await sleep(800)
   const shelf = await dock.evaluate(`[...document.querySelectorAll('.shelf-file')].map(b => b.getAttribute('aria-label')).join(', ')`)
   ok('received file is on the dock shelf', /열기/.test(shelf), `(${shelf})`)
-  const [, f2] = await dock.evaluate(inv('link_status'))
-  console.log(`   files peer after close: ${f2}`)
+  // 3b: 맥 모니터 보고 → 배치에 반영, 동기화된 할 일, 상대 화면 효과(달·별) 창, Hera 가 보낸 동기화 스냅숏
+  const [mons] = await dock.evaluate(inv('link_plan'))
+  ok('Mac monitors from the link appear in the layout', mons.filter((m) => m.mac).map((m) => m.id).join(',') === 'TestMac A,TestMac B', `(${mons.map((m) => (m.mac ? 'mac:' : 'pc:') + m.id).join(' ')})`)
+  const todo = await dock.evaluate(`(async () => { const I = window.__TAURI_INTERNALS__; const rid = await I.invoke('plugin:store|get_store', { path: 'hera.json' }); return I.invoke('plugin:store|get', { rid, key: 'todo:hera-live-test' }) })()`)
+  ok('synced todo landed in the store', JSON.stringify(todo).includes('맥에서 온 할 일'), `(${JSON.stringify(todo)})`)
+  const fxOpen = (await (await fetch('http://127.0.0.1:9333/json')).json()).some((p) => p.url.includes('surface=fx'))
+  ok('ambient fx from the peer opened the effect window', fxOpen)
+  ok('Hera sent its own sync snapshot + monitors + keymap', /"t":"sync"/.test(r.out) && /"t":"monitors"/.test(r.out) && /"t":"keymap"/.test(r.out))
+  ok('edge-dropped file metadata arrived', /SEND Ok/.test(r.out))
 }
 // 정리: 링크 끄기 (격리 store)
 await dock.evaluate(storeSet('link.enabled', false))
