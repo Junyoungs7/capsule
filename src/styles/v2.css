@@ -155,7 +155,7 @@
 
 /* ── 아스키 (3D 캔버스) ── */
 .ascii3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.ascii-w { width: 88px; overflow: hidden; padding: 0; border: 0; cursor: default; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ascii-w { width: 112px; /* 독 2칸 (52 × 2 + 사이 8) */ overflow: hidden; padding: 0; border: 0; cursor: default; box-shadow: inset 0 0 0 1px var(--line-strong); }
 .ascii-w .ascii3d { border-radius: inherit; pointer-events: none; }
 .ascii-w::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12); }
 .ascii-full {
