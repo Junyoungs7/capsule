@@ -80,7 +80,8 @@ type Props = {
   ime?: { source: 'ko' | 'en'; n: number } | null // 한/영이 바뀐 직후 0.8초 '한'/'A' 칩
   onChip?: () => void // 연결 칩 클릭 = 맥 화면에 아스키 켜기/끄기
   // 허브 시안(독 없음): 알약 = 시계 · 다음 일정 · 작은 LP(재생 중) + 정지. 호버 미리보기 대신 허브가 열린다.
-  pill?: { clock: string; next?: string; rec?: LpRecord; onStop?: () => void; badge?: number; busy?: string }
+  // notch = 접힌 상태(얇은 노치 120×6, 글자 없음 · 점만). 펼침 = 시계 · 다음 일정 · 선반 칩
+  pill?: { clock: string; next?: string; badge?: number; busy?: string; notch: boolean; shelf?: number; onShelf?: () => void }
   msg?: { who: string; group: string; color: string; text: string; n: number } | null // 팀 채팅 수신 + 빠른 답장
   onReply?: (text: string) => void
   onMsgOpen?: () => void
@@ -128,15 +129,13 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       if (names.length) (split && right(e.clientX) ? onSendFiles! : onDropFiles)(names)
     },
   }
-  const pillW = pill ? 276 + (pill.rec ? 60 : 0) + (pill.badge ? 30 : 0) : 0
-  const [w, h, r] = mode === 'idle' && pill ? ([pillW, 40, 20] as const) : mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
+  const pillW = pill ? 300 + (pill.badge ? 30 : 0) + (pill.shelf ? 64 : 0) : 0
+  const [w, h, r] = mode === 'idle' && pill ? (pill.notch ? ([120, 6, 3] as const) : ([pillW, 40, 20] as const)) : mode === 'drop' && split ? ([404, 92, 30] as const) : mode === 'idle' && link?.connected ? ([156, 36, 18] as const) : SIZES[mode]
   const pct = link?.xfer ? Math.round((100 * link.xfer.bytes) / Math.max(1, link.xfer.size)) : 0
 
   // LP: 앱이 살아 있는 동안 회전 (계단식 가속 → 정속 30°/150ms). 디스크가 보일 때만 돌린다.
   const disc = useRef<HTMLSpanElement>(null)
   useSpin(disc, alive && mode === 'nowPlaying')
-  const mini = useRef<HTMLSpanElement>(null)
-  useSpin(mini, !!pill?.rec && mode === 'idle')
 
   // 경과 시간은 분 단위 — nowPlaying 표시 중에만 1분 타이머
   const [, tick] = useState(0)
@@ -172,19 +171,23 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
       <div className="island-shape" style={{ width: w, height: h, borderRadius: r }} />
 
       {pill && (
-        <div className="island-layer hubpill" style={{ width: pillW, height: 40 }} aria-hidden={mode !== 'idle'}>
-          <b className="pill-clock">{pill.clock}</b>
-          {pill.busy ? <span className="pill-next pill-busy"><i className="hub-spin" />{pill.busy}</span> : <span className="pill-next">{pill.next ?? '예정 없음'}</span>}
-          {!!pill.badge && <span className="pill-badge" aria-label={`읽지 않은 메시지 ${pill.badge}개`}>{pill.badge}</span>}
-          {pill.rec && (
-            <>
-              <Disc rec={pill.rec} size={26} spinRef={mini} />
-              <button className="isl-stop" onClick={(e) => (e.stopPropagation(), pill.onStop?.())} tabIndex={mode === 'idle' ? 0 : -1} aria-label="재생 멈추기">
-                <svg viewBox="0 0 12 12" aria-hidden><rect x="3" y="3" width="6" height="6" rx="1.2" fill="currentColor" /></svg>
+        <>
+          <div className="island-layer hubnotch" style={{ width: 120, height: 6 }} aria-hidden={mode !== 'idle' || !pill.notch}>
+            {!!pill.badge && <i data-k="unread" />}
+            {pill.busy && <i data-k="busy" />}
+            {!!pill.shelf && <i data-k="shelf" />}
+          </div>
+          <div className="island-layer hubpill" style={{ width: pillW, height: 40 }} aria-hidden={mode !== 'idle' || pill.notch}>
+            <b className="pill-clock">{pill.clock}</b>
+            {pill.busy ? <span className="pill-next pill-busy"><i className="hub-spin" />{pill.busy}</span> : <span className="pill-next">{pill.next ?? '예정 없음'}</span>}
+            {!!pill.badge && <span className="pill-badge" aria-label={`읽지 않은 메시지 ${pill.badge}개`}>{pill.badge}</span>}
+            {!!pill.shelf && (
+              <button className="pill-shelf" onClick={(e) => (e.stopPropagation(), pill.onShelf?.())} tabIndex={mode === 'idle' && !pill.notch ? 0 : -1} aria-label={`선반 파일 ${pill.shelf}개 보기`}>
+                <i />선반 {pill.shelf}
               </button>
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
       <div className="island-layer hubflash" style={{ width: SIZES.flash[0], height: SIZES.flash[1] }} aria-hidden={mode !== 'flash'} role="status">
         {flash?.rec ? <Disc rec={flash.rec} size={30} /> : flash?.icon === 'spin' ? <i className="hub-spin" /> : <span className="flash-ok" data-fail={flash?.icon === 'fail'} aria-hidden>{flash?.icon === 'fail' ? '✕' : '✓'}</span>}
@@ -309,7 +312,7 @@ export function Island({ alert, next, playing, playingRec, peek, onDone, onSnooz
         </span>
         <span className="txt" data-hot={split ? !toPeer : true}>
           <b>선반에 놓기</b>
-          <small>{split ? '독 선반에 담기' : '놓으면 독 선반에 담아 둘게요 · 최대 4개'}</small>
+          <small>{split ? '선반에 담기' : '놓으면 선반에 담아 둘게요 · 최대 4개'}</small>
         </span>
         {split && (
           <span className="txt to-peer" data-hot={toPeer}>

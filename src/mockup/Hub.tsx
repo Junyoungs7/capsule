@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState, type DragEvent, type PointerEvent as RPointerEvent } from 'react'
-import type { AppGroup, Clip, LpRecord, Notification, ShelfFile } from '../data/types'
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
+import type { Clip, LpRecord, Notification, ShelfFile } from '../data/types'
 import { useItems } from '../data/api'
-import { seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
+import { seedClips, seedEvents, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Island, type LinkView, type TeamNews } from '../surfaces/Island'
-import { CalendarFilter, TeamSection } from '../surfaces/Team'
+import { CalendarFilter, groupOf, TeamSection } from '../surfaces/Team'
 import { Panel, type Tab } from '../surfaces/Panel'
+import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
-import { ASCII_RECORDS, Disc } from '../surfaces/Lp'
+import { ASCII_RECORDS } from '../surfaces/Lp'
 import { newNote, setV3, useV3, V3Layer } from '../surfaces/Notes'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { useSnippets } from '../surfaces/Snippets'
@@ -15,12 +16,12 @@ import { Tile, usePresence } from '../surfaces/Dock'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, type FxKind } from '../surfaces/Fx'
 import { ChatView, TermView, useChat, useTerm, type Msg } from './HubExtras'
-import { groupOf } from '../surfaces/Team'
 
-/* 허브 시안 (?surface=hub): 독을 없애고 모든 기능을 위쪽 Island 로. Windows 작업 표시줄은 그대로 보인다.
-   알약 = 시계 · 다음 일정 · 재생 중 LP. 알약 클릭(또는 마우스 0.3초 머묾) → 허브가 아래로 스프링으로 펼쳐짐. */
+/* 허브 시안 v2 (?surface=hub): 독 없음 · LP 없음 · 앱 격자 없음. 맨 위 가운데 얇은 노치(120×6) 하나.
+   노치 = 글자 없음, 점만(읽지 않음·실행 중·선반). 알림·머묾(0.3초)·탭 때만 알약으로 커지고, 허브는 타일 6개짜리 작은 판.
+   앱 실행·고정 = Windows 작업 표시줄·시작·Ctrl K 팔레트. */
 
-type View = 'home' | 'notes' | 'clips' | 'todo' | 'cal' | 'snip' | 'team' | 'link' | 'fx' | 'chat' | 'term'
+type View = 'home' | 'notes' | 'plan' | 'chat' | 'term' | 'clips' | 'more' | 'snip' | 'team' | 'link' | 'fx' | 'shelf'
 type Win = { id: string; rec: LpRecord; x: number; y: number; w: number; h: number; kind: 'browser' | 'app' | 'ara'; cwd?: string; cmd?: string }
 
 const hm = (t: string | number | Date) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -29,43 +30,41 @@ const ago = (t: number) => {
   const m = Math.round((Date.now() - t) / 60_000)
   return m < 1 ? '방금' : m < 60 ? `${m}분 전` : `${Math.floor(m / 60)}시간 전`
 }
-const pillRect = () => document.querySelector('.island-shape')!.getBoundingClientRect()
+const shapeRect = () => document.querySelector('.island-shape')!.getBoundingClientRect()
 const rec = (id: string) => seedRecords.find((r) => r.id === id)!
+const RESERVE = 28 // 상단 공간 확보(AppBar) 높이
 
-const QUICK: [View | 'ocr' | 'settings', string, string][] = [
-  ['notes', '메모', 'M6 4h9l3 3v13H6zM9 10h6M9 14h6'],
-  ['clips', '최근 복사', 'M8 4h8v4H8zM6 6H5v14h14V6h-1M9 13h6M9 16h4'],
-  ['todo', '할 일', 'M4 12.5l3 3 6-6M14 7h6M14 12h6M14 17h6'],
-  ['cal', '달력', 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4'],
-  ['ocr', 'OCR', 'M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3M8 10h8M8 14h5'],
-  ['snip', '스니펫', 'M8 7l-5 5 5 5M16 7l5 5-5 5'],
-  ['team', 'Team', 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 20c0-3 3-5 6-5s6 2 6 5M16 5a3 3 0 0 1 0 6M18 15c2 .5 3 2.5 3 5'],
-  ['chat', '채팅', 'M4 5h16v11H9l-5 4zM8 10h8M8 13h5'],
-  ['link', 'Link', 'M4 6h11v8H4zM8 18h3M17 9h4v10h-4z'],
-  ['term', '터미널', 'M4 5h16v14H4zM7 10l3 2-3 2M12 15h5'],
-  ['fx', '화면 효과', 'M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2'],
-  ['settings', '설정', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-1-3-2 .3-1.5-1.5L17 5l-3-1-1 2h-2L10 4 7 5l.5 2.3L6 8.8 4 8.5l-1 3 2 1v1l-2 1 1 3 2-.3 1.5 1.5L7 19.9l3 1 1-2h2l1 2 3-1-.5-2.3 1.5-1.5 2 .3 1-3-2-1z'],
-]
 const Ico = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>
-
+const I = {
+  notes: 'M6 4h9l3 3v13H6zM9 10h6M9 14h6',
+  plan: 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4M8 14l2 2 4-4',
+  chat: 'M4 5h16v11H9l-5 4zM8 10h8M8 13h5',
+  term: 'M4 5h16v14H4zM7 10l3 2-3 2M12 15h5',
+  clips: 'M8 4h8v4H8zM6 6H5v14h14V6h-1M9 13h6M9 16h4',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
+  back: 'M15 5l-7 7 7 7',
+}
 const NEWS = [
   { who: '민수', group: 'tg-dev', what: '일정 추가', detail: '금 14:00 · 배포' },
   { who: '서연', group: 'tg-banner', what: '메모 수정', detail: '메인 배너 카피 A/B 안 정리' },
   { who: '지은', group: 'tg-dev', what: '일정 변경', detail: '코드 리뷰 데이 · 내일 10:00 → 11:00' },
 ]
-const TABS0 = ['Hera 시안 리뷰', 'GitHub · tauri', 'Notion · 주간 보고', '배너 관리']
+const TABS0 = ['Hera 시안 리뷰', 'GitHub · tauri', 'Notion · 주간 보고', '배너 관리', 'Gmail', '사내 위키']
+const PARENT: Partial<Record<View, View>> = { snip: 'more', team: 'more', link: 'more', fx: 'more' }
+const TITLE: Record<View, string> = { home: '', notes: '메모', plan: '할 일 · 달력', chat: '채팅', term: '터미널', clips: '최근 복사', more: '더 보기', snip: '스니펫', team: 'Team', link: 'Hera Link', fx: '화면 효과', shelf: '선반' }
 
 export function HubDesktop() {
   const [theme, setTheme] = useState(document.documentElement.dataset.theme)
   const [records] = useItems<LpRecord>('record', seedRecords)
   const [todos, setTodos] = useItems('todo', seedTodos)
   const [events, setEvents] = useItems('event', seedEvents)
-  const [groups, setGroups] = useItems<AppGroup>('group', seedGroups)
   const [shelf, setShelf] = useItems<ShelfFile>('shelf', seedShelf)
   const [clips, setClips] = useState<Clip[]>(seedClips)
   const [snippets] = useSnippets()
-  useState(() => setV3({ notes: false })) // 시작은 포스트잇 접힘 (허브 '메모'에서 펼치기)
+  useState(() => setV3({ notes: false })) // 시작은 포스트잇 접힘
   const { notes: notesShown } = useV3()
+  const [reserve, setReserve] = useState(false) // 상단 공간 확보 (맥 메뉴막대처럼) — 기본 끔
+  const top = reserve ? RESERVE : 0
 
   const [clock, setClock] = useState(new Date())
   useEffect(() => {
@@ -73,140 +72,76 @@ export function HubDesktop() {
     return () => clearInterval(t)
   }, [])
 
-  /* ── 가짜 창 (브라우저 + VS Code) · 앞 창 = 앱 메모 기준 ── */
+  /* ── 가짜 창: 탭이 맨 위에 붙은 브라우저(노치 바로 아래까지) + VS Code ── */
   const [wins, setWins] = useState<Win[]>(() => [
-    { id: 'w-chrome', rec: rec('chrome'), x: 28, y: 0, w: 700, h: 520, kind: 'browser' },
-    { id: 'w-vscode', rec: rec('vscode'), x: 752, y: 140, w: 400, h: 340, kind: 'app' },
+    { id: 'w-chrome', rec: rec('chrome'), x: 100, y: 0, w: 1000, h: 540, kind: 'browser' },
+    { id: 'w-vscode', rec: rec('vscode'), x: 760, y: 230, w: 420, h: 330, kind: 'app' },
   ])
-  // 창 순서(z)는 따로: 배열을 재정렬하면 DOM 이 옮겨져 클릭·애니메이션이 끊긴다
   const [order, setOrder] = useState(['w-chrome', 'w-vscode'])
   const front = wins.find((w) => w.id === order[order.length - 1])
   const toFront = (id: string) => setOrder((o) => (o[o.length - 1] === id ? o : [...o.filter((x) => x !== id), id]))
-  const openWin = (r: LpRecord) => {
-    const have = wins.find((w) => w.rec.id === r.id)
+  const openWin = (r: LpRecord, extra?: Partial<Win>) => {
+    const have = !extra && wins.find((w) => w.rec.id === r.id)
     if (have) return toFront(have.id)
     const n = wins.length, id = 'w-' + r.id + Date.now()
-    setWins((ws) => [...ws, { id, rec: r, x: 300 + (n % 4) * 60, y: 120 + (n % 4) * 40, w: 520, h: 360, kind: r.id === 'chrome' ? 'browser' : 'app' }])
+    setWins((ws) => [...ws, { id, rec: r, x: 300 + (n % 4) * 60, y: 140 + (n % 4) * 36, w: 520, h: 340, kind: 'app', ...extra }])
     toFront(id)
   }
   const closeWin = (id: string) => (setWins((ws) => ws.filter((w) => w.id !== id)), setOrder((o) => o.filter((x) => x !== id)))
   const [tabs, setTabs] = useState({ list: TABS0, on: 0, clicks: 0 })
 
-  /* ── 허브 열기/닫기 ── */
+  /* ── 허브: 노치 탭/0.3초 머묾 → 알약 + 허브 ── */
   const [hub, setHub] = useState(false)
   const [view, setView] = useState<View>('home')
-  const [fs, setFs] = useState(false) // 전체화면 앱 (허브·Island 숨김)
+  const [dir, setDir] = useState(1) // 화면 넘김 방향 (들어가기 1, 뒤로 -1)
+  const go = (v: View) => (setDir(v === 'home' || PARENT[view] === v ? -1 : 1), setView(v))
+  const [fs, setFs] = useState(false)
   const dwell = useRef(0)
-  const lpRef = useRef('off')
-  const dropped = useRef(0) // LP 를 알약에 놓은 시각: 뒤따르는 click·hover 가 허브를 다시 열지 않게
   const close = () => setHub(false)
   const onHover = (on: boolean, type: string) => {
     clearTimeout(dwell.current)
-    if (on && type === 'mouse' && lpRef.current === 'off' && Date.now() - dropped.current > 800) dwell.current = window.setTimeout(() => setHub(true), 300)
+    if (on && type === 'mouse') dwell.current = window.setTimeout(() => setHub(true), 300)
   }
   useEffect(() => {
-    if (!hub) return
+    if (!hub) return void setTimeout(() => setView('home'), 300)
     const key = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    const down = (e: PointerEvent) => {
-      const t = e.target as Element
-      if (!t.closest?.('.hub, .island-shape, .panel, .run-menu, .team-sheet, .group-menu')) close()
-    }
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.hub, .island-shape, .panel, .gp-menu, .chat-big, .team-sheet') && close()
     addEventListener('keydown', key)
     addEventListener('pointerdown', down, true)
     return () => (removeEventListener('keydown', key), removeEventListener('pointerdown', down, true))
   }, [hub])
-  useEffect(() => void (!hub && setTimeout(() => (setGroupOpen(null), setView('home')), 300)), [hub])
 
-  /* ── Island 한 줄 알림 (실행 중 · 복사됨 …) ── */
-  const [flash, setFlash] = useState<{ text: string; rec?: LpRecord; n: number; icon?: 'ok' | 'fail' | 'spin' } | null>(null)
+  /* ── Island 한 줄 알림 ── */
+  const [flash, setFlash] = useState<{ text: string; n: number; icon?: 'ok' | 'fail' | 'spin' } | null>(null)
   const flashT = useRef(0)
-  const say = (text: string, r?: LpRecord, ms = 1500, icon?: 'ok' | 'fail' | 'spin') => {
-    setFlash((f) => ({ text, rec: r, n: (f?.n ?? 0) + 1, icon }))
+  const say = (text: string, ms = 1500, icon?: 'ok' | 'fail' | 'spin') => {
+    setFlash((f) => ({ text, n: (f?.n ?? 0) + 1, icon }))
     clearTimeout(flashT.current)
     flashT.current = window.setTimeout(() => setFlash(null), ms)
   }
 
-  /* (a) 앱 실행: 허브 접힘 → 아이콘이 알약으로 날아감 → '실행 중 · 앱' → 가짜 창 */
-  const launch = (r: LpRecord, from: HTMLElement) => {
-    const a = from.getBoundingClientRect()
-    const p = pillRect()
-    close()
-    const ghost = document.createElement('div')
-    ghost.className = 'hub-ghost'
-    ghost.append(from.cloneNode(true))
-    Object.assign(ghost.style, { left: `${a.left}px`, top: `${a.top}px`, width: `${a.width}px`, height: `${a.height}px` })
-    document.body.append(ghost)
-    const dx = p.left + p.width / 2 - (a.left + a.width / 2), dy = p.top + p.height / 2 - (a.top + a.height / 2)
-    ghost.animate(
-      [{ transform: 'none', opacity: 1 }, { transform: `translate(${dx * 0.55}px, ${dy * 0.7}px) scale(0.8)`, opacity: 1, offset: 0.6 }, { transform: `translate(${dx}px, ${dy}px) scale(0.3)`, opacity: 0 }],
-      { duration: 560, easing: 'cubic-bezier(0.45, 0, 0.2, 1)' },
-    ).onfinish = () => ghost.remove()
-    const members = r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r]
-    setTimeout(() => say(`실행 중 · ${r.title}`, r, 1300), 420)
-    members.forEach((m, i) => setTimeout(() => openWin(m), 1250 + i * 180))
-  }
-  const [groupOpen, setGroupOpen] = useState<string | null>(null)
-
-  /* (c) LP: 끌어서 알약에 놓기(또는 탭) = 재생. 아스키 LP = 전체화면 아스키 */
-  const [playing, setPlaying] = useState<LpRecord | null>(null)
-  const [lp, setLp] = useState<'off' | 'drag' | 'over'>('off')
-  lpRef.current = lp
-  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; scene: SceneId; name: string }>({ open: false, from: null, scene: 'calm', name: '' })
-  const play = (r: LpRecord) => {
-    close()
-    clearTimeout(dwell.current)
-    if (r.kind === 'ascii') {
-      const scene = !r.scene || r.scene === 'auto' ? pickScene(clock) : r.scene
-      return setAscii({ open: true, from: pillRect(), scene, name: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
-    }
-    setPlaying(r)
-    if (r.kind === 'single') setTimeout(() => openWin(r), 500)
-  }
-  const lpDown = (r: LpRecord, e: RPointerEvent<HTMLButtonElement>) => {
-    const el = e.currentTarget
-    const [x0, y0] = [e.clientX, e.clientY]
-    let ghost: HTMLElement | null = null
-    let over = false
-    el.setPointerCapture(e.pointerId)
-    const move = (ev: PointerEvent) => {
-      if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return
-      if (!ghost) {
-        ghost = document.createElement('div')
-        ghost.className = 'hub-lp-ghost'
-        ghost.append(el.querySelector('.lp')!.cloneNode(true))
-        document.body.append(ghost)
-      }
-      ghost.style.transform = `translate(${ev.clientX - 32}px, ${ev.clientY - 32}px)`
-      const p = pillRect()
-      over = ev.clientX > p.left - 30 && ev.clientX < p.right + 30 && ev.clientY < p.bottom + 24
-      setLp(over ? 'over' : 'drag')
-    }
-    const up = () => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerup', up)
-      el.removeEventListener('pointercancel', up)
-      setLp('off')
-      if (!ghost) return play(r) // 탭 = 재생 (휴대폰)
-      ghost.remove()
-      dropped.current = Date.now()
-      if (over) play(r)
-    }
-    el.addEventListener('pointermove', move)
-    el.addEventListener('pointerup', up)
-    el.addEventListener('pointercancel', up)
-  }
-
-  /* 선반 · (f) 파일 놓기 */
+  /* ── 선반: 파일을 끄는 동안에만 노치가 드롭존으로 ── */
   const shelve = (paths: string[]) =>
     setShelf((fs) => [...fs.filter((f) => !paths.includes(f.path)), ...paths.map((path, i) => ({ id: crypto.randomUUID(), path, at: Date.now() + i }))].sort((a, b) => a.at - b.at).slice(-SHELF_MAX))
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    const on = (e: globalThis.DragEvent) => e.dataTransfer?.types.includes('Files') && setDragging(true)
+    const off = (e: globalThis.DragEvent) => (e.type !== 'dragleave' || !e.relatedTarget) && setDragging(false)
+    addEventListener('dragenter', on)
+    addEventListener('dragleave', off)
+    addEventListener('drop', off)
+    addEventListener('dragend', off)
+    return () => (removeEventListener('dragenter', on), removeEventListener('dragleave', off), removeEventListener('drop', off), removeEventListener('dragend', off))
+  }, [])
   const [dropDemo, setDropDemo] = useState(false)
   const fakeDrop = () => {
     close()
     setDropDemo(true)
     setTimeout(() => (setDropDemo(false), shelve([`C:\\Users\\me\\Downloads\\견적서_${Math.floor(Math.random() * 90 + 10)}.xlsx`]), say('선반에 담았어요')), 1100)
   }
+  const openShelf = () => (setHub(true), setDir(1), setView('shelf'))
 
-  /* Hera Link (시안: 연결된 척) — 화면 전환 · 페어링 · 전송 */
+  /* ── Hera Link (시안: 연결된 척) ── */
   const [swap, setSwap] = useState<LinkView['swap']>(null)
   const [pair, setPair] = useState<LinkView['pair']>(null)
   const [xfer, setXfer] = useState<LinkView['xfer']>(null)
@@ -223,7 +158,7 @@ export function HubDesktop() {
     }, 160)
   }
 
-  /* (g) 알림 · 팀 소식 · 한/A */
+  /* ── 알림 · 팀 소식 · 한/A ── */
   const [alerts, setAlerts] = useState<Notification[]>([])
   const pushAlert = (a: Omit<Notification, 'id'>) => setAlerts((q) => [...q, { id: crypto.randomUUID(), ...a }])
   const ack = (done: boolean) => {
@@ -241,25 +176,30 @@ export function HubDesktop() {
   const imeT = useRef(0)
   const flipIme = () => (setIme((s) => ({ source: s?.source === 'ko' ? 'en' : 'ko', n: (s?.n ?? 0) + 1 })), clearTimeout(imeT.current), (imeT.current = window.setTimeout(() => setIme(null), 800)))
 
-  /* 화면 효과 · 설정 패널 */
+  /* ── 화면 효과 · 아스키 장면 · 설정 패널 · Ctrl K ── */
   const [fxOn, setFxOn] = useState(true)
   const [fx, setFx] = useState<{ kind: FxKind; n: number } | null>(null)
-  const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(null)
-  const quick = (k: View | 'ocr' | 'settings') => {
-    if (k === 'ocr') return close(), setV3({ ocr: true })
-    if (k === 'settings') return close(), setPanel({ open: true, tab: 'settings' })
-    if (k === 'chat') chat.setUnread(0)
-    setView((v) => (v === k ? 'home' : k))
+  const [ascii, setAscii] = useState<{ open: boolean; from: DOMRect | null; scene: SceneId; name: string }>({ open: false, from: null, scene: 'calm', name: '' })
+  const playScene = (r: LpRecord) => {
+    close()
+    const scene = !r.scene || r.scene === 'auto' ? pickScene(clock) : r.scene
+    setAscii({ open: true, from: shapeRect(), scene, name: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
   }
+  const [panel, setPanel] = useState<{ open: boolean; tab: Tab } | null>(null)
+  const [palette, setPalette] = useState(false)
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && (e.preventDefault(), close(), setPalette((p) => !p))
+    addEventListener('keydown', k)
+    return () => removeEventListener('keydown', k)
+  }, [])
 
-  /* 팀 채팅: 받으면 알약 알림(빠른 답장) + 읽지 않음 배지. 채팅 화면이 열려 있으면 그냥 목록에. */
+  /* ── 팀 채팅 ── */
   const chat = useChat()
   const [msg, setMsg] = useState<{ who: string; group: string; color: string; text: string; n: number; gid: string } | null>(null)
   const msgT = useRef(0)
   const hideMsg = () => {
     clearTimeout(msgT.current)
-    // 답장 입력 중이면 기다린다
-    msgT.current = window.setTimeout(() => (document.activeElement?.closest('.hubmsg') ? hideMsg() : setMsg(null)), 7000)
+    msgT.current = window.setTimeout(() => (document.activeElement?.closest('.hubmsg') ? hideMsg() : setMsg(null)), 7000) // 답장 입력 중이면 기다림
   }
   const receive = () => {
     const m = chat.receive()
@@ -280,7 +220,6 @@ export function HubDesktop() {
       close(), say(`일정 추가 · ${when.toLocaleDateString('ko-KR', { weekday: 'short' })} ${hm(when)}`)
     ),
   }
-  // 앱 창·바탕화면에 끌어 놓기 = 복사
   const chatDrop = (e: DragEvent, where: string) => {
     const name = e.dataTransfer.getData('text/x-hera-chat')
     if (!name) return
@@ -288,45 +227,54 @@ export function HubDesktop() {
     say(`${where}에 복사 · ${name.slice(0, 18)}`)
   }
 
-  /* 터미널: 허브가 접혀도 계속 → 알약 '터미널 · 실행 중' → 완료/실패 알림. 아라에서 이어서 하기. */
+  /* ── 터미널: 접어도 계속 → 노치 점 / 알약 '실행 중' → 완료·실패 ── */
   const hubRef = useRef({ hub, view })
   hubRef.current = { hub, view }
   const term = useTerm((ok, cmd) => {
     if (hubRef.current.hub && hubRef.current.view === 'term') return
-    say(`${ok ? '완료' : '실패'} · ${cmd}`, undefined, 2600, ok ? 'ok' : 'fail')
+    say(`${ok ? '완료' : '실패'} · ${cmd}`, 2600, ok ? 'ok' : 'fail')
   })
   const toAra = (pane: HTMLElement) => {
     pane.dataset.handoff = 'true'
     const last = term.hist[term.hist.length - 1]
-    setTimeout(() => (close(), say('아라로 넘기는 중 → 아라', undefined, 1500, 'spin')), 420)
-    setTimeout(() => {
-      const r: LpRecord = { id: 'ara', title: 'ARA', target: 'ara', kind: 'single', cover: '#111827', glyph: 'text' }
-      const id = 'w-ara' + Date.now()
-      setWins((ws) => [...ws, { id, rec: r, x: 380, y: 170, w: 640, h: 380, kind: 'ara', cwd: term.cwd, cmd: last }])
-      toFront(id)
-    }, 1900)
+    setTimeout(() => (close(), say('아라로 넘기는 중 → 아라', 1500, 'spin')), 420)
+    setTimeout(() => openWin({ id: 'ara', title: 'ARA', target: 'ara', kind: 'single', cover: '#111827', glyph: 'text' }, { x: 380, y: 170, w: 640, h: 360, kind: 'ara', cwd: term.cwd, cmd: last }), 1900)
   }
 
-  // 다음 일정 (알약)
+  // 다음 일정
   const nowIso = clock.toISOString()
   const nextEv = events.filter((e) => e.start > nowIso).sort((a, b) => a.start.localeCompare(b.start))[0]
   const nextLabel = nextEv ? `${new Date(nextEv.start).toDateString() === clock.toDateString() ? hm(nextEv.start) : new Date(nextEv.start).toLocaleDateString('ko-KR', { weekday: 'short' }) + ' ' + hm(nextEv.start)} ${nextEv.title}` : undefined
-
   const [todoText, setTodoText] = useState('')
+  const [planTab, setPlanTab] = useState<'todo' | 'cal'>('todo')
   const hubP = usePresence<HTMLDivElement>(hub && !fs)
-  const pinnedRecs = records.filter((r) => r.kind !== 'ascii')
-  const appRecs = pinnedRecs.filter((r) => r.kind === 'single')
   const fgRec = front?.rec
+  const open = todos.filter((t) => !t.done).length
+
+  const tiles: [View, string, string, ReactNode, number?][] = [
+    ['notes', '메모', I.notes, notesShown ? '펼쳐 둠 · 탭해서 접기' : '접힘 · 새 메모 · 앱 메모'],
+    ['plan', '할 일 · 달력', I.plan, nextLabel ?? `할 일 ${open}개`],
+    ['chat', '채팅', I.chat, chat.unread ? `읽지 않음 ${chat.unread}` : '새 메시지 없음', chat.unread],
+    ['term', '터미널', I.term, term.running ? <span className="tile-run"><i className="hub-spin" />{term.running}</span> : term.cwd],
+    ['clips', '최근 복사', I.clips, clips[0]?.text],
+    ['more', '더 보기', I.more, '글자 복사 · 스니펫 · Team · Link · 효과 · 설정'],
+  ]
+  const row = (t: string, sub: string | undefined, onClick: () => void, chev = false) => (
+    <button key={t} className="hub-item" onClick={onClick}>
+      <span><b>{t}</b>{sub && <small>{sub}</small>}</span>
+      {chev && <i className="chev" aria-hidden>›</i>}
+    </button>
+  )
 
   return (
-    <div className="desktop hub-desk" data-only="all" data-hub data-fs={fs} data-ascii={ascii.open}>
+    <div className="desktop hub-desk" data-only="all" data-hub data-fs={fs} data-ascii={ascii.open} data-reserve={reserve} style={{ '--reserve': `${top}px` } as React.CSSProperties}>
       <GlassDefs />
       <div className="wallpaper" aria-hidden onDragOver={(e) => e.dataTransfer.types.includes('text/x-hera-chat') && e.preventDefault()} onDrop={(e) => chatDrop(e, '바탕화면')} />
+      {reserve && <div className="appbar" aria-hidden />}
 
-      {/* 가짜 창 */}
       {wins.map((w) => (
-        <FakeWin key={w.id} w={w} z={3 + order.indexOf(w.id)} front={w === front} onFront={() => toFront(w.id)} onClose={() => closeWin(w.id)}
-          onMove={(x, y) => setWins((ws) => ws.map((o) => (o.id === w.id ? { ...o, x, y } : o)))} onChatDrop={(e) => chatDrop(e, w.rec.title)}>
+        <FakeWin key={w.id} w={{ ...w, y: w.y + top }} z={3 + order.indexOf(w.id)} front={w === front} onFront={() => toFront(w.id)} onClose={() => closeWin(w.id)}
+          onMove={(x, y) => setWins((ws) => ws.map((o) => (o.id === w.id ? { ...o, x, y: y - top } : o)))} onChatDrop={(e) => chatDrop(e, w.rec.title)}>
           {w.kind === 'ara' ? (
             <div className="ara">
               <div className="ara-tabs"><span>PowerShell</span><span data-on>Hera에서</span><span className="ara-plus">+</span></div>
@@ -348,7 +296,7 @@ export function HubDesktop() {
               <div className="fb-url"><span>https://example.com/{tabs.list[tabs.on]?.replace(/\s/g, '-').toLowerCase()}</span></div>
               <div className="fb-page">
                 <b>{tabs.list[tabs.on]}</b>
-                <p>탭 클릭 {tabs.clicks}회 — 알약(가운데 위) 밖은 클릭이 그대로 창으로 가요.</p>
+                <p>탭 클릭 {tabs.clicks}회 — 노치(가운데 맨 위 120×6) 밖은 전부 창으로 가요. 가운데 탭도 눌려요.</p>
                 {Array.from({ length: 9 }, (_, k) => <span key={k} style={{ width: `${40 + ((k * 29) % 50)}%` }} />)}
               </div>
             </div>
@@ -360,13 +308,12 @@ export function HubDesktop() {
         </FakeWin>
       ))}
 
-      <V3Layer records={records} fgId={fgRec?.id} anchor={front ? new DOMRect(front.x, front.y, front.w, front.h) : undefined} />
+      <V3Layer records={records} fgId={fgRec?.id} anchor={front ? new DOMRect(front.x, front.y + top, front.w, front.h) : undefined} />
 
-      {/* 전체화면 앱 (데모): Island·허브 숨김 */}
       {fs && (
         <div className="hub-fs" onClick={() => setFs(false)}>
           <b>전체화면 앱 (영상·게임·발표)</b>
-          <small>Island 와 허브는 숨어요 · 알림은 끝난 뒤에 · 누르면 끝내기</small>
+          <small>노치·허브 숨김 · 알림은 끝난 뒤에 · 누르면 끝내기</small>
         </div>
       )}
 
@@ -378,12 +325,8 @@ export function HubDesktop() {
           peek={false}
           onDone={() => ack(true)}
           onSnooze={() => ack(false)}
-          onOpen={() => Date.now() - dropped.current > 500 && setHub((h) => !h)}
+          onOpen={() => setHub((h) => !h)}
           onDropFiles={(paths) => (hub && view === 'chat' ? chat.attach(paths.map((name) => ({ name }))) : (shelve(paths), say('선반에 담았어요')))}
-          msg={msg}
-          onReply={(t) => (chat.send(t, msg?.gid), setMsg(null), chat.setUnread((u) => Math.max(0, u - 1)), say('보냄'))}
-          onMsgOpen={() => (msg && chat.setGroup(msg.gid), setMsg(null), chat.setUnread(0), setView('chat'), setHub(true))}
-          lp={lp}
           news={news}
           ascii={ascii.open ? ascii.name : null}
           onAsciiStop={() => setAscii((a) => ({ ...a, open: false }))}
@@ -391,174 +334,158 @@ export function HubDesktop() {
           onSendFiles={(paths) => paths.forEach(send)}
           onPair={() => setPair(null)}
           ime={ime}
-          pill={{ clock: hm(clock), next: nextLabel, rec: playing ?? undefined, onStop: () => setPlaying(null), badge: chat.unread, busy: term.running && !(hub && view === 'term') ? '터미널 · 실행 중' : undefined }}
+          pill={{ clock: hm(clock), next: nextLabel, notch: !hub, badge: chat.unread, busy: term.running && !(hub && view === 'term') ? '터미널 · 실행 중' : undefined, shelf: shelf.length, onShelf: openShelf }}
           onHover={onHover}
           flash={flash}
-          forceDrop={dropDemo}
+          forceDrop={dropDemo || dragging}
+          msg={msg}
+          onReply={(t) => (chat.send(t, msg?.gid), setMsg(null), chat.setUnread((u) => Math.max(0, u - 1)), say('보냄'))}
+          onMsgOpen={() => (msg && chat.setGroup(msg.gid), setMsg(null), chat.setUnread(0), setDir(1), setView('chat'), setHub(true))}
         />
       )}
 
-      {/* ── 허브 ── */}
+      {/* ── 허브: 타일 6개 (Control Center 처럼), 누르면 그 자리에서 화면 넘김 ── */}
       {hubP.mounted && (
-        <div ref={hubP.ref} className="hub" onTransitionEnd={hubP.onTransitionEnd} role="dialog" aria-label="Hera 허브">
-          <nav className="hub-quick">
-            {QUICK.map(([k, label, d]) => (
-              <button key={k} aria-pressed={view === k || (k === 'notes' && notesShown && view === 'home') || (k === 'fx' && fxOn && view === 'home')} data-cur={view === k} onClick={() => quick(k)}>
-                <Ico d={d} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </nav>
-
-          <div className="hub-body" key={view}>
+        <div ref={hubP.ref} className="hub" data-view={view} onTransitionEnd={hubP.onTransitionEnd} role="dialog" aria-label="Hera 허브">
+          {view !== 'home' && (
+            <header className="hub-nav">
+              <button onClick={() => go(PARENT[view] ?? 'home')} aria-label="뒤로"><Ico d={I.back} /></button>
+              <b>{TITLE[view]}</b>
+            </header>
+          )}
+          <div className="hub-body" key={view} data-dir={dir}>
             {view === 'home' && (
               <>
-                <section>
-                  <h4>앱 <small>누르면 실행 · 묶음은 펼쳐짐</small></h4>
-                  <div className="hub-apps">
-                    {pinnedRecs.map((r) => (
-                      <button key={r.id} className="hub-app" onClick={(e) => launch(r, e.currentTarget.querySelector('.tile') as HTMLElement)}>
-                        <Tile rec={r} size={44} />
-                        <span>{r.title}</span>
-                      </button>
-                    ))}
-                    {groups.map((g) => (
-                      <button key={g.id} className="hub-app" aria-expanded={groupOpen === g.id} onClick={() => setGroupOpen((o) => (o === g.id ? null : g.id))}>
-                        <span className="hub-group">
-                          {g.recordIds.slice(0, 4).map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r).map((r) => <Tile key={r.id} rec={r} size={18} />)}
-                        </span>
-                        <span>{g.title}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {groupOpen && (
-                    <div className="hub-pop">
-                      <b>{groups.find((g) => g.id === groupOpen)?.title}</b>
-                      <div className="hub-apps">
-                        {groups.find((g) => g.id === groupOpen)!.recordIds.map((id) => records.find((r) => r.id === id)).filter((r): r is LpRecord => !!r).map((r) => (
-                          <button key={r.id} className="hub-app" onClick={(e) => launch(r, e.currentTarget.querySelector('.tile') as HTMLElement)}>
-                            <Tile rec={r} size={40} />
-                            <span>{r.title}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </section>
-
-                <section className="hub-row2">
-                  <div className="hub-shelf" onDragOver={(e: DragEvent) => e.preventDefault()} onDrop={(e: DragEvent) => (e.preventDefault(), shelve([...e.dataTransfer.files].map((f) => f.name)))}>
-                    <h4>선반 <small>알약에 놓은 파일 · 우클릭 = 빼기</small></h4>
-                    <div className="hub-files">
-                      {shelf.length === 0 && <small className="hub-empty">비어 있어요</small>}
-                      {shelf.map((f) => (
-                        <button key={f.id} className="hub-file" draggable title={`${fname(f.path)}\n끌기: 밖으로 복사 · 우클릭: 빼기`}
-                          onClick={() => (close(), say(`열기 · ${fname(f.path)}`))}
-                          onContextMenu={(e) => (e.preventDefault(), setShelf((all) => all.filter((x) => x.id !== f.id)))}>
-                          <i>{/\.([a-z0-9]{1,4})$/i.exec(f.path)?.[1] ?? '폴더'}</i>
-                          <span>{fname(f.path)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="hub-crate">
-                    <h4>LP <small>알약으로 끌어 놓기 = 재생 (탭도 돼요)</small></h4>
-                    <div className="hub-lps">
-                      {[...appRecs.slice(0, 4), ...ASCII_RECORDS.slice(0, 3)].map((r) => (
-                        <button key={r.id} className="hub-lp" onPointerDown={(e) => lpDown(r, e)} title={r.title} aria-label={`${r.title} 재생`}>
-                          <Disc rec={r} size={52} />
-                          <span>{r.kind === 'ascii' ? r.title.replace('아스키 · ', 'ASCII ') : r.title}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-                <p className="hub-legend">실행 중인 앱 · 창 미리보기 · 알림 깜빡임 · 시작 · 트레이는 <b>Windows 작업 표시줄</b>이 맡아요 (독 없음)</p>
+                <div className="hub-tiles">
+                  {tiles.map(([v, t, d, sub, badge]) => (
+                    <button key={v} className="hub-tile" data-v={v} onClick={() => (v === 'chat' && chat.setUnread(0), go(v))}>
+                      <span className="tile-ico"><Ico d={d} />{!!badge && <em>{badge}</em>}</span>
+                      <b>{t}</b>
+                      <small>{sub}</small>
+                    </button>
+                  ))}
+                </div>
+                <button className="hub-k" onClick={() => (close(), setPalette(true))}>
+                  <span>앱 실행 · 나머지 전부</span><kbd>Ctrl K</kbd>
+                </button>
               </>
             )}
 
             {view === 'notes' && (
-              <section className="hub-list">
-                <h4>메모</h4>
-                <button className="hub-item" onClick={() => (close(), setV3({ notes: !notesShown }))}><b>{notesShown ? '포스트잇 숨기기' : '포스트잇 보이기'}</b><small>바탕화면 메모 전체 · Island 로 빨려 들어가요</small></button>
-                <button className="hub-item" onClick={() => (close(), setV3({ notes: true }), setTimeout(() => newNote(), 60))}><b>새 메모</b><small>바로 입력할 수 있어요</small></button>
-                <button className="hub-item" onClick={() => (close(), setTimeout(() => newNote(fgRec?.id), 60))}><b>앱 메모 · {fgRec?.title ?? '앞 창'}</b><small>지금 앞에 있는 창 옆에 붙어요 · 그 앱이 앞에 올 때만 보여요</small></button>
-              </section>
+              <div className="hub-list">
+                {row(notesShown ? '포스트잇 접기' : '포스트잇 펼치기', '바탕화면 메모 전체 · 노치로 빨려 들어가요', () => (close(), setV3({ notes: !notesShown })))}
+                {row('새 메모', '바로 입력', () => (close(), setV3({ notes: true }), setTimeout(() => newNote(), 60)))}
+                {row(`앱 메모 · ${fgRec?.title ?? '앞 창'}`, '그 창 옆에 붙고, 그 앱이 앞에 올 때만 보여요', () => (close(), setTimeout(() => newNote(fgRec?.id), 60)))}
+              </div>
             )}
 
-            {view === 'clips' && (
-              <section className="hub-list">
-                <h4>최근 복사 <small>메모리에만 · 누르면 다시 복사</small></h4>
-                {clips.map((c) => (
-                  <button key={c.id} className="hub-item" onClick={() => (void navigator.clipboard?.writeText(c.text).catch(() => {}), setClips((cs) => [{ ...c, at: Date.now() }, ...cs.filter((x) => x.id !== c.id)]), close(), say('복사됨'))}>
-                    <b>{c.text}</b><small>{ago(c.at)}</small>
-                  </button>
-                ))}
-              </section>
-            )}
-
-            {view === 'todo' && (
-              <section className="hub-list">
-                <h4>할 일</h4>
-                <form className="hub-add" onSubmit={(e) => (e.preventDefault(), todoText.trim() && (setTodos((all) => [{ id: crypto.randomUUID(), title: todoText.trim(), done: false, source: 'local' }, ...all]), setTodoText('')))}>
-                  <input value={todoText} onChange={(e) => setTodoText(e.target.value)} placeholder="할 일 추가…" />
-                  <button className="primary">추가</button>
-                </form>
-                {todos.map((t) => (
-                  <label key={t.id} className="hub-todo" data-done={t.done}>
-                    <input type="checkbox" checked={t.done} onChange={() => setTodos((all) => all.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)))} />
-                    <span>{t.title}</span>
-                    {t.due && <small>{new Date(t.due).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })} {hm(t.due)}</small>}
-                  </label>
-                ))}
-              </section>
-            )}
-
-            {view === 'cal' && (
-              <section className="hub-cal">
-                <div className="hub-cal-head"><h4>달력 <small>공휴일 · 그룹 색 · 날짜 누르면 일정</small></h4><CalendarFilter /></div>
-                <MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={() => say('일정 추가됨')} />
-              </section>
-            )}
-
-            {view === 'snip' && (
-              <section className="hub-list">
-                <h4>스니펫 <small>누르면 앞 창에 붙여넣기</small></h4>
-                {snippets.map((s) => (
-                  <button key={s.id} className="hub-item" onClick={() => (close(), say(`붙여넣음 · ${s.title}`))}><b>{s.title}</b><small>{s.body.split('\n')[0]}</small></button>
-                ))}
-                <button className="hub-item ghost" onClick={() => (close(), setPanel({ open: true, tab: 'snippets' }))}><b>스니펫 편집…</b></button>
-              </section>
+            {view === 'plan' && (
+              <>
+                <div className="hub-seg" role="tablist">
+                  <button role="tab" aria-selected={planTab === 'todo'} onClick={() => setPlanTab('todo')}>할 일 {open}</button>
+                  <button role="tab" aria-selected={planTab === 'cal'} onClick={() => setPlanTab('cal')}>달력</button>
+                </div>
+                {planTab === 'todo' ? (
+                  <div className="hub-list">
+                    <form className="hub-add" onSubmit={(e) => (e.preventDefault(), todoText.trim() && (setTodos((all) => [{ id: crypto.randomUUID(), title: todoText.trim(), done: false, source: 'local' }, ...all]), setTodoText('')))}>
+                      <input value={todoText} onChange={(e) => setTodoText(e.target.value)} placeholder="할 일 추가…" />
+                    </form>
+                    {todos.map((t) => (
+                      <label key={t.id} className="hub-todo" data-done={t.done}>
+                        <input type="checkbox" checked={t.done} onChange={() => setTodos((all) => all.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)))} />
+                        <span>{t.title}</span>
+                        {t.due && <small>{hm(t.due)}</small>}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="hub-cal">
+                    <div className="hub-cal-head"><CalendarFilter /></div>
+                    <MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={() => say('일정 추가됨')} />
+                  </div>
+                )}
+              </>
             )}
 
             {view === 'chat' && <ChatView chat={chat} act={chatAct} />}
             {view === 'term' && <TermView term={term} onAra={toAra} />}
 
-            {view === 'team' && (
-              <section className="hub-team"><TeamSection /></section>
+            {view === 'clips' && (
+              <div className="hub-list">
+                {clips.map((c) => (
+                  <button key={c.id} className="hub-item" onClick={() => (void navigator.clipboard?.writeText(c.text).catch(() => {}), setClips((cs) => [{ ...c, at: Date.now() }, ...cs.filter((x) => x.id !== c.id)]), close(), say('복사됨'))}>
+                    <span><b>{c.text}</b><small>{ago(c.at)} · 메모리에만</small></span>
+                  </button>
+                ))}
+              </div>
             )}
 
+            {view === 'more' && (
+              <>
+                <div className="hub-list">
+                  {row('화면 글자 복사', 'OCR · Ctrl Alt T', () => (close(), setV3({ ocr: true })))}
+                  {row('스니펫', `${snippets.length}개 · ;로 바로 쓰기`, () => go('snip'), true)}
+                  {row('Team', '공유 그룹 · 달력 · 메모', () => go('team'), true)}
+                  {row('Hera Link', 'MacBook · 화면 넘기기 · 파일 보내기', () => go('link'), true)}
+                  {row('화면 효과', `${fxOn ? '켬' : '끔'} · 날씨 · 계절 · 아스키 장면`, () => go('fx'), true)}
+                  {row('설정', undefined, () => (close(), setPanel({ open: true, tab: 'settings' })), true)}
+                </div>
+                <label className="hub-switch">
+                  <span><b>상단 공간 확보</b><small>맥 메뉴막대처럼 · 기본 끔</small></span>
+                  <input type="checkbox" role="switch" checked={reserve} onChange={(e) => setReserve(e.target.checked)} />
+                </label>
+                <p className="hub-legend">켜면 화면 맨 위 {RESERVE}px 를 Windows AppBar 로 예약해요 → 최대화한 창이 그 아래에서 시작해 노치·알약이 앱을 절대 가리지 않아요. 대신 화면이 {RESERVE}px 줄어요. 끄면(기본) 노치 120×6 만 가리고 나머지는 클릭이 그대로 통과해요.</p>
+              </>
+            )}
+
+            {view === 'snip' && (
+              <div className="hub-list">
+                {snippets.map((s) => row(s.title, s.body.split('\n')[0], () => (close(), say(`붙여넣음 · ${s.title}`))))}
+                {row('스니펫 편집…', undefined, () => (close(), setPanel({ open: true, tab: 'snippets' })))}
+              </div>
+            )}
+
+            {view === 'team' && <div className="hub-team"><TeamSection /></div>}
+
             {view === 'link' && (
-              <section className="hub-list">
-                <h4>Hera Link <small>MacBook · 연결됨 (시안)</small></h4>
-                <button className="hub-item" onClick={toMac}><b>{swap?.onPeer ? '← Windows 로 돌아오기' : 'Mac 화면으로 →'}</b><small>마우스·키보드를 Mac 으로 넘겨요</small></button>
-                {shelf.map((f) => (
-                  <button key={f.id} className="hub-item" onClick={() => send(fname(f.path))}><b>맥으로 보내기 · {fname(f.path)}</b><small>선반 파일</small></button>
-                ))}
-                <button className="hub-item ghost" onClick={() => (close(), setPair({ code: '482913', name: 'MacBook' }))}><b>새 기기 페어링…</b></button>
-              </section>
+              <div className="hub-list">
+                {row(swap?.onPeer ? '← Windows 로 돌아오기' : 'Mac 화면으로 →', '마우스·키보드를 넘겨요', toMac)}
+                {shelf.map((f) => row(`맥으로 보내기 · ${fname(f.path)}`, '선반 파일', () => send(fname(f.path))))}
+                {row('새 기기 페어링…', undefined, () => (close(), setPair({ code: '482913', name: 'MacBook' })))}
+              </div>
             )}
 
             {view === 'fx' && (
-              <section className="hub-list">
-                <h4>화면 효과 <small>날씨 · 계절 · 시간대 이벤트</small></h4>
-                <label className="hub-switch"><span>자동 효과</span><input type="checkbox" role="switch" checked={fxOn} onChange={(e) => setFxOn(e.target.checked)} /></label>
+              <>
+                <label className="hub-switch">
+                  <span><b>자동 효과</b><small>날씨 · 계절 · 시간대가 바뀔 때 잠깐</small></span>
+                  <input type="checkbox" role="switch" checked={fxOn} onChange={(e) => setFxOn(e.target.checked)} />
+                </label>
+                <h4>지금 보기</h4>
                 <div className="hub-chips">
                   {(Object.keys(FX_LABEL) as FxKind[]).map((k) => (
                     <button key={k} onClick={() => (close(), setFx((f) => ({ kind: k, n: (f?.n ?? 0) + 1 })))}>{FX_LABEL[k]}</button>
                   ))}
                 </div>
-              </section>
+                <h4>아스키 장면 <small>전체화면 · 클릭이나 Esc 로 닫기</small></h4>
+                <div className="hub-list">
+                  {ASCII_RECORDS.map((r) => row(r.title.replace('아스키 · ', ''), r.scene === 'auto' ? '계절·시간대에 맞춰' : undefined, () => playScene(r)))}
+                </div>
+              </>
+            )}
+
+            {view === 'shelf' && (
+              <div className="hub-list">
+                {shelf.length === 0 && <p className="hub-legend">비어 있어요. 파일을 끌면 노치가 놓을 자리로 커져요.</p>}
+                {shelf.map((f) => (
+                  <button key={f.id} className="hub-item hub-file" draggable title="끌기: 밖으로 복사 · 우클릭: 빼기"
+                    onClick={() => (close(), say(`열기 · ${fname(f.path)}`))}
+                    onContextMenu={(e) => (e.preventDefault(), setShelf((all) => all.filter((x) => x.id !== f.id)))}>
+                    <i>{/\.([a-z0-9]{1,4})$/i.exec(f.path)?.[1] ?? '폴더'}</i>
+                    <span><b>{fname(f.path)}</b><small>누르면 열기 · 끌어서 복사 · 우클릭 빼기</small></span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -566,17 +493,20 @@ export function HubDesktop() {
 
       {/* 데모 컨트롤 */}
       <aside className="hub-demo glass-card" aria-label="데모 컨트롤">
-        <header><b>Island 허브</b><small>독 없음 시안</small></header>
-        <p>가운데 위 알약을 누르세요 (마우스는 0.3초 올려 두기).</p>
+        <header><b>Island 허브 v2</b><small>노치 · 타일 6개</small></header>
+        <p>맨 위 가운데 얇은 노치를 누르세요 (마우스는 0.3초 올려 두기). 휴대폰은 아래 '허브 열기'.</p>
         <div className="demo-btns">
+          <button onClick={() => setHub((h) => !h)}>허브 열기</button>
+          <button onClick={() => setPalette(true)}>Ctrl K</button>
+          <button onClick={receive}>메시지 받기</button>
           <button onClick={() => setNews((n) => ({ ...NEWS[(n?.n ?? 0) % NEWS.length], n: (n?.n ?? 0) + 1 }))}>팀 소식</button>
           <button onClick={() => pushAlert({ title: '디자인 리뷰 10분 전', body: '회의실 B · 16:00', key: 'event:e1' })}>일정 알림</button>
-          <button onClick={() => { const t = todos.find((x) => !x.done); if (t) pushAlert({ title: t.title, body: '마감 시각이 되었어요', key: `todo:${t.id}` }) }}>할 일 알림</button>
           <button onClick={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}>팀 일정 알림</button>
           <button onClick={fakeDrop}>파일 놓기</button>
-          <button onClick={receive}>메시지 받기</button>
+          <button onClick={() => send('회의록 최종.pdf')}>맥으로 전송</button>
           <button onClick={flipIme}>한/A</button>
           <button onClick={() => setPair((p) => (p ? null : { code: '482913', name: 'MacBook' }))}>페어링</button>
+          <button aria-pressed={reserve} onClick={() => setReserve((v) => !v)}>상단 확보 {reserve ? '켬' : '끔'}</button>
           <button aria-pressed={fs} onClick={() => (close(), setFs((v) => !v))}>전체화면 앱</button>
           <button onClick={() => { const t = theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; setTheme(t) }}>{theme === 'dark' ? '라이트' : '다크'}</button>
           <button onClick={() => { localStorage.clear(); location.reload() }}>처음부터</button>
@@ -585,13 +515,33 @@ export function HubDesktop() {
 
       <Taskbar wins={wins} front={front?.id} onPick={toFront} clock={clock} />
 
+      {palette && (
+        <Palette
+          records={records.filter((r) => r.kind !== 'ascii')}
+          todos={todos}
+          apps={[]}
+          onRun={(r) => (setPalette(false), say(`실행 중 · ${r.title}`), setTimeout(() => openWin(r), 700))}
+          onLaunch={(t) => (setPalette(false), say(`실행 · ${t}`))}
+          onOpenTodo={() => (setPalette(false), setHub(true), setDir(1), setView('plan'))}
+          onClose={() => setPalette(false)}
+          clips={clips}
+          onCopy={() => say('복사됨')}
+          cmds={[
+            { key: 'c-ocr', title: '화면 글자 복사', sub: 'OCR', run: () => (setPalette(false), setV3({ ocr: true })) },
+            { key: 'c-mac', title: 'Mac 화면으로', sub: 'Hera Link', run: () => (setPalette(false), toMac()) },
+            { key: 'c-snow', title: '화면 효과 · 눈', sub: '화면 효과', run: () => (setPalette(false), setFx((f) => ({ kind: 'snow', n: (f?.n ?? 0) + 1 }))) },
+            { key: 'c-xmas', title: '아스키 · 크리스마스', sub: '화면 효과', run: () => (setPalette(false), playScene(ASCII_RECORDS[1])) },
+            { key: 'c-set', title: '설정', sub: 'Hera', run: () => (setPalette(false), setPanel({ open: true, tab: 'settings' })) },
+          ]}
+        />
+      )}
       {panel && (
         <Panel
           open={panel.open} tab={panel.tab} onTab={(tab) => setPanel({ open: true, tab })}
           onClose={() => setPanel((p) => p && { ...p, open: false })} onClosed={() => setPanel(null)} onAdded={() => {}}
           todos={todos} setTodos={setTodos} events={events} setEvents={setEvents}
-          records={records} pinned={records.map((r) => r.id)} onAddRecord={() => {}} onRemoveRecord={() => {}} onTogglePin={() => {}} onAddSet={() => {}}
-          groups={groups} onSaveGroup={(g) => setGroups((gs) => (gs.some((x) => x.id === g.id) ? gs.map((x) => (x.id === g.id ? g : x)) : [...gs, g]))} onRemoveGroup={(id) => setGroups((gs) => gs.filter((g) => g.id !== id))}
+          records={records} pinned={[]} onAddRecord={() => {}} onRemoveRecord={() => {}} onTogglePin={() => {}} onAddSet={() => {}}
+          groups={[]} onSaveGroup={() => {}} onRemoveGroup={() => {}}
           fxOn={fxOn} setFxOn={setFxOn} city="서울" setCity={() => {}} weather={null} idleMin={10} setIdleMin={() => {}}
           onFxNow={() => setFx((f) => ({ kind: 'snow', n: (f?.n ?? 0) + 1 }))}
         />
@@ -604,8 +554,8 @@ export function HubDesktop() {
   )
 }
 
-/** 가짜 앱 창: 제목줄 끌기 · 누르면 앞으로 · 열릴 때 알약 쪽에서 스프링 */
-function FakeWin({ w, z, front, onFront, onClose, onMove, onChatDrop, children }: { w: Win; z: number; front: boolean; onFront: () => void; onClose: () => void; onMove: (x: number, y: number) => void; onChatDrop: (e: DragEvent) => void; children: React.ReactNode }) {
+/** 가짜 앱 창: 제목줄 끌기 · 누르면 앞으로 · 열릴 때 노치 쪽에서 스프링 */
+function FakeWin({ w, z, front, onFront, onClose, onMove, onChatDrop, children }: { w: Win; z: number; front: boolean; onFront: () => void; onClose: () => void; onMove: (x: number, y: number) => void; onChatDrop: (e: DragEvent) => void; children: ReactNode }) {
   const drag = (e: RPointerEvent<HTMLElement>) => {
     if ((e.target as Element).closest('button')) return
     const [x0, y0, wx, wy] = [e.clientX, e.clientY, w.x, w.y]
@@ -631,7 +581,7 @@ function FakeWin({ w, z, front, onFront, onClose, onMove, onChatDrop, children }
   )
 }
 
-/** Windows 11 작업 표시줄 (그대로 보임): 실행 중인 창 아이콘 = 여기서 관리 */
+/** Windows 11 작업 표시줄 (그대로 보임): 실행 중인 창·고정 앱·시작 = 여기서 */
 function Taskbar({ wins, front, onPick, clock }: { wins: Win[]; front?: string; onPick: (id: string) => void; clock: Date }) {
   return (
     <div className="taskbar hub-tb">
