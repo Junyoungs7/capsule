@@ -42,6 +42,7 @@ windows = { version = "0.62", features = [
   "Win32_System_SystemInformation",
   "Win32_System_Time",
   "Win32_UI_Accessibility",
+  "Win32_System_JobObjects",
 ] }
 tauri-plugin-store = "2.5.1"
 serde_json = "1.0.154"
@@ -49,6 +50,11 @@ png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
 tauri-plugin-global-shortcut = "2"
 drag = "2.1.1"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+getrandom = "0.3"
 
 [profile.release]
 opt-level = "s"

@@ -119,6 +119,27 @@ fn on_update() {
         r.iter().cloned().collect::<Vec<_>>()
     };
     if let Some(app) = APP.get() {
+        let _ = app.emit_to("palette", "clips", snapshot.clone());
+    }
+    if let Some(c) = snapshot.first() {
+        crate::link::on_local_clip(&c.text);
+    }
+}
+
+/// Hera Link: 맥 Hera 기록 항목을 이 PC 기록에만 넣는다 (클립보드는 건드리지 않음 — 엔진이 맞춘다)
+pub fn add_remote(text: &str) {
+    if text.chars().count() > MAX_LEN {
+        return;
+    }
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    let snapshot = {
+        let mut r = RING.lock().unwrap();
+        if !push(&mut r, text.to_string(), at, NEXT.fetch_add(1, Ordering::Relaxed)) {
+            return;
+        }
+        r.iter().cloned().collect::<Vec<_>>()
+    };
+    if let Some(app) = APP.get() {
         let _ = app.emit_to("palette", "clips", snapshot);
     }
 }
