@@ -1,4 +1,4 @@
-# v2 human checks (needs an UNLOCKED session). Build first: npx tauri build --no-bundle
+﻿# v2 human checks (needs an UNLOCKED session). Build first: npx tauri build --no-bundle
 # Run from the repo root. Automated part (no unlock needed): start Hera with
 #   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9333'  then  node .omc/verify/v2-cdp.mjs
 # Kills Hera at the end.
