@@ -12,6 +12,7 @@ import { Panel, type Tab } from '../surfaces/Panel'
 import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
+import { V3Demo, V3Layer } from '../surfaces/Notes'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
@@ -364,8 +365,10 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={() => setAscii({ open: true, from: null, saver: false })}>아스키 전체화면</button>
               <button aria-pressed={idleDemo} onClick={() => setIdleDemo((d) => !d)}>화면보호기 5초 {idleDemo ? '켬' : '끔'}</button>
             </div>
+            <V3Demo records={records} fgId={playing?.recordId} onApp={(r) => setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() - 4 * 60_000 })} onPanel={openPanel} onPalette={() => setPalette(true)} />
           </aside>
           <Taskbar />
+          <V3Layer records={records} fgId={playing?.recordId} />
         </>
       )}
 

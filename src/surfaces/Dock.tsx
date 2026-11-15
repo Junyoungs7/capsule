@@ -4,6 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, taskbarLift, thumbs, wallpaper, type Win } from '../data/api'
 import { Shelf } from './Shelf'
 import { AsciiWidget, type SceneId } from './Ascii'
+import { NotesDockItem } from './Notes'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
    글라스 레이어는 최대 크기로 고정하고 모양만 clip-path 로 바꾼다.
@@ -334,6 +335,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
           />
         ))}
         <span className="dock-sep" />
+        <NotesDockItem />
         <button className="dock-slot" data-running={panelOpen} onClick={onPanel} aria-label="할 일 · 달력 · 라이브러리 패널">
           <span className="icon-mag">
             <span className="icon-bounce">

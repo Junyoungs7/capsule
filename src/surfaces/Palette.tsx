@@ -2,8 +2,9 @@ import { Fragment, useEffect, useState, type KeyboardEvent } from 'react'
 import type { Clip, LpRecord, Todo } from '../data/types'
 import { isTauri } from '../data/api'
 import { Tile } from './Dock'
+import { ExtraIcon, extraLabel, runExtra, useExtras, type Extra } from './Snippets'
 
-type Item = { key: string; title: string; sub: string; rec?: LpRecord; target?: string; clip?: Clip }
+type Item = { key: string; title: string; sub: string; rec?: LpRecord; target?: string; clip?: Clip; x?: Extra }
 
 type Props = {
   records: LpRecord[]
@@ -29,6 +30,8 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const [copied, setCopied] = useState<string | null>(null)
+  const [pv, setPv] = useState<string | null>(null) // v3 상용구 미리보기 중인 항목
+  const extras = useExtras(q)
   const close = onClose
 
   // 팔레트 창이 포커스를 잃으면(다른 앱 클릭) 숨긴다 — 포커스는 그 앱에 그대로 (이미 숨긴 뒤의 blur 는 무해)
@@ -48,11 +51,12 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
   // v2 클립보드 기록: 검색어 없으면 맨 위 '최근 복사' 섹션, 검색하면 다른 항목과 함께 매칭
   const clipItems: Item[] = clips.map((c) => ({ key: c.id, title: c.text.replace(/\s+/g, ' '), sub: `복사한 텍스트 · ${ago(c.at)}`, clip: c }))
   const s = q.trim().toLowerCase()
-  const items = (s ? [...all, ...clipItems].filter((x) => `${x.title} ${x.sub}`.toLowerCase().includes(s)) : [...clipItems.slice(0, CLIPS), ...all]).slice(0, LIMIT)
+  const items: Item[] = q.startsWith(';') ? extras : [...extras, ...(s ? [...all, ...clipItems].filter((x) => `${x.title} ${x.sub}`.toLowerCase().includes(s)) : [...clipItems.slice(0, CLIPS), ...all])].slice(0, LIMIT)
   const cur = Math.min(sel, items.length - 1)
 
   const run = (it?: Item) => {
     if (!it || copied) return
+    if (it.x) return runExtra(it.key, it.x, pv, setPv, setCopied, close)
     if (it.clip) {
       // 다시 클립보드에 넣고 '복사됨' 을 잠깐 보여 준 뒤 닫는다
       setCopied(it.key)
@@ -84,7 +88,7 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
             value={q}
             onChange={(e) => (setQ(e.target.value), setSel(0))}
             onKeyDown={key}
-            placeholder="앱, URL, 할 일, 복사한 텍스트 검색"
+            placeholder="앱, URL, 할 일, 복사한 텍스트 검색 · ; 상용구"
             aria-label="검색어"
             aria-activedescendant={items[cur] ? `pi-${items[cur].key}` : undefined}
           />
@@ -96,12 +100,13 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
             {!s && i === 0 && it.clip && <li className="sect" role="presentation">최근 복사</li>}
             {!s && it.clip === undefined && items[i - 1]?.clip && <li className="sect" role="presentation">앱 · 할 일</li>}
             <li id={`pi-${it.key}`} className={it.clip ? 'clip' : undefined} data-copied={copied === it.key} role="option" aria-selected={i === cur} onPointerMove={() => i !== cur && setSel(i)} onClick={() => run(it)}>
-              {it.rec ? <Tile rec={it.rec} size={28} /> : it.clip ? <span className="clip-ico" /> : <span className={it.target ? 'todo-ico app-ico' : 'todo-ico'} />}
+              {it.rec ? <Tile rec={it.rec} size={28} /> : it.x ? <ExtraIcon x={it.x} /> : it.clip ? <span className="clip-ico" /> : <span className={it.target ? 'todo-ico app-ico' : 'todo-ico'} />}
               <span className="grow">
                 <b>{it.title}</b>
                 <small>{it.sub}</small>
+                {pv === it.key && it.x?.kind === 'snip' && <span className="snip-pv">{it.x.text}</span>}
               </span>
-              <kbd>{copied === it.key ? '복사됨 ✓' : it.clip ? '복사' : it.target || it.rec ? '실행' : '열기'}</kbd>
+              <kbd>{copied === it.key ? (it.x ? '붙여넣음 ✓' : '복사됨 ✓') : it.x ? extraLabel(it.x, pv === it.key) : it.clip ? '복사' : it.target || it.rec ? '실행' : '열기'}</kbd>
             </li>
           </Fragment>))}
         </ul>

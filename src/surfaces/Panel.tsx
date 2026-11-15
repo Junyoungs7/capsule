@@ -5,9 +5,11 @@ import { Tile } from './Dock'
 import { fmtWhen } from './Island'
 import type { Weather } from './Fx'
 import { moonName, moonPhase } from './Ascii'
+import { MonthCalendar } from './MonthCalendar'
+import { SnippetTab } from './Snippets'
 
-export type Tab = 'todo' | 'calendar' | 'library' | 'settings'
-const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['settings', '설정']]
+export type Tab = 'todo' | 'calendar' | 'library' | 'snippets' | 'settings'
+const TABS: [Tab, string][] = [['todo', '할 일'], ['calendar', '달력'], ['library', '라이브러리'], ['snippets', '상용구'], ['settings', '설정']]
 
 type Props = {
   open: boolean
@@ -69,8 +71,9 @@ export function Panel(p: Props) {
       </header>
       <div className="panel-body">
         {p.tab === 'todo' && <TodoTab {...p} />}
-        {p.tab === 'calendar' && <CalendarTab {...p} />}
+        {p.tab === 'calendar' && <MonthCalendar {...p} />}
         {p.tab === 'library' && <LibraryTab {...p} />}
+        {p.tab === 'snippets' && <SnippetTab />}
         {p.tab === 'settings' && <SettingsTab {...p} />}
       </div>
     </section>
@@ -110,81 +113,6 @@ function TodoTab({ todos, setTodos, onAdded }: Props) {
               <small>{fmtWhen(t.due)}</small>
             </span>
             <button className="icon-btn del" onClick={() => setTodos((all) => all.filter((x) => x.id !== t.id))} aria-label={`${t.title} 삭제`}>×</button>
-          </li>
-        ))}
-      </ul>
-    </>
-  )
-}
-
-const dayKey = (d: Date) => d.toLocaleDateString('sv') // YYYY-MM-DD (로컬)
-
-function CalendarTab({ events, setEvents, onAdded }: Props) {
-  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
-  const [sel, setSel] = useState(() => dayKey(new Date()))
-  const [title, setTitle] = useState('')
-  const [start, setStart] = useState('')
-  const today = dayKey(new Date())
-
-  const first = new Date(month)
-  first.setDate(1 - month.getDay())
-  const cells = Array.from({ length: 42 }, (_, i) => new Date(first.getFullYear(), first.getMonth(), first.getDate() + i))
-  const byDay = new Map<string, number>()
-  for (const ev of events) byDay.set(dayKey(new Date(ev.start)), (byDay.get(dayKey(new Date(ev.start))) ?? 0) + 1)
-  const dayEvents = events.filter((ev) => dayKey(new Date(ev.start)) === sel).sort((a, b) => a.start.localeCompare(b.start))
-
-  const add = (e: FormEvent) => {
-    e.preventDefault()
-    if (!title.trim()) return
-    const s = new Date(start || `${sel}T09:00`)
-    setEvents((all) => [...all, { id: id(), title: title.trim(), start: s.toISOString(), end: new Date(s.getTime() + 3_600_000).toISOString(), source: 'local' }])
-    setSel(dayKey(s))
-    setTitle('')
-    setStart('')
-    onAdded()
-  }
-  const shift = (n: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + n, 1))
-
-  return (
-    <>
-      <div className="cal-head">
-        <b>{month.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })}</b>
-        <span>
-          <button className="icon-btn" onClick={() => shift(-1)} aria-label="이전 달">‹</button>
-          <button className="icon-btn" onClick={() => shift(1)} aria-label="다음 달">›</button>
-        </span>
-      </div>
-      <div className="cal-grid" role="grid">
-        {['일', '월', '화', '수', '목', '금', '토'].map((d) => <span key={d} className="dow">{d}</span>)}
-        {cells.map((d) => {
-          const k = dayKey(d)
-          return (
-            <button
-              key={k}
-              className="day"
-              data-out={d.getMonth() !== month.getMonth()}
-              data-today={k === today}
-              aria-selected={k === sel}
-              onClick={() => setSel(k)}
-            >
-              {d.getDate()}
-              {byDay.has(k) && <i />}
-            </button>
-          )
-        })}
-      </div>
-      <form className="add" onSubmit={add}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${sel.slice(5).replace('-', '/')} 일정 추가`} aria-label="일정 제목" />
-        <input type="datetime-local" value={start || `${sel}T09:00`} onChange={(e) => setStart(e.target.value)} aria-label="시작 시각" />
-        <button className="primary">추가</button>
-      </form>
-      <ul className="list">
-        {dayEvents.length === 0 && <li className="empty">이 날은 일정이 없어요</li>}
-        {dayEvents.map((ev) => (
-          <li key={ev.id}>
-            <span className="ev-time">{new Date(ev.start).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-            <span className="grow"><b>{ev.title}</b></span>
-            <button className="icon-btn del" onClick={() => setEvents((all) => all.filter((x) => x.id !== ev.id))} aria-label={`${ev.title} 삭제`}>×</button>
           </li>
         ))}
       </ul>
