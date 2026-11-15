@@ -200,11 +200,13 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   // B0-1 ②: 실제 앱에서는 배경화면을 정적 캔버스로 1회 그린다 (변경 시 watch 루프가 'wallpaper' emit)
   const wall = useRef<HTMLCanvasElement>(null)
   const [hasWall, setHasWall] = useState(false)
+  // 배경 밝기 적응: 구운 캔버스의 바 영역 평균 밝기 (그릴 때 1회) → 유리 틴트·글자색 (glass.css .dock[data-lum])
+  const [lum, setLum] = useState<'light' | 'dark'>()
   useEffect(() => {
     if (!isTauri) return
     const draw = () => {
       const c = wall.current // 언마운트 후 늦게 온 'wallpaper' 이벤트 무시
-      if (c) void paintWall(c).then(setHasWall)
+      if (c) void paintWall(c).then((l) => (setHasWall(l !== false), setLum(l === false ? undefined : l > 0.42 ? 'light' : 'dark')))
     }
     draw()
     return onEvent('wallpaper', draw)
@@ -291,7 +293,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
   }
 
   return (
-    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-attention={attention.size > 0} style={{ '--lift': `${lift}px` } as CSSProperties} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
+    <div ref={root} className="dock" data-open={open} data-wall={hasWall} data-lum={lum} data-attention={attention.size > 0} style={{ '--lift': `${lift}px` } as CSSProperties} onPointerEnter={enter} onPointerLeave={leave} onPointerMove={move}>
       <div ref={glass} className="dock-glass">{isTauri && <canvas ref={wall} className="dock-wall" />}</div>
       <div ref={ring} className="dock-ring" />
       <div ref={hit} className="dock-hit" />
@@ -532,7 +534,24 @@ async function paintWall(c: HTMLCanvasElement) {
   ctx.filter = `blur(${28 / k}px) saturate(1.85)`
   ctx.drawImage(img, x, y, (img.width * sw) / k, (img.height * sh) / k)
   img.close()
-  return true
+  ctx.filter = 'none'
+  // Liquid Glass 렌즈를 1회 굽기: 바 위·아래 띠의 행을 안쪽에서 끌어와(가장자리로 갈수록 세게) 테두리가 굴절돼 보이게.
+  // 바 너비는 바뀌므로 세로 렌즈만. 상시 비용 0 (live 필터 없음).
+  const top = Math.round((BOX - BAR_H) / k), CH = c.height, band = Math.max(2, Math.round((BAR_H * 0.2) / k))
+  const src = document.createElement('canvas')
+  src.width = c.width
+  src.height = CH
+  src.getContext('2d')!.drawImage(c, 0, 0)
+  for (let i = 0; i < band; i++) {
+    const d = ((band - i) ** 2 / band) * 0.9
+    ctx.drawImage(src, 0, top + i + d, c.width, 1, 0, top + i, c.width, 1)
+    ctx.drawImage(src, 0, CH - 1 - i - d, c.width, 1, 0, CH - 1 - i, c.width, 1)
+  }
+  // 바 영역 평균 상대 밝기 (0~1)
+  const px = ctx.getImageData(0, top, c.width, CH - top).data
+  let sum = 0
+  for (let i = 0; i < px.length; i += 4) sum += (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]) / 255
+  return sum / (px.length / 4)
 }
 
 function Clock({ open }: { open: boolean }) {

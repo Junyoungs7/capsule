@@ -20,18 +20,18 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
-  border-radius: 14px;
+  border-radius: 18px;
   color: var(--text);
-  /* 옅게 물든 유리: 색 틴트 + 흰 시트 + 블러 (정적 레이어) */
+  /* 물든 리퀴드 글라스: 색 틴트 + 맑은 시트(글자 대비용) + 얕은 블러 (정적 레이어). 그림자도 메모 색으로 물든다. */
   background:
     var(--glass-sheen),
-    linear-gradient(160deg, color-mix(in srgb, var(--nc) 38%, transparent), color-mix(in srgb, var(--nc) 20%, transparent)),
-    var(--glass);
+    linear-gradient(160deg, color-mix(in srgb, var(--nc) 36%, transparent), color-mix(in srgb, var(--nc) 16%, transparent)),
+    color-mix(in srgb, var(--glass-strong) 72%, transparent);
   backdrop-filter: var(--blur);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--nc) 45%, var(--edge)),
-    inset 0 1px 0 var(--edge-top),
-    0 10px 28px -12px color-mix(in srgb, var(--nc) 55%, rgba(15, 23, 42, 0.5)),
+    var(--spec),
+    inset 0 0 0 1px color-mix(in srgb, var(--nc) 30%, transparent),
+    0 14px 34px -14px color-mix(in srgb, var(--nc) 60%, rgba(15, 23, 42, 0.5)),
     0 0 0 0.5px rgba(15, 23, 42, 0.08);
   transform-origin: 50% 50%;
 }
@@ -134,10 +134,10 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
   right: 6px;
   z-index: 2;
   padding: 6px;
-  border-radius: 12px;
+  border-radius: 16px;
   background: var(--glass-sheen), var(--glass-strong);
-  backdrop-filter: var(--blur);
-  box-shadow: inset 0 0 0 1px var(--edge), var(--shadow);
+  backdrop-filter: var(--blur-lens); /* 작은 팝오버 = 렌즈 허용 */
+  box-shadow: var(--spec), var(--shadow);
   animation: note-pop var(--dur-smooth) var(--spring-smooth);
   transform-origin: 90% 0;
 }
@@ -159,7 +159,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .note-apps small { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-2); }
 .note-apps button { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 0; border-radius: 7px; background: none; text-align: left; font-size: 12px; }
 .note-apps button:hover { background: var(--fill-2); }
-.note-apps button[aria-pressed='true'] { color: var(--accent); font-weight: 600; }
+.note-apps button[aria-pressed='true'] { color: var(--accent-text); font-weight: 600; }
 
 /* ── 앱별 메모: 앱이 앞에 있을 때 화면 오른쪽 가장자리에 붙는다 ── */
 .edge-notes { position: fixed; right: 14px; top: 50%; z-index: 38; display: flex; flex-direction: column; gap: 10px; transform: translateY(-50%); pointer-events: none; }
@@ -209,11 +209,11 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
 .mc-head > b { flex: 1; font: 650 15px/1 var(--font-display); }
 .mc-head > span { display: flex; align-items: center; gap: 2px; }
-.mc-today { padding: 4px 8px; border: 0; border-radius: 7px; background: var(--fill); font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mc-today { padding: 4px 10px; border: 0; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; font-weight: 600; color: var(--text-2); }
 .mc-today:hover { background: var(--fill-2); color: var(--text); }
-.mc-seg { display: flex; padding: 2px; border-radius: 8px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
-.mc-seg button { width: 30px; padding: 3px 0; border: 0; border-radius: 6px; background: none; font-size: 12px; font-weight: 600; color: var(--text-2); }
-.mc-seg button[aria-pressed='true'] { color: var(--text); background: var(--seg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.mc-seg { display: flex; padding: 2px; border-radius: var(--r-pill); background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
+.mc-seg button { width: 30px; padding: 3px 0; border: 0; border-radius: var(--r-pill); background: none; font-size: 12px; font-weight: 600; color: var(--text-2); }
+.mc-seg button[aria-pressed='true'] { color: var(--text); background: var(--seg); box-shadow: var(--spec), 0 1px 4px -1px rgba(14, 30, 60, 0.2); }
 .mc-stage { position: relative; flex: none; height: 268px; overflow: hidden; contain: layout paint; }
 .mc-sheet { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: 16px repeat(6, 1fr); gap: 2px; }
 .mc-sheet[data-mode='week'] { grid-template-rows: 16px 1fr; }
@@ -221,7 +221,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-sheet.out { animation: mc-out 260ms var(--ease-out) both; pointer-events: none; }
 @keyframes mc-in { from { opacity: 0; transform: translateX(calc(var(--d) * 42%)); } }
 @keyframes mc-out { to { opacity: 0; transform: translateX(calc(var(--d) * -30%)); } }
-.mc-dow { text-align: center; font-size: 10.5px; color: var(--text-3); }
+.mc-dow { text-align: center; font-size: 10.5px; color: var(--text-2); }
 [data-red='true'] { --day: #e5484d; }
 [data-blue='true'] { --day: #3b82f6; }
 [data-theme='dark'] [data-red='true'] { --day: #ff6b6f; }
@@ -249,7 +249,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-hol { color: var(--day, #e5484d); font-weight: 600; }
 .mc-day[data-out='true'] { opacity: 0.38; }
 .mc-day[data-today='true'] { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.mc-day[data-today='true'] b { color: var(--accent); }
+.mc-day[data-today='true'] b { color: var(--accent-text); }
 .mc-day[aria-selected='true'] { background: var(--accent); color: var(--on-accent); }
 .mc-day[aria-selected='true'] :is(b, small) { color: var(--on-accent); }
 .mc-dots { position: absolute; top: 5px; right: 5px; display: flex; gap: 2px; }
@@ -279,7 +279,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .ev-time.todo { color: #d97706; }
 
 /* ── 팔레트: 명령·상용구 ── */
-.x-ico { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.x-ico { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; color: var(--accent-text); background: var(--accent-soft); }
 .x-ico svg { width: 16px; height: 16px; }
 .x-ocr { color: #7c5cff; background: rgba(124, 92, 255, 0.14); }
 .snip-pv {
@@ -315,7 +315,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .snip-ed textarea { flex: 1; min-height: 110px; resize: none; line-height: 1.5; user-select: text; }
 .snip-ed :is(input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .snip-vars { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.snip-vars button { padding: 3px 8px; border: 0; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-soft); }
+.snip-vars button { padding: 3px 8px; border: 0; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--accent-text); background: var(--accent-soft); }
 .snip-vars small { font-size: 11px; color: var(--text-3); }
 .snip-preview { padding: 8px 10px; border-radius: 9px; background: var(--fill); }
 .snip-preview small { font-size: 10.5px; color: var(--text-3); }

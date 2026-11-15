@@ -13,6 +13,7 @@ import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
 import { V3Demo, V3Layer } from '../surfaces/Notes'
+import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
@@ -320,6 +321,7 @@ export function Desktop({ only }: { only?: string }) {
 
   return (
     <div className="desktop" data-only={only ?? 'all'}>
+      <GlassDefs />
       {!only && (
         <>
           <div className="wallpaper" aria-hidden />
