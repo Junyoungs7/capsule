@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  activate, clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
-  setTurntable, shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
+  clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
+  shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos } from '../data/mock'
 import { SHELF_MAX } from '../surfaces/Shelf'
 import { Dock } from '../surfaces/Dock'
 import { Island, type NextItem } from '../surfaces/Island'
 import { Panel, type Tab } from '../surfaces/Panel'
-import { Turntable } from '../surfaces/Turntable'
 import { Palette } from '../surfaces/Palette'
 import { AsciiFull, pickScene, seasonOf } from '../surfaces/Ascii'
 import { V3Demo, V3Layer } from '../surfaces/Notes'
@@ -47,7 +46,7 @@ export function Desktop({ only }: { only?: string }) {
     setPinned((p) => p.filter((x) => x !== id))
   }
   const togglePin = (id: string) => setPinned((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
-  // C2: 세트 = 기존 단일 레코드 묶음 (독에는 고정하지 않음 — 턴테이블 서랍·팔레트에서 쓴다)
+  // C2: 세트 = 기존 단일 레코드 묶음 (독에는 고정하지 않음 — LP 크레이트·팔레트에서 쓴다)
   const addSet = (title: string, targets: string[]) =>
     setRecords((rs) => [...rs, { id: crypto.randomUUID(), title, target: '', kind: 'set', targets, cover: COVERS[rs.length % COVERS.length], glyph: 'set' }])
 
@@ -208,7 +207,7 @@ export function Desktop({ only }: { only?: string }) {
     return ids
   }, [wins, dockRecords, runApps])
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
-  // 살아 있는 레코드 id: 단일 = 실행 집합에 대상이 있음, 세트 = 멤버 중 하나라도 (독 실행 점·턴테이블 회전 공용)
+  // 살아 있는 레코드 id: 단일 = 실행 집합에 대상이 있음, 세트 = 멤버 중 하나라도 (독 실행 점·Island LP 회전 공용)
   const aliveIds = useMemo(() => {
     const ids = new Set(records.filter((r) => matches(r, runKeys)).map((r) => r.id))
     for (const r of records) if (r.kind === 'set' && r.targets?.some((id) => ids.has(id))) ids.add(r.id)
@@ -216,14 +215,10 @@ export function Desktop({ only }: { only?: string }) {
   }, [records, runKeys])
   const members = (r: LpRecord) => (r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r])
 
-  // C1: 독 우클릭 → 턴테이블에 올리기. 턴테이블 창은 URL ?play= 또는 'tt-play' 이벤트로 받는다.
-  const [cue, setCue] = useState(() => {
-    const id = new URLSearchParams(location.search).get('play')
-    return id ? { id, n: 1 } : null
-  })
-  useEffect(() => (isTauri && only === 'turntable' ? onEvent<string>('tt-play', (id) => setCue((c) => ({ id, n: (c?.n ?? 0) + 1 }))) : undefined), [])
-  const cueRec = cue && records.find((r) => r.id === cue.id)
-  const onCue = (r: LpRecord) => (isTauri ? void setTurntable(true, r.id) : setCue((c) => ({ id: r.id, n: (c?.n ?? 0) + 1 })))
+  // LP → Island (턴테이블 대체): 독 우클릭 'Island에 올리기' · 크레이트에서 끌어 놓기 = 실행.
+  // 시안: 실행하면 playing 이 그 레코드 → Island nowPlaying 의 LP 가 돈다. 실제 앱: 포그라운드가 그 앱이 되면 Island 가 받는다.
+  const onCue = (r: LpRecord) => void run(r)
+  const [lpDrag, setLpDrag] = useState<'off' | 'drag' | 'over'>('off')
 
   // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
   // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
@@ -274,7 +269,6 @@ export function Desktop({ only }: { only?: string }) {
     }
     for (const m of members(r)) await launch(m.target).catch((e) => showAlert({ title: `${m.title} 실행 실패`, body: String(e) }))
   }
-  const stop = (r: LpRecord) => setRunning((s) => new Set([...s].filter((id) => !ids(r).includes(id))))
 
   // Tauri: 패널은 별도 창 (dock/island 에서 열면 Rust 가 지연 생성/닫기 요청)
   const remotePanel = isTauri && only !== 'panel'
@@ -383,17 +377,6 @@ export function Desktop({ only }: { only?: string }) {
         </>
       )}
 
-      {show('turntable') && (
-        <Turntable
-          records={records}
-          onPlay={run}
-          onStop={stop}
-          cue={cueRec ? { rec: cueRec, n: cue!.n } : null}
-          alive={isTauri ? aliveIds : undefined}
-          onActivate={isTauri ? (r) => void activate(members(r).map(key)).catch(() => {}) : undefined}
-          onHide={isTauri ? () => void setTurntable(false) : undefined}
-        />
-      )}
       {show('island') && (
         <Island
           alert={alert}
@@ -405,6 +388,8 @@ export function Desktop({ only }: { only?: string }) {
               : records.find((r) => r.id === playing?.recordId)
           }
           peek={peek}
+          alive={isTauri ? !!fgRec && aliveIds.has(fgRec.id) : !!playing && ids(records.find((r) => r.id === playing.recordId) ?? { id: playing.recordId, kind: 'single' } as LpRecord).some((id) => running.has(id))}
+          lp={lpDrag}
           onDone={done}
           onSnooze={snooze}
           onOpen={() => openPanel('todo')}
@@ -420,6 +405,10 @@ export function Desktop({ only }: { only?: string }) {
           onPanel={() => (remotePanel || panel?.open ? closePanel() : openPanel('library'))}
           onDropFiles={dropFiles}
           onCue={onCue}
+          library={records}
+          onRemoveRecord={(r) => removeRecord(r.id)}
+          onLibrary={() => openPanel('library')}
+          onLpDrag={setLpDrag}
           shelf={shelf}
           onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}

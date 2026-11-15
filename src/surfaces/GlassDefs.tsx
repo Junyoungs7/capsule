@@ -52,7 +52,7 @@ function Lens({ id, map, scale, chroma = true }: { id: string; map: string; scal
   )
 }
 
-const HL = '.panel, .palette, .demo, .note, .tt-card'
+const HL = '.panel, .palette, .demo, .note'
 
 export function GlassDefs() {
   const maps = useMemo(

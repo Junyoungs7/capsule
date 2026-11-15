@@ -53,7 +53,7 @@
   --dot: rgba(30, 41, 59, 0.6);
   --taskbar: rgba(238, 242, 247, 0.8);
   --blur: blur(9px) saturate(180%) brightness(1.04);
-  /* 시안 데모 카드 전용: 뒤의 픽셀 턴테이블이 얕은 블러로 번져 보이지 않게 짙게 */
+  /* 시안 데모 카드 전용: 뒤의 표면이 얕은 블러로 번져 보이지 않게 짙게 */
   --glass-dense: rgba(244, 247, 252, 0.88);
   /* 작은 요소 전용: 얕은 블러 + 가장자리 굴절 렌즈 (GlassDefs 의 SVG 필터) */
   --blur-lens: blur(3px) url(#hera-lens) saturate(180%) brightness(1.05);
@@ -132,7 +132,7 @@ kbd {
   background: var(--fill-2);
 }
 
-/* ── 공용 글라스 카드 (panel, turntable, palette, demo) ── */
+/* ── 공용 글라스 카드 (panel, palette, demo, 팝오버) ── */
 .glass-card {
   background: var(--glass-sheen), var(--glass-strong);
   backdrop-filter: var(--blur);
@@ -142,7 +142,7 @@ kbd {
 }
 /* 포인터를 따라가는 림 하이라이트: 1px 링(마스크)만 다시 그린다. --mx/--my 는 호버 중 pointermove 에서만 갱신(GlassDefs).
    기본 위치 = 왼쪽 위 → 림이 왼쪽 위에서 가장 밝다. */
-:is(.panel, .palette, .demo, .note, .tt-card)::before {
+:is(.panel, .palette, .demo, .note)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -155,9 +155,9 @@ kbd {
   pointer-events: none;
   transition: opacity 320ms var(--ease-out);
 }
-[data-theme='dark'] :is(.panel, .palette, .demo, .note, .tt-card)::before { opacity: 0.28; }
-:is(.panel, .palette, .demo, .note, .tt-card)[data-hl='true']::before { opacity: 1; }
-[data-theme='dark'] :is(.panel, .palette, .demo, .note, .tt-card)[data-hl='true']::before { opacity: 0.6; }
+[data-theme='dark'] :is(.panel, .palette, .demo, .note)::before { opacity: 0.28; }
+:is(.panel, .palette, .demo, .note)[data-hl='true']::before { opacity: 1; }
+[data-theme='dark'] :is(.panel, .palette, .demo, .note)[data-hl='true']::before { opacity: 0.6; }
 /* 실제 앱(투명 창): 창 밖은 블러할 수 없으니 backdrop-filter 를 끈다 (합성 비용 0, 틴트만) */
 .desktop:not([data-only='all']) .glass-card { backdrop-filter: none; }
 
@@ -554,22 +554,6 @@ kbd {
   font-weight: 600;
   background: rgba(255, 255, 255, 0.1);
 }
-.mini-lp {
-  flex: none;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, var(--lab) 0 34%, color-mix(in oklab, var(--lab) 45%, white) 34.5% 38%, transparent 38.5%),
-    conic-gradient(from 20deg, transparent 0 12%, rgba(255, 255, 255, 0.14) 16%, transparent 22% 58%, rgba(255, 255, 255, 0.1) 63%, transparent 70%),
-    repeating-radial-gradient(circle, #131417 0 1.2px, #1d1f24 1.2px 2.4px);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 4px 10px rgba(0, 0, 0, 0.4);
-  animation: spin 1.8s linear infinite paused;
-}
-.island[data-spin='true'] .mini-lp { animation-play-state: running; }
-.mini-lp { display: grid; place-items: center; }
-.mini-lp .tile { background: none; box-shadow: none; color: var(--ink); }
-.mini-lp .tile svg { stroke-width: 2.3; }
 .bar { display: block; height: 3px; margin-top: 7px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--island-accent); transform-origin: 0 50%; transition: transform 500ms var(--ease-out); }
 .time { flex: none; align-self: flex-end; margin-bottom: 12px; font: 600 15px/1 var(--font-display); font-variant-numeric: tabular-nums; }
@@ -740,7 +724,6 @@ kbd {
   .panel { transform: none; }
   .island-layer { transform: translate(-50%, 0); }
   .palette { animation: fade 160ms; }
-  .mini-lp { animation: none; }
   .tab-ind { transition: none; }
   :is(.primary, .demo-btns button, .demo-seg button, .alert .actions button, .mc-today, .mc-seg button, .icon-btn, .tabs button, .snip-vars button):active { transform: none; }
 }

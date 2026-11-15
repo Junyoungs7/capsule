@@ -5,6 +5,7 @@ import { dockTall, iconFor, isTauri, onEvent, power, reportHitRects, taskbarLift
 import { Shelf } from './Shelf'
 import { AsciiWidget, type SceneId } from './Ascii'
 import { NotesDockItem } from './Notes'
+import { LpCrate } from './Lp'
 
 /* ── 공용: 둥근 사각형 clip-path (dock·island 가 공유) ──────────────────────
    글라스 레이어는 최대 크기로 고정하고 모양만 clip-path 로 바꾼다.
@@ -84,7 +85,11 @@ type Props = {
   onLaunch: (r: LpRecord) => void
   onPanel: () => void
   onDropFiles: (paths: string[], toShelf: boolean) => void
-  onCue: (r: LpRecord) => void // 우클릭 = 턴테이블에 올리기
+  onCue: (r: LpRecord) => void // 우클릭·LP 끌어 놓기 = Island 에 올리기 (실행 + 회전)
+  library: LpRecord[] // LP 크레이트 (전체 레코드)
+  onRemoveRecord: (r: LpRecord) => void
+  onLibrary: () => void
+  onLpDrag: (s: 'off' | 'drag' | 'over') => void
   shelf: ShelfFile[]
   onShelfOpen: (f: ShelfFile) => void
   onShelfRemove: (f: ShelfFile) => void
@@ -100,7 +105,7 @@ type Props = {
   onKey: (k: 'start' | 'tray' | 'quick' | 'notify') => void
 }
 
-export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
+export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFiles, onCue, library, onRemoveRecord, onLibrary, onLpDrag, shelf, onShelfOpen, onShelfRemove, groups, scene, onAscii, runApps, attention, onWinClick, onWinClose, onPin, onKey }: Props) {
   const [open, setOpen] = useState(false)
   const [folder, setFolder] = useState<string | null>(null) // 열린 앱 묶음 id
   const root = useRef<HTMLDivElement>(null)
@@ -303,7 +308,7 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
         <SysKeys onKey={onKey} />
         <span className="dock-sep" />
         {records.map((r) => (
-          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} data-attention={attention.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: 턴테이블에 올리기)`}>
+          <button key={r.id} className="dock-slot" data-running={running.has(r.id)} data-attention={attention.has(r.id)} onClick={(e) => launch(r, e)} onContextMenu={(e) => (e.preventDefault(), onCue(r))} aria-label={`${r.title} 실행 (우클릭: Island에 올리기)`}>
             <span className="icon-mag">
               <span className="icon-bounce"><Tile rec={r} /></span>
             </span>
@@ -352,6 +357,17 @@ export function Dock({ records, running, panelOpen, onLaunch, onPanel, onDropFil
           <span className="dock-dot" />
         </button>
         <span className="dock-sep" />
+        <LpCrate
+          records={library}
+          running={runApps.map((a) => a.rec)}
+          open={folder === 'crate'}
+          onToggle={(o) => void openFolder(o ? 'crate' : null)}
+          onClosed={(inside) => (setFolder(null), inside || (closeTimer.current = window.setTimeout(() => setOpen(false), 400)))}
+          onCue={onCue}
+          onRemove={onRemoveRecord}
+          onLibrary={onLibrary}
+          onDrag={onLpDrag}
+        />
         <Clock open={open} />
         <AsciiWidget id={scene} live={open} onOpen={onAscii} />
         <Battery />
