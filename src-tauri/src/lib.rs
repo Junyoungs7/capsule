@@ -26,6 +26,7 @@ mod link;
 mod link_files;
 mod link_layout;
 mod link_sync;
+mod team;
 mod ui;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
@@ -425,6 +426,44 @@ fn ocr_save(app: AppHandle, text: String) -> Result<String, String> {
     Ok(p)
 }
 
+/* ── Hera Team (team.rs) ── */
+#[tauri::command]
+fn team_state(app: AppHandle) -> team::app::State {
+    team::app::state(&app)
+}
+
+#[tauri::command]
+fn team_create(app: AppHandle, name: String, color: String) -> team::Group {
+    team::app::create(&app, &name, &color)
+}
+
+/// (6자리 코드, 초대 문자열)
+#[tauri::command]
+fn team_invite(app: AppHandle, group: String) -> Result<(String, String), String> {
+    team::app::invite(&app, &group)
+}
+
+/// 초대 문자열 · 6자리 코드 · "코드@IP"
+#[tauri::command]
+async fn team_join(app: AppHandle, input: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || team::app::join(&app, &input)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn team_flags(app: AppHandle, group: String, alarms: bool, news: bool) {
+    team::app::flags(&app, &group, alarms, news)
+}
+
+#[tauri::command]
+fn team_name(app: AppHandle, name: String) {
+    team::app::set_name(&app, &name)
+}
+
+#[tauri::command]
+fn team_dial(app: AppHandle, ip: String) -> Result<(), String> {
+    team::app::dial(&app, &ip)
+}
+
 /// 수동 '지금 보기' (스위치와 무관, 전체화면 중엔 무시)
 #[tauri::command]
 async fn fx(app: AppHandle, kind: String) -> Result<(), String> {
@@ -614,7 +653,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
-            lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
+            team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
             shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient
         ])
         .setup(|app| {
@@ -658,6 +697,7 @@ pub fn run() {
             shell::start(h.clone());
             // Hera Link: 기본 꺼짐. 켜져 있을 때만 엔진·파일 채널이 뜬다 (꺼져 있으면 스레드 1개가 대기만)
             link::start(h.clone());
+            team::app::start(h); // 그룹이 있을 때만 포트·비콘
             link::files_start(h);
             // 팔레트는 부가 기능 — 실패해도 시작은 계속 (첫 단축키 때 다시 만든다)
             if let Err(e) = palette_window(h) {

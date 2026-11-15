@@ -248,6 +248,9 @@ pub struct Alarm {
     title: String,
     at: i64,
     done: bool,
+    /// Hera Team 그룹 일정이면 그룹 id (그룹별 '팀 일정 알림' 끄기 반영)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group: Option<String>,
 }
 
 impl Alarm {
@@ -282,7 +285,13 @@ fn iso_ms(s: &str) -> Option<i64> {
 fn alarm_item(key: &str, v: &Value) -> Option<Alarm> {
     let at = |f: &str| v[f].as_str().and_then(iso_ms);
     let base = if key.starts_with("todo:") { at("due") } else if key.starts_with("event:") { at("start") } else { None };
-    Some(Alarm { key: key.into(), title: v["title"].as_str().unwrap_or_default().into(), at: at("snooze").or(base)?, done: v["done"].as_bool().unwrap_or(false) })
+    Some(Alarm {
+        key: key.into(),
+        title: v["title"].as_str().unwrap_or_default().into(),
+        at: at("snooze").or(base)?,
+        done: v["done"].as_bool().unwrap_or(false),
+        group: v["group"].as_str().filter(|g| !g.is_empty()).map(String::from),
+    })
 }
 
 /// due 도달 + 미완료 + 미발화 → 발화 시각 순. 놓친 알림(절전·앱 종료 중)도 이 규칙으로 1회 나온다.
@@ -301,8 +310,9 @@ fn check_alarms(app: &AppHandle) {
     let mut fired: Vec<String> = old.iter().filter(|k| items.iter().any(|a| &a.fire_key() == *k)).cloned().collect();
     // Hera Link: 알림은 커서가 있는 PC 에서만. 커서가 맥에 있으면 맥 Hera 가 울리고, 여기선 울린 것으로 표시만 (돌아와서 또 울리지 않게)
     let here = !crate::link::status().on_peer;
+    let group_on = |g: &Option<String>| g.as_ref().is_none_or(|g| s.get(format!("team.group:{g}")).is_none_or(|v| v["alarms"].as_bool().unwrap_or(true)));
     for a in due_alarms(now, &items, &old) {
-        if here {
+        if here && group_on(&a.group) {
             let _ = app.emit_to("island", "alarm", a);
         }
         fired.push(a.fire_key());
@@ -720,7 +730,7 @@ mod tests {
     }
 
     fn al(key: &str, at: i64, done: bool) -> Alarm {
-        Alarm { key: key.into(), title: String::new(), at, done }
+        Alarm { key: key.into(), title: String::new(), at, done, group: None }
     }
 
     #[test]

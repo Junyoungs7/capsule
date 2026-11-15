@@ -888,6 +888,7 @@ fn files_cfg(app: &AppHandle) -> lf::Config {
         known_peer: get("link.peerPk").and_then(|k| lf::unhex32(&k)),
         engine_fp: my_fp(app),
         downloads: app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir()).join("Hera"),
+        accept_any: false,
     }
 }
 

@@ -20,15 +20,24 @@ pub fn syncable(key: &str) -> bool {
     key.starts_with("todo:") || key.starts_with("event:")
 }
 
+/// 항목의 범위: Hera Team 그룹 항목(`group` 필드)이면 "group:<id>", 아니면 scope 필드 또는 "personal"
 pub fn scope_of(v: Option<&Value>) -> String {
+    if let Some(g) = v.and_then(|v| v["group"].as_str()).filter(|g| !g.is_empty()) {
+        return format!("group:{g}");
+    }
     v.and_then(|v| v["scope"].as_str()).unwrap_or("personal").to_string()
+}
+
+/// 동기화 대상 키 (Hera Team 은 메모도: note:<id>)
+pub fn team_syncable(key: &str) -> bool {
+    syncable(key) || key.starts_with("note:")
 }
 
 /// 받은 항목 중 적용할 것 (내 것보다 새것 + 허용된 scope). 같은 시각이면 키 값 비교로 결정(양쪽이 같은 답).
 pub fn merge(meta: &Meta, incoming: &[Item], allow: impl Fn(&str) -> bool) -> Vec<Item> {
     incoming
         .iter()
-        .filter(|i| syncable(&i.key) && allow(&i.scope))
+        .filter(|i| team_syncable(&i.key) && allow(&i.scope))
         .filter(|i| match meta.get(&i.key) {
             None => true,
             Some(&(at, _)) => i.at > at,

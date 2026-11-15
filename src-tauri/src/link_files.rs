@@ -51,6 +51,8 @@ pub struct Config {
     pub known_peer: Option<[u8; 32]>,
     pub engine_fp: String,
     pub downloads: PathBuf,
+    /// Hera Team: 숫자 비교 페어링 없이 바로 준비 (신원 확인은 위층 — 그룹원 공개키·초대 코드)
+    pub accept_any: bool,
 }
 
 pub fn hex(b: &[u8]) -> String {
@@ -191,6 +193,8 @@ impl Rx {
 pub struct Conn {
     tx: Mutex<Tx>,
     pub peer_name: String,
+    /// 상대 장기 공개키 (Hera Team 그룹원 확인용)
+    pub peer_pk: [u8; 32],
     ready: AtomicBool,
     next_id: AtomicU32,
     confirm: Mutex<Option<Sender<bool>>>,
@@ -346,6 +350,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let conn = Arc::new(Conn {
         tx: Mutex::new(tx),
         peer_name: peer_name.clone(),
+        peer_pk: ppk,
         ready: AtomicBool::new(false),
         next_id: AtomicU32::new(1),
         confirm: Mutex::new(Some(ctx)),
@@ -358,7 +363,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     if kind != T_JSON || st["t"] != "state" {
         return Err(bad());
     }
-    if !(known && st["paired"] == true) {
+    if !(cfg.accept_any || known && st["paired"] == true) {
         // 숫자 비교 페어링: 양쪽 화면의 코드가 같으면 사용자가 양쪽에서 확인 → pair-ok 교환
         on_conn(Some(conn.clone()));
         sink(Event::Peer { state: "pairing".into(), name: peer_name.clone(), code: k.code.clone() });
@@ -557,7 +562,7 @@ mod tests {
     fn live_peer() {
         let addr: SocketAddr = std::env::var("HERA_LINK_ADDR").unwrap_or("127.0.0.1:24810".into()).parse().unwrap();
         let file = PathBuf::from(std::env::var("HERA_LINK_FILE").expect("HERA_LINK_FILE"));
-        let cfg = Config { name: "TestMac".into(), secret: random32(), known_peer: None, engine_fp: String::new(), downloads: std::env::temp_dir().join("hera-live-peer") };
+        let cfg = Config { name: "TestMac".into(), secret: random32(), known_peer: None, engine_fp: String::new(), downloads: std::env::temp_dir().join("hera-live-peer"), accept_any: false };
         let sink: Sink = Arc::new(|e| println!("EVENT {}", serde_json::to_string(&e).unwrap()));
         let done = Arc::new(AtomicBool::new(false));
         let d = done.clone();
@@ -611,13 +616,13 @@ mod tests {
             let mac_pk = public_of(&mac_sk);
             let server = std::thread::spawn(move || {
                 let (s, _) = listener.accept().unwrap();
-                let cfg = Config { name: "WIN".into(), secret: sk1, known_peer: known.then_some(mac_pk), engine_fp: "aa".into(), downloads: dl1 };
+                let cfg = Config { name: "WIN".into(), secret: sk1, known_peer: known.then_some(mac_pk), engine_fp: "aa".into(), downloads: dl1, accept_any: false };
                 run(s, true, &cfg, sink1, &move |c| if let Some(c) = c { c1.lock().unwrap().push(('w', c)) }).unwrap();
             });
             let (dl2, sink2, c2) = (mac_dl.clone(), sink_for('m'), conns.clone());
             let win_pk = public_of(&win_sk);
             let client = std::thread::spawn(move || {
-                let cfg = Config { name: "MAC".into(), secret: mac_sk, known_peer: known.then_some(win_pk), engine_fp: "bb".into(), downloads: dl2 };
+                let cfg = Config { name: "MAC".into(), secret: mac_sk, known_peer: known.then_some(win_pk), engine_fp: "bb".into(), downloads: dl2, accept_any: false };
                 connect(addr, &cfg, sink2, &move |c| if let Some(c) = c { c2.lock().unwrap().push(('m', c)) }).unwrap();
             });
             (server, client)

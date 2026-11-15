@@ -109,6 +109,12 @@ loop {
 
 **G. 키 매핑·한/영**: 수식키 바꾸기는 엔진(윈도우 설정)이 한다 — 맥은 할 일 없음. `keymap.preset == "shortcuts"` 면 `CGEventTap`(kCGHIDEventTap, keyDown/keyUp)으로 엔진이 주입한 Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q(+Shift) 를 ⌘+같은 키로 바꾼다 (손쉬운 사용 권한, 엔진이 주입한 이벤트만 — 맥 자체 키보드는 그대로). 한/영: `ime{toggle}` → `TISCopyInputSourceForLanguage("ko")`/`TISCopyCurrentASCIICapableKeyboardInputSource()` 로 한국어 ↔ 영어 입력 소스 전환(`TISSelectInputSource`), 이어서 `{"t":"ime","action":"state","source":"ko"|"en"}` 회신. 반대 방향(맥 키보드 → 윈도우)은 맥이 서버일 때의 일 — 지금은 해당 없음(미래).
 
+## 5b. v3 기능 (메모 · OCR · 상용구 · Hera Team) — 맥
+- 메모 창: 모니터마다 투명 NSPanel 1개(보일 메모가 있을 때만), 클릭 통과는 다른 표면과 같은 히트 rect. 앱 메모의 기준 창 = 앞 앱의 맨 앞 창 frame (`CGWindowListCopyWindowInfo` + `NSWorkspace.frontmostApplication`), 'fg-rect' 이벤트로.
+- 화면 글자 복사: 단축키 → 커서 모니터 캡처(`CGDisplayCreateImage`/ScreenCaptureKit, 화면 기록 권한) → 같은 선택 창 → Vision `VNRecognizeTextRequest` (recognitionLanguages ["ko-KR","en-US"]).
+- 상용구 붙여넣기: NSPasteboard 에 넣고 → 이전 앱 활성화 → CGEvent ⌘V → 0.5초 뒤 changeCount 가 그대로면 원래 내용 복원.
+- Hera Team: `team.rs` 공용(포트 24820/비콘 24821), 맥도 같은 그룹에 들 수 있다.
+
 ## 6. 수락 시험 (맥)
 1. `cargo test --lib` 통과 (link_files 루프백 시험 포함), `npx tsc --noEmit -p .` 통과, `npx tauri build` 로 .app.
 2. 독이 화면 아래 가운데 점으로 뜨고, 올리면 펼쳐지며 앱 실행·아이콘이 된다. 다른 앱을 클릭해도 포커스가 Hera 로 오지 않는다.

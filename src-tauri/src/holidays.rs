@@ -3,6 +3,7 @@
 // 공휴일: 관공서의 공휴일에 관한 규정 (2026 개정: 노동절·제헌절 편입 — v3 표와 같은 가정) + 대체공휴일 규칙.
 // 검증: 2026–2027 은 v3 브랜치의 월력요항 표와 글자 하나까지 같아야 한다 (holidays_match_v3_table).
 #![cfg(test)]
+#![allow(clippy::needless_range_loop)]
 
 use std::collections::BTreeMap;
 
