@@ -47,7 +47,19 @@
   padding: 10px 12px;
   border-radius: var(--r-inner);
   background: var(--fill);
-  box-shadow: inset 3px 0 0 var(--g), inset 0 0 0 1px var(--line);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* 그룹 색 막대: 둥근 모서리를 따라 휘지 않게 곧은 막대(::before) — 카드·메모판·일정 목록 공용 */
+:is(.team-card, .board-note, .list li.ev[data-group='true']) { position: relative; }
+:is(.team-card, .board-note, .list li.ev[data-group='true'])::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--g);
 }
 .team-top { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
 .team-top .grow b { font-weight: 650; }
@@ -156,7 +168,7 @@
   padding: 10px 10px 8px 13px;
   border-radius: 14px;
   background: color-mix(in srgb, var(--g) 13%, var(--field));
-  box-shadow: inset 3px 0 0 var(--g), inset 0 0 0 1px var(--line), 0 6px 14px -10px color-mix(in srgb, var(--g) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line), 0 6px 14px -10px color-mix(in srgb, var(--g) 70%, transparent);
   animation: code-in 520ms var(--spring-bouncy) both;
 }
 .board-note:nth-child(2) { animation-delay: 40ms; }
@@ -213,6 +225,9 @@
   animation: gp-in var(--dur-smooth) var(--spring-smooth);
 }
 .gp-pop[data-up='true'] { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; transform-origin: 10% 100%; }
+.gp-pop[data-up='true'][data-end='true'] { left: auto; right: 0; transform-origin: 90% 100%; }
+@keyframes gp-in-up { from { opacity: 0; transform: translateY(4px) scale(0.96); } }
+.gp-pop[data-up='true'] { animation-name: gp-in-up; }
 @keyframes gp-in { from { opacity: 0; transform: translateY(-4px) scale(0.96); } }
 .gp-search { flex: none; padding: 7px 12px; border: 0; border-radius: 12px; font-size: 12px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
 .gp-search:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -229,7 +244,6 @@
 .gp-empty { margin: 8px 10px; font-size: 12px; color: var(--text-2); }
 .mc-dots i[style] { background: var(--g); }
 .mc-chip[data-group='true'] { background: color-mix(in srgb, var(--g) 22%, transparent); box-shadow: inset 2px 0 0 var(--g); }
-.list li.ev[data-group='true'] { box-shadow: inset 3px 0 0 var(--g); }
 .list li.ev[data-group='true'] .ev-time { color: var(--text); }
 .gchip {
   flex: none;

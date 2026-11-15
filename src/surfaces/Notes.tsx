@@ -101,8 +101,9 @@ export function placeAppNote(a: DOMRect | null, i: number, W = innerWidth, H = i
 
 // 시안: 붙은 앱의 그럴듯한 창 자리 (데모 카드 오른쪽 영역에 창 + 메모가 함께 들어가게 가운데 정렬)
 function mockWindow(W = innerWidth, H = innerHeight) {
-  const w = Math.min(860, W * 0.56), h = Math.min(580, H * 0.62)
-  const left = 320, x = left + Math.max(0, (W - left - (w + APP_NOTE.gap + APP_NOTE.w)) / 2)
+  const left = 320, side = APP_NOTE.gap + APP_NOTE.w + APP_NOTE.edge + 8 // 오른쪽에 메모 자리
+  const w = Math.max(420, Math.min(860, W * 0.56, W - left - side)), h = Math.min(580, H * 0.62)
+  const x = left + Math.max(0, (W - left - side - w) / 2)
   return new DOMRect(x, Math.max(84, (H - h) / 2 - 40), w, h)
 }
 

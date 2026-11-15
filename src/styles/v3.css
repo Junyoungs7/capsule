@@ -237,7 +237,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 /* ── 패널 탭 5개 ── */
 .tabs { grid-template-columns: repeat(5, 1fr); }
 .tab-ind { width: calc((100% - 6px) / 5); }
-.tabs button { white-space: nowrap; font-size: 12.5px; letter-spacing: -0.01em; }
+.tabs button { white-space: nowrap; font-size: 12px; letter-spacing: -0.03em; } /* 5칸(약 63px)에 '라이브러리'가 이웃과 닿지 않게 */
 
 /* ── 월간 달력 ── */
 .mc { display: contents; }
@@ -249,7 +249,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-seg { display: flex; padding: 2px; border-radius: var(--r-pill); background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
 .mc-seg button { width: 30px; padding: 3px 0; border: 0; border-radius: var(--r-pill); background: none; font-size: 12px; font-weight: 600; color: var(--text-2); }
 .mc-seg button[aria-pressed='true'] { color: var(--text); background: var(--seg); box-shadow: var(--spec), 0 1px 4px -1px rgba(14, 30, 60, 0.2); }
-.mc-stage { position: relative; flex: none; height: 268px; overflow: hidden; contain: layout paint; }
+.mc-stage { position: relative; flex: none; height: 252px; /* 칸 ≈37px: 날짜(13.7) + 음력(9.5) + 점 줄(6+2) + 여백이 들어가는 최소 — 아래 일정 목록에 자리를 더 준다 */ overflow: hidden; contain: layout paint; }
 .mc-sheet { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: 16px repeat(6, 1fr); gap: 2px; }
 .mc-sheet[data-mode='week'] { grid-template-rows: 16px 1fr; }
 .mc-sheet.in { animation: mc-in var(--dur-smooth) var(--spring-smooth) both; }
@@ -270,7 +270,7 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
   justify-content: flex-start;
   gap: 1px;
   min-width: 0;
-  padding: 5px 2px 0;
+  padding: 4px 2px 0;
   border: 0;
   border-radius: 9px;
   background: none;
@@ -278,8 +278,8 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
   overflow: hidden;
 }
 .mc-day:hover { background: var(--fill-2); }
-.mc-day b { font: 600 13px/1.1 var(--font); font-variant-numeric: tabular-nums; }
-.mc-day small { max-width: 100%; font-size: 9px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-day b { font: 600 13px/1.05 var(--font); font-variant-numeric: tabular-nums; }
+.mc-day small { max-width: 100%; font-size: 9px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mc-lunar { color: var(--text-3); }
 .mc-hol { color: var(--day, #e5484d); font-weight: 600; }
 .mc-day[data-out='true'] { opacity: 0.38; }
@@ -288,10 +288,11 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-day[aria-selected='true'] { background: var(--accent); color: var(--on-accent); }
 .mc-day[aria-selected='true'] :is(b, small) { color: var(--on-accent); }
 /* 점 줄: 숫자·음력 아래 한 줄 (칸 바닥에 붙음). 최대 3개 + '+N' — 숫자와 겹치거나 줄바꿈하지 않는다 */
-.mc-dots { display: flex; align-items: center; justify-content: center; gap: 2px; height: 7px; margin-top: auto; margin-bottom: 4px; max-width: 100%; }
+.mc-dots { display: flex; align-items: center; justify-content: center; gap: 2px; height: 6px; margin-top: auto; margin-bottom: 2px; max-width: 100%; }
 .mc-dots i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
 .mc-dots em { flex: none; font: 600 7.5px/1 var(--font); font-style: normal; color: var(--text-2); letter-spacing: -0.02em; }
 .mc-day[aria-selected='true'] .mc-dots em { color: var(--on-accent); }
+.mc-day[aria-selected='true'] .mc-more { color: var(--on-accent); }
 .mc-more { width: calc(100% - 4px); padding: 1px 3px; font-size: 9px; font-weight: 600; color: var(--text-2); text-align: left; }
 .mc-dots i.todo { background: #f59e0b; }
 .mc-day[aria-selected='true'] .mc-dots i { background: var(--on-accent); }

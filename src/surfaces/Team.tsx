@@ -207,11 +207,12 @@ const calsOf = (groups: TeamGroup[]): Cal[] => [ME, ...groups.map((g) => ({ id: 
 const SEARCH_FROM = 8 // 이보다 많으면 검색 칸
 
 /** 그룹 목록 팝오버 (글라스). multi = 체크리스트(보이기/숨기기), 아니면 하나 고르기. 바깥 클릭·Esc 로 닫힘. */
-function GroupMenu({ cals, checked, multi, up, onPick, onAll, onClose }: {
+function GroupMenu({ cals, checked, multi, up, end, onPick, onAll, onClose }: {
   cals: Cal[]
   checked: (id: string) => boolean
   multi?: boolean
   up?: boolean
+  end?: boolean // 오른쪽 정렬 (알약이 오른쪽 끝에 있을 때)
   onPick: (id: string) => void
   onAll?: (show: boolean) => void
   onClose: () => void
@@ -230,7 +231,7 @@ function GroupMenu({ cals, checked, multi, up, onPick, onAll, onClose }: {
   }, [])
   const list = q ? cals.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : cals
   return (
-    <div ref={box} className="gp-pop" data-up={!!up} role={multi ? 'group' : 'listbox'} aria-label={multi ? '보이는 캘린더' : '캘린더 고르기'}>
+    <div ref={box} className="gp-pop" data-up={!!up} data-end={!!end} role={multi ? 'group' : 'listbox'} aria-label={multi ? '보이는 캘린더' : '캘린더 고르기'}>
       {cals.length > SEARCH_FROM && <input className="gp-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`캘린더 검색 (${cals.length}개)`} aria-label="캘린더 검색" autoFocus />}
       {multi && onAll && (
         <div className="gp-actions">
@@ -273,6 +274,8 @@ export function CalendarFilter() {
       {open && (
         <GroupMenu
           multi
+          up
+          end
           cals={cals}
           checked={(id) => !hidden.includes(id)}
           onPick={toggle}

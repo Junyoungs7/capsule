@@ -353,6 +353,8 @@ kbd {
   pointer-events: none;
   z-index: 30;
 }
+/* 독 팝오버(묶음·LP·최근 복사·더 보기)가 열려 있으면 '항상 위' 메모(40/41)보다 위 */
+.dock:has(.folder-pop[data-show='true']) { z-index: 45; }
 .desktop[data-only='all'] .dock { bottom: 62px; width: calc(100vw - 24px); } /* 시안: 독 창 = 화면 폭. 넘치면 Dock 의 useFit 이 접는다 */ /* 시안의 독 줄(레코드·묶음·위젯 다수)이 960 보다 넓다 — 실제 앱 창 폭은 Rust 가 정함 */
 .dock-glass,
 .dock-ring {
@@ -656,7 +658,7 @@ kbd {
   height: 540px;
   display: flex;
   flex-direction: column;
-  z-index: 35;
+  z-index: 44; /* 사용자가 연 패널은 '항상 위' 메모(40/41)·Island(40) 위 */
   transform-origin: 80% 100%;
   opacity: 0;
   transform: translateY(16px) scale(0.96);
