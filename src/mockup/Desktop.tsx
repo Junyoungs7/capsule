@@ -606,7 +606,7 @@ export function Desktop({ only }: { only?: string }) {
           cmds={filesPeer ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : []}
         />
       )}
-      {only === 'notes' && <NotesWindow records={records} fgId={fgRec?.id} />}
+      {only?.startsWith('notes') && <NotesWindow records={records} fgId={fgRec?.id} />}
       {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}
       {show('ascii') && (
         <AsciiFull

@@ -770,15 +770,8 @@ pub fn start(app: AppHandle) {
     let (tx, rx) = channel::<()>();
     let _ = CTL.set(tx);
     {
-        use tauri::Listener;
         let a = app.clone();
-        app.listen_any("store://change", move |e| {
-            if let Ok(v) = serde_json::from_str::<Value>(e.payload()) {
-                if let Some(k) = v["key"].as_str() {
-                    on_store_change(&a, k, if v["exists"] == true { Some(v["value"].clone()) } else { None });
-                }
-            }
-        });
+        crate::listen_store(&app, move |k, v| on_store_change(&a, k, v));
     }
     #[cfg(windows)]
     {

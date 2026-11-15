@@ -427,7 +427,7 @@ impl Node {
 pub mod app {
     use super::*;
     use std::sync::OnceLock;
-    use tauri::{AppHandle, Emitter, Listener};
+    use tauri::{AppHandle, Emitter};
     use tauri_plugin_store::StoreExt;
 
     static NODE: OnceLock<Arc<Node>> = OnceLock::new();
@@ -560,13 +560,10 @@ pub mod app {
 
     pub fn start(app: &AppHandle) {
         let a = app.clone();
-        app.listen_any("store://change", move |e| {
-            let Ok(v) = serde_json::from_str::<Value>(e.payload()) else { return };
-            let Some(key) = v["key"].as_str() else { return };
+        crate::listen_store(app, move |key, value| {
             if !ls::team_syncable(key) {
                 return;
             }
-            let value = (v["exists"] == true).then(|| v["value"].clone());
             {
                 let mut ap = APPLYING.lock().unwrap();
                 if let Some(i) = ap.iter().position(|(k, x)| k == key && *x == value) {

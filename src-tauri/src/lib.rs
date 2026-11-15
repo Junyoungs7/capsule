@@ -321,6 +321,25 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
     Ok(())
 }
 
+/// store 변경 구독 (Rust). ⚠ tauri-plugin-store 는 store 잠금을 쥔 채 'store://change' 를 emit 하고, Rust 리스너는 그 emit 안에서
+/// 바로 불린다 → 리스너가 store 를 다시 만지면 같은 스레드에서 재잠금(교착 또는 panic=abort). 그래서 전용 스레드로 넘겨 순서대로 처리한다.
+pub(crate) fn listen_store(app: &AppHandle, f: impl Fn(&str, Option<serde_json::Value>) + Send + 'static) {
+    use tauri::Listener;
+    let (tx, rx) = std::sync::mpsc::channel::<(String, Option<serde_json::Value>)>();
+    std::thread::spawn(move || {
+        for (k, v) in rx {
+            f(&k, v);
+        }
+    });
+    app.listen_any("store://change", move |e| {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(e.payload()) {
+            if let Some(k) = v["key"].as_str() {
+                let _ = tx.send((k.to_string(), (v["exists"] == true).then(|| v["value"].clone())));
+            }
+        }
+    });
+}
+
 /* ── v3 메모 창: 모니터마다 투명 오버레이 1개, 보일 메모가 있을 때만 (없으면 600ms 뒤 파괴 — 접힘 애니메이션 시간) ── */
 const NOTE_WINS: [&str; 4] = ["notes0", "notes1", "notes2", "notes3"];
 static NOTES_GEN: AtomicU32 = AtomicU32::new(0);
@@ -761,12 +780,9 @@ pub fn run() {
             {
                 use tauri::Listener;
                 let a = h.clone();
-                h.listen_any("store://change", move |e| {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(e.payload()) {
-                        let k = v["key"].as_str().unwrap_or("");
-                        if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
-                            notes_sync(&a);
-                        }
+                listen_store(h, move |k, _| {
+                    if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
+                        notes_sync(&a);
                     }
                 });
                 let a = h.clone();

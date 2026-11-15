@@ -5,10 +5,14 @@
     "dock",
     "island",
     "panel",
-    "turntable",
     "palette",
     "ascii",
-    "fx"
+    "fx",
+    "notes0",
+    "notes1",
+    "notes2",
+    "notes3",
+    "ocr"
   ],
   "permissions": [
     "core:default",
