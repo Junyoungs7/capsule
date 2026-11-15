@@ -29,6 +29,10 @@ function saveLocal(key: string, value: unknown) {
   }
 }
 
+/** 단일 키 읽기/쓰기 (훅 밖 — 여러 창이 함께 보는 작은 상태: notes.shown 등) */
+export const storeGet = <T,>(key: string) => store().then((s) => s.get<T>(key))
+export const storeSet = (key: string, value: unknown) => void store().then((s) => s.set(key, value))
+
 export function onStore(cb: (key: string, value: unknown) => void) {
   const off = store().then((s) => s.onChange(cb))
   return () => void off.then((f) => f())
@@ -243,3 +247,20 @@ export type LinkSeg = { side: 'left' | 'right' | 'up' | 'down'; win: [number, nu
 export const linkPlan = () => invoke<[LinkMon[], { segs: LinkSeg[]; limits: string[] }]>('link_plan')
 export type Ambient = { kind: 'ascii' | 'saver' | 'fx'; fx?: 'snow' | 'rain' | 'leaves' | 'sunset' | 'dawn' | 'moon'; action: 'start' | 'stop' }
 export const linkAmbient = (a: Ambient) => invoke('link_ambient', { kind: a.kind, fx: a.fx ?? null, action: a.action })
+
+/* ── v3 실제 앱 연결 ── */
+// LP 끌기 상태를 Island 창에 (독과 Island 는 다른 창)
+export const lpDrag = (phase: 'off' | 'drag' | 'over') => (isTauri ? invoke('lp_drag', { phase, x: 0, y: 0, recordId: '' }) : Promise.resolve())
+export const asciiStop = () => invoke('ascii_stop')
+export const ocrStart = () => invoke('ocr_start')
+export const ocrRegion = (r: { x: number; y: number; w: number; h: number }) => invoke<[string, string]>('ocr_region', r)
+export const ocrSave = (text: string) => invoke<string>('ocr_save', { text })
+export const snippetPaste = (text: string) => invoke('snippet_paste', { text })
+// Hera Team
+export type TeamGroupRaw = { id: string; name: string; color: string; members: { pk: string; name: string }[]; rev: number; alarms: boolean; news: boolean }
+export const teamState = () => invoke<{ name: string; pk: string; groups: TeamGroupRaw[] }>('team_state')
+export const teamCreate = (name: string, color: string) => invoke<TeamGroupRaw>('team_create', { name, color })
+export const teamInvite = (group: string) => invoke<[string, string]>('team_invite', { group })
+export const teamJoin = (input: string) => invoke('team_join', { input })
+export const teamFlags = (group: string, alarms: boolean, news: boolean) => invoke('team_flags', { group, alarms, news })
+export const teamName = (name: string) => invoke('team_name', { name })

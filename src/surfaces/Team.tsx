@@ -1,3 +1,4 @@
+import { isTauri, onEvent, setClip, useItems, teamCreate, teamFlags, type TeamGroupRaw, teamInvite, teamJoin, teamState } from '../data/api'
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
 
 /* Hera Team 시안 (계획: .omc/plans/hera-team.md) — 동료 PC 와 달력·메모만 공유하는 '공유 그룹'.
@@ -33,6 +34,23 @@ export const setTeam = (p: Partial<TeamState> | ((s: TeamState) => Partial<TeamS
 )
 export const useTeam = () => useSyncExternalStore((f) => (subs.add(f), () => void subs.delete(f)), () => st)
 export const groupOf = (id?: string) => (id ? st.groups.find((g) => g.id === id) : undefined)
+
+/* 실제 앱: 그룹은 Rust(team.rs). 그룹원 = 공개키, 온라인 = 연결된 그룹원. 시드(시안 그룹)는 쓰지 않는다. */
+const online = new Set<string>()
+let myPk = ''
+const fromRaw = (g: TeamGroupRaw): TeamGroup => ({
+  id: g.id, name: g.name, color: g.color, alarms: g.alarms, news: g.news,
+  members: g.members.map((m) => ({ id: m.pk, name: m.name, online: m.pk === myPk || online.has(m.pk), me: m.pk === myPk })),
+})
+export const refreshTeam = () => teamState().then((t) => ((myPk = t.pk), setTeam({ groups: t.groups.map(fromRaw) })), () => {})
+if (isTauri) {
+  st = { ...st, groups: [] }
+  void refreshTeam()
+  onEvent<{ kind: string; pk?: string; online?: boolean }>('team', (e) => {
+    if (e.kind === 'online' && e.pk) e.online ? online.add(e.pk) : online.delete(e.pk)
+    void refreshTeam()
+  })
+}
 
 // 시안·QA: 그룹 수 바꾸기 (1·3·12). 앞의 두 그룹은 시드 그대로, 나머지는 이름·색을 만들어 붙인다.
 const EXTRA = ['디자인팀', '운영', '마케팅', 'QA', '모바일', '데이터', '인프라', '고객지원', '기획', '보안 점검 TF', 'Global Partnerships & Long Name Team']
@@ -73,7 +91,11 @@ export function Avatar({ m, color, size }: { m: Pick<Member, 'name' | 'online' |
 /* ── 패널 설정 → 팀 ── */
 export function TeamSection() {
   const { groups, sheet } = useTeam()
-  const patch = (id: string, p: Partial<TeamGroup>) => setTeam((s) => ({ groups: s.groups.map((g) => (g.id === id ? { ...g, ...p } : g)) }))
+  const patch = (id: string, p: Partial<TeamGroup>) => {
+    setTeam((s) => ({ groups: s.groups.map((g) => (g.id === id ? { ...g, ...p } : g)) }))
+    const g = { ...groupOf(id)!, ...p }
+    if (isTauri) void teamFlags(id, g.alarms, g.news)
+  }
   useEffect(() => () => setTeam({ sheet: null }), []) // 다른 탭으로 가면 시트 닫기
   return (
     <>
@@ -93,7 +115,7 @@ export function TeamSection() {
             <label className="team-tog"><span className="grow">팀 일정 알림</span><input type="checkbox" className="switch" checked={g.alarms} onChange={(e) => patch(g.id, { alarms: e.target.checked })} /></label>
             <label className="team-tog"><span className="grow">변경 소식 <small>누가 추가·수정하면 Island 에 짧게</small></span><input type="checkbox" className="switch" checked={g.news} onChange={(e) => patch(g.id, { news: e.target.checked })} /></label>
             <div className="team-acts">
-              <button onClick={() => setTeam({ sheet: { kind: 'board', group: g.id } })}>공유 메모판 · {TEAM_NOTES.filter((n) => n.group === g.id).length}</button>
+              <BoardButton g={g} />
               <button onClick={() => setTeam({ sheet: { kind: 'invite', group: g.id } })}>초대</button>
             </div>
           </div>
@@ -128,10 +150,14 @@ function TeamSheet({ sheet }: { sheet: Sheet }) {
 }
 
 function Invite({ g }: { g: TeamGroup }) {
-  const code = g.id === 'tg-dev' ? '482913' : '730264'
-  const link = `hera-team:${code}:${g.name}:k7Qm2xV9`
+  // 실제 앱: Rust 가 6자리 코드(10분) + 초대 문자열(이 PC 사내망 주소 포함)을 만든다
+  const [real, setReal] = useState<[string, string] | null>(null)
+  useEffect(() => void (isTauri && teamInvite(g.id).then(setReal, () => {})), [g.id])
+  const code = isTauri ? real?.[0] ?? '······' : g.id === 'tg-dev' ? '482913' : '730264'
+  const link = isTauri ? real?.[1] ?? '' : `hera-team:${code}:${g.name}:k7Qm2xV9`
+  const ip = isTauri ? (/"a":\["([\d.]+)/.exec(decodeHex(link))?.[1] ?? '이 PC') : '10.20.31.44'
   const [copied, setCopied] = useState(false)
-  const copy = () => (void navigator.clipboard?.writeText(link).catch(() => {}), setCopied(true))
+  const copy = () => (isTauri ? void setClip(link) : void navigator.clipboard?.writeText(link).catch(() => {}), setCopied(true))
   return (
     <div className="invite">
       <p>동료의 Hera 에서 <b>팀 → 코드로 참여</b>에 입력하면 들어와요.</p>
@@ -143,17 +169,23 @@ function Invite({ g }: { g: TeamGroup }) {
         <input readOnly value={link} aria-label="초대 문자열" onFocus={(e) => e.currentTarget.select()} />
         <button className="primary" onClick={copy}>{copied ? '복사됨' : '복사'}</button>
       </div>
-      <small>사내망 자동 발견이 막혀 있으면 상대가 내 IP(10.20.31.44)를 직접 입력할 수 있어요.</small>
+      <small>사내망 자동 발견이 막혀 있으면 상대가 <b>{code}@{ip}</b> 처럼 코드와 내 IP 를 함께 입력하면 돼요.</small>
     </div>
   )
 }
 
 function Join({ onDone }: { onDone: () => void }) {
   const [code, setCode] = useState('')
-  const ok = /^\d{6}$/.test(code) || code.startsWith('hera-team:')
+  const [busy, setBusy] = useState<string | null>(null)
+  const ok = /^\d{6}(@[\d.]+)?$/.test(code) || code.startsWith('hera-team:')
+  const join = () => {
+    if (!isTauri) return onDone()
+    setBusy('찾는 중…')
+    teamJoin(code).then(() => (setBusy(null), onDone()), (e) => setBusy(String(e)))
+  }
   return (
-    <form className="join" onSubmit={(e) => (e.preventDefault(), ok && onDone())}>
-      <p>초대받은 6자리 코드 또는 초대 문자열을 붙여 넣으세요.</p>
+    <form className="join" onSubmit={(e) => (e.preventDefault(), ok && join())}>
+      <p>초대받은 6자리 코드 또는 초대 문자열을 붙여 넣으세요.{busy && <><br /><small>{busy}</small></>}</p>
       <input className="join-code" value={code} onChange={(e) => setCode(e.target.value.trim())} inputMode="numeric" placeholder="000000" aria-label="초대 코드" autoFocus />
       <button className="primary" disabled={!ok}>참여</button>
     </form>
@@ -166,7 +198,8 @@ function Create({ onDone }: { onDone: () => void }) {
   const make = (e: FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    setTeam((s) => ({ groups: [...s.groups, { id: crypto.randomUUID(), name: name.trim(), color, alarms: true, news: true, members: [{ id: 'me', name: '나', online: true, me: true }] }] }))
+    if (isTauri) void teamCreate(name.trim(), color).then(refreshTeam)
+    else setTeam((s) => ({ groups: [...s.groups, { id: crypto.randomUUID(), name: name.trim(), color, alarms: true, news: true, members: [{ id: 'me', name: '나', online: true, me: true }] }] }))
     onDone()
   }
   return (
@@ -180,8 +213,18 @@ function Create({ onDone }: { onDone: () => void }) {
   )
 }
 
+// 실제 앱: 그룹 메모 = store note:<id> 중 group 이 이 그룹인 것 (Hera Team 이 그룹원과 동기화)
+type BoardNote = { id: string; text: string; group?: string; by?: string; color?: number; x?: number; y?: number; w?: number; h?: number; pinned?: boolean }
+function useGroupNotes(group: string): [TeamNote[], (text: string) => void] {
+  const [all, setAll] = useItems<BoardNote>('note', [])
+  if (!isTauri) return [TEAM_NOTES.filter((n) => n.group === group), () => {}]
+  const me = st.groups.find((x) => x.id === group)?.members.find((m) => m.me)?.name ?? '나'
+  const add = (text: string) => setAll((ns) => [...ns, { id: crypto.randomUUID(), text, group, by: me, color: 3, x: 160, y: 160, w: 220, h: 140, pinned: false }])
+  return [all.filter((n) => n.group === group).map((n) => ({ id: n.id, group, text: n.text, by: n.by ?? '?', ago: '' })), add]
+}
+
 function Board({ g }: { g: TeamGroup }) {
-  const notes = TEAM_NOTES.filter((n) => n.group === g.id)
+  const [notes, add] = useGroupNotes(g.id)
   return (
     <div className="board">
       <div className="board-who"><Avatars members={g.members} color={g.color} /><small>모두 편집할 수 있어요 · 지운 메모는 7일간 휴지통</small></div>
@@ -191,11 +234,11 @@ function Board({ g }: { g: TeamGroup }) {
           return (
             <article key={n.id} className="board-note">
               <p>{n.text.split('\n').map((l, i) => <span key={i}>{l.replace(/^- \[( |x)\] /i, (s) => (/x/i.test(s) ? '☑ ' : '☐ '))}</span>)}</p>
-              <footer><Avatar m={m} color={g.color} size={18} /><small>{n.by} · {n.ago}</small></footer>
+              <footer><Avatar m={m} color={g.color} size={18} /><small>{n.by}{n.ago ? ` · ${n.ago}` : ''}</small></footer>
             </article>
           )
         })}
-        <button className="board-add">＋ 새 메모</button>
+        <button className="board-add" onClick={() => add('')}>＋ 새 메모</button>
       </div>
     </div>
   )
@@ -327,4 +370,19 @@ export function TeamDemo({ onSettings, onCalendar, onNews, onAlarm }: { onSettin
       </div>
     </>
   )
+}
+
+// 초대 문자열(hera-team:<hex JSON>) 풀기 — IP 안내용
+function decodeHex(s: string) {
+  const h = s.replace(/^hera-team:/, '')
+  try {
+    return new TextDecoder().decode(new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16))))
+  } catch {
+    return ''
+  }
+}
+
+function BoardButton({ g }: { g: TeamGroup }) {
+  const [notes] = useGroupNotes(g.id)
+  return <button onClick={() => setTeam({ sheet: { kind: 'board', group: g.id } })}>공유 메모판 · {notes.length}</button>
 }

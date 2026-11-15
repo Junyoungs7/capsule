@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
 import type { LpRecord } from '../data/types'
-import { isTauri, useItems } from '../data/api'
+import { isTauri, onStore, storeGet, storeSet, useItems } from '../data/api'
 import { Tile, reducedMotion, usePresence } from './Dock'
 import { Ocr } from './Ocr'
 import type { Tab } from './Panel'
@@ -12,7 +12,13 @@ import { EMPTY, STRESS } from '../data/mock'
 type V3 = { notes: boolean; ocr: boolean }
 let st: V3 = { notes: true, ocr: false }
 const subs = new Set<() => void>()
-export const setV3 = (p: Partial<V3>) => ((st = { ...st, ...p }), subs.forEach((f) => f()))
+const notify = (p: Partial<V3>) => ((st = { ...st, ...p }), subs.forEach((f) => f()))
+// 실제 앱: 메모 펼침/접힘은 store `notes.shown` — 독 버튼·메모 창들·Rust(메모 창 생성/파괴)가 같은 값을 본다
+export const setV3 = (p: Partial<V3>) => (notify(p), isTauri && p.notes !== undefined && storeSet('notes.shown', p.notes))
+if (isTauri) {
+  void storeGet<boolean>('notes.shown').then((v) => v !== undefined && v !== null && notify({ notes: v }))
+  onStore((k, v) => k === 'notes.shown' && notify({ notes: v !== false }))
+}
 export const useV3 = () => useSyncExternalStore((f) => (subs.add(f), () => void subs.delete(f)), () => st)
 
 // 메모: 키 note:<id>. appId = 이 앱이 앞에 있을 때만 화면 오른쪽 가장자리에 붙는 메모 (바탕화면엔 안 보임)

@@ -240,11 +240,19 @@ pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 
         .focusable(!saver)
         .disable_drag_drop_handler()
         .build()?;
+    // Island 의 '아스키 재생 중 · <장면>' 은 실제 창 수명을 따른다 (다른 창이 열어도 · 입력으로 닫혀도)
+    let h = app.clone();
+    win.on_window_event(move |e| {
+        if let WindowEvent::Destroyed = e {
+            let _ = h.emit("ascii-closed", ());
+        }
+    });
     let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
     if r.is_err() {
         let _ = win.destroy();
         return r;
     }
+    let _ = app.emit("ascii-open", serde_json::json!({ "scene": scene, "saver": saver }));
     if !saver {
         let _ = win.set_focus(); // 독 클릭 직후라 전면 전환 허용 → Esc 가 먹는다
     }
@@ -252,8 +260,22 @@ pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 
 }
 
 #[tauri::command]
-async fn ascii(app: AppHandle, from: Option<[f64; 4]>) -> Result<(), String> {
-    open_ascii(&app, false, from).map_err(|e| e.to_string())
+async fn ascii(app: AppHandle, from: Option<[f64; 4]>, scene: Option<String>) -> Result<(), String> {
+    let scene = scene.filter(|s| ["xmas", "city", "autumn", "calm"].contains(&s.as_str()));
+    open_ascii_scene(&app, false, from, scene.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Island '아스키 재생 중' 정지 버튼: 아스키 창이 닫힘 애니메이션 후 스스로 파괴 (3초 안에 안 닫히면 강제)
+#[tauri::command]
+fn ascii_stop(app: AppHandle) {
+    let _ = app.emit_to("ascii", "ascii-close", ());
+    let h = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if let Some(w) = h.get_webview_window("ascii") {
+            let _ = w.destroy();
+        }
+    });
 }
 
 const FX_KINDS: [&str; 6] = ["snow", "rain", "leaves", "dawn", "sunset", "moon"];
@@ -659,7 +681,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
-            team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
+            ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
             shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])

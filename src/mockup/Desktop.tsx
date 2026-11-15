@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
   clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
-  linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
+  asciiStop, lpDrag as sendLpDrag, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
   shellKey, startApps, titleOf, togglePanel, useItems, useValue, watchState, windowsList, winClick, winClose, type AlertMsg, type Fg, type Win,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS, stressWins } from '../data/mock'
@@ -17,6 +17,8 @@ import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
 import { ASCII_RECORDS } from '../surfaces/Lp'
 import { V3Demo, V3Layer } from '../surfaces/Notes'
+import { Ocr } from '../surfaces/Ocr'
+import { reportHitRects } from '../data/api'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
@@ -121,7 +123,7 @@ export function Desktop({ only }: { only?: string }) {
         }
       }),
     ]
-    if (only === 'dock') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])))
+    if (only === 'dock') offs.push(onEvent<string>('link-received', (path) => shelveRef.current([path])), onEvent<string>('shelf-add', (path) => shelveRef.current([path])))
     // 한/영 칩: 이 PC 의 IME 변화(Rust WinEvent) 또는 맥이 알려 준 입력 소스
     if (only === 'island')
       offs.push(onEvent<{ source: 'ko' | 'en' }>('ime-state', (e) => {
@@ -287,6 +289,22 @@ export function Desktop({ only }: { only?: string }) {
     setAscii({ open: true, from, saver: false, scene, lp: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
   }
   const [lpDrag, setLpDrag] = useState<'off' | 'drag' | 'over'>('off')
+  // 실제 앱: 독(LP 끌기) → Rust → Island 창 · 아스키 창 열림/닫힘 → Island '아스키 재생 중' · Hera Team 변경 소식 → Island
+  useEffect(() => {
+    if (!isTauri || only !== 'island') return
+    const offs = [
+      onEvent<{ phase: 'off' | 'drag' | 'over' }>('lp-drag', (e) => setLpDrag(e.phase)),
+      onEvent<{ scene: SceneId | null; saver: boolean }>('ascii-open', (e) => {
+        const sc = e.scene ?? pickScene(new Date())
+        if (!e.saver) setAscii({ open: true, from: null, saver: false, scene: sc, lp: `${SCENES[sc].name}${e.scene ? '' : ' · 자동'}` })
+      }),
+      onEvent('ascii-closed', () => setAscii((a) => ({ ...a, open: false }))),
+      onEvent<{ group: string; by: string; action: string; title: string }>('team-news', (e) =>
+        setNews((n) => ({ who: e.by, group: e.group, what: e.action === 'delete' ? '항목 삭제' : e.title ? '항목 변경' : '변경', detail: e.title, n: (n?.n ?? 0) + 1 })),
+      ),
+    ]
+    return () => offs.forEach((off) => off())
+  }, [])
 
   // Hera Team 변경 소식 (시안: 데모 바에서 발생, 4초 뒤 사라짐). 실제 앱: 그룹원이 바꾸면 Hera Link 로 받아 Island 에.
   const [news, setNews] = useState<TeamNews | null>(null)
@@ -485,7 +503,7 @@ export function Desktop({ only }: { only?: string }) {
           lp={lpDrag}
           ascii={ascii.open && ascii.lp ? ascii.lp : null}
           onAscii={() => playAscii(ASCII_RECORDS[0])}
-          onAsciiStop={() => setAscii((a) => ({ ...a, open: false }))}
+          onAsciiStop={() => (isTauri ? void asciiStop() : setAscii((a) => ({ ...a, open: false })))}
           news={news}
           onDone={done}
           onSnooze={snooze}
@@ -511,7 +529,7 @@ export function Desktop({ only }: { only?: string }) {
           library={records}
           onRemoveRecord={(r) => removeRecord(r.id)}
           onLibrary={() => openPanel('library')}
-          onLpDrag={setLpDrag}
+          onLpDrag={(s) => (setLpDrag(s), void sendLpDrag(s))}
           shelf={shelf}
           onShelfOpen={(f) => void launch(f.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
           onShelfRemove={(f) => setShelf((fs) => fs.filter((x) => x.id !== f.id))}
@@ -588,6 +606,8 @@ export function Desktop({ only }: { only?: string }) {
           cmds={filesPeer ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : []}
         />
       )}
+      {only === 'notes' && <NotesWindow records={records} fgId={fgRec?.id} />}
+      {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}
       {show('ascii') && (
         <AsciiFull
           open={ascii.open}
@@ -625,6 +645,41 @@ function Taskbar() {
         <i /><i /><i /><i />
       </span>
       <span className="tb-tray">{new Date().toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}</span>
+    </div>
+  )
+}
+
+/* v3 메모 창 (실제 앱): 모니터마다 창 1개 — URL ?x&y&s = 그 모니터의 원점(물리 px)과 배율.
+   메모 좌표는 가상 데스크톱(주 모니터 배율 기준 논리 px) → 이 창 원점만큼 옮겨 그린다 (CSS transform = fixed 요소의 기준).
+   앱 메모는 앞 앱 창(Rust 'fg-rect')이 있는 모니터의 창에서만. 클릭 통과: 메모 카드·팝오버 rect 만 히트로 보고. */
+function NotesWindow({ records, fgId }: { records: LpRecord[]; fgId?: string }) {
+  const q = new URLSearchParams(location.search)
+  const [ox, oy, sc] = [Number(q.get('x') ?? 0), Number(q.get('y') ?? 0), Number(q.get('s') ?? 1)]
+  const [fgRect, setFgRect] = useState<[number, number, number, number] | null>(null)
+  useEffect(() => onEvent<{ rect: [number, number, number, number] | null }>('fg-rect', (e) => setFgRect(e.rect)), [])
+  // 앞 앱 창이 이 모니터 안에 있나 (가운데 점 기준) → 이 창 기준 CSS rect
+  const mine = fgRect && fgRect[0] + fgRect[2] / 2 >= ox && fgRect[0] + fgRect[2] / 2 < ox + innerWidth * sc && fgRect[1] + fgRect[3] / 2 >= oy && fgRect[1] + fgRect[3] / 2 < oy + innerHeight * sc
+  const anchor = mine ? new DOMRect((fgRect[0] - ox) / sc, (fgRect[1] - oy) / sc, fgRect[2] / sc, fgRect[3] / sc) : undefined
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = root.current!
+    let raf = 0
+    const send = () => {
+      raf = 0
+      const rects = [...el.querySelectorAll<HTMLElement>('.note, .note-pop, .app-note, .notes-toast')].map((n) => n.getBoundingClientRect()).filter((r) => r.width && r.height)
+      reportHitRects('notes', rects)
+    }
+    const kick = () => void (raf ||= requestAnimationFrame(send))
+    // 메모를 끌거나 크기를 바꾸면 style 이 바뀐다 → 다음 프레임에 1번 (폴링 없음)
+    const mo = new MutationObserver(kick)
+    mo.observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class', 'data-shown'] })
+    kick()
+    return () => (mo.disconnect(), cancelAnimationFrame(raf))
+  }, [])
+  // 주 모니터 기준 논리 좌표 → 이 창: (가상 원점 / 이 창 배율) 만큼 반대로
+  return (
+    <div ref={root} className="notes-window" style={{ position: 'fixed', inset: 0, transform: `translate(${-ox / sc}px, ${-oy / sc}px)` }}>
+      <V3Layer records={records} fgId={mine ? fgId : undefined} anchor={anchor && new DOMRect(anchor.x + ox / sc, anchor.y + oy / sc, anchor.width, anchor.height)} />
     </div>
   )
 }

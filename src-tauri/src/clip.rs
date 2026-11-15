@@ -125,7 +125,7 @@ fn on_update() {
         r.iter().cloned().collect::<Vec<_>>()
     };
     if let Some(app) = APP.get() {
-        let _ = app.emit_to("palette", "clips", snapshot.clone());
+        let _ = app.emit("clips", snapshot.clone());
     }
     if let Some(c) = snapshot.first() {
         crate::link::on_local_clip(&c.text);
@@ -146,7 +146,7 @@ pub fn add_remote(text: &str) {
         r.iter().cloned().collect::<Vec<_>>()
     };
     if let Some(app) = APP.get() {
-        let _ = app.emit_to("palette", "clips", snapshot);
+        let _ = app.emit("clips", snapshot);
     }
 }
 

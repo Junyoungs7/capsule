@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { reducedMotion, shape, usePresence } from './Dock'
+import { isTauri, ocrRegion, ocrSave, setClip } from '../data/api'
 
 /* v3 화면 글자 복사: 화면 어둡게 → 십자선으로 영역 드래그(움직이는 점선 + 크기) → 놓으면 스캔 줄이 훑고 → 결과 카드.
    시안: 인식 결과는 가짜 텍스트. 실제 앱 = Rust 가 영역 캡처 → Windows.Media.Ocr (ko/en). */
@@ -63,10 +64,19 @@ export function Ocr({ open, onClose, onToast }: { open: boolean; onClose: () => 
     if (d.r.w < 12 || d.r.h < 12) return reset()
     setRect(d.r)
     setPhase(reducedMotion() ? 'result' : 'scan')
+    // 실제 앱: 스캔 애니메이션과 동시에 Rust OCR (캡처는 창이 뜨기 전에 찍어 둠)
+    if (isTauri) {
+      setRes(null)
+      ocrRegion(d.r).then(([text, lang]) => setRes({ text, lang }), (e) => setRes({ text: '', lang: '', error: String(e) }))
+    }
   }
+  const [res, setRes] = useState<{ text: string; lang: string; error?: string } | null>(null)
+  const text = isTauri ? res?.text ?? '' : FAKE
+  const langLabel = (l: string) => (l.startsWith('ko') ? '한국어' : l.startsWith('en') ? '영어' : l || '인식 중')
 
   const done = (msg: string, copy: boolean) => {
-    if (copy) void navigator.clipboard?.writeText(FAKE).catch(() => {})
+    if (copy) isTauri ? void setClip(text) : void navigator.clipboard?.writeText(text).catch(() => {})
+    else if (isTauri) void ocrSave(text) // Downloads\Hera\화면 글자 ….txt + 독 선반
     onToast(msg)
     onClose()
   }
@@ -89,9 +99,9 @@ export function Ocr({ open, onClose, onToast }: { open: boolean; onClose: () => 
         <div className="ocr-card glass-card" style={card} onPointerDown={(e) => e.stopPropagation()}>
           <header>
             <b>인식한 글자</b>
-            <small>한국어 · 영어 · 4줄</small>
+            <small>{isTauri ? (res ? (res.error ? '실패' : `${langLabel(res.lang)} · ${text ? text.split('\n').length : 0}줄`) : '읽는 중…') : '한국어 · 영어 · 4줄'}</small>
           </header>
-          <pre className="ocr-text">{FAKE}</pre>
+          <pre className="ocr-text">{isTauri && !res ? '…' : res?.error ?? (text || '글자를 찾지 못했어요')}</pre>
           <div className="ocr-actions">
             <button onClick={reset}>다시</button>
             <button onClick={() => done('선반에 저장했어요 · 인식한 글자.txt', false)}>선반에 저장</button>

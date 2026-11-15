@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useItems } from '../data/api'
+import { isTauri, ocrStart, snippetPaste, useItems } from '../data/api'
 import { expand, seedSnippets, type Snippet } from '../data/snippets'
 import { setV3 } from './Notes'
 
@@ -25,9 +25,11 @@ export function useExtras(q: string): XItem[] {
 
 /** 실행: 명령 = 팔레트 닫고 실행, 상용구 = 1번째 선택은 미리보기, 2번째(붙여넣기)는 복사 표시 후 닫기 */
 export function runExtra(key: string, x: Extra, pv: string | null, setPv: (k: string) => void, setCopied: (k: string) => void, close: (restore: boolean) => void) {
-  if (x.kind === 'ocr') return close(false), setV3({ ocr: true })
+  // 실제 앱: OCR 은 Rust 가 화면을 먼저 캡처한 뒤 선택 창을 연다
+  if (x.kind === 'ocr') return close(false), isTauri ? void ocrStart().catch(() => {}) : setV3({ ocr: true })
   if (pv !== key) return setPv(key)
-  // 실제 앱: Rust 가 클립보드에 넣고 이전 앱에 Ctrl+V. 시안: 복사만
+  // 실제 앱: Rust 가 클립보드를 잠깐 빌려 이전 앱에 Ctrl+V (그 뒤 원래 클립보드로). 시안: 복사만
+  if (isTauri) return setCopied(key), void snippetPaste(x.text).catch(() => {})
   void navigator.clipboard?.writeText(x.text).catch(() => {})
   setCopied(key)
   setTimeout(() => close(false), 620)
