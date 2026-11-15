@@ -40,3 +40,8 @@
 - 확인 스크립트: `.omc\verify\v2-manual.ps1`, `.omc\verify\taskbar-manual.ps1` (Windows 작업 표시줄 자동 숨김을 켜고 진행)
 - 알려진 것: 회사망에서 api.open-meteo.com 시간 초과 → 날씨 없이 계절·시간대로 동작. 화면보호기를 키로 깨우면 그 키가 아래 앱에도 들어감. 독이 작업 표시줄 위로 올라갈 때 유리 배경 위치가 약간 어긋날 수 있음.
 - 진행 중: 단어로 된 3D 아스키(레퍼런스 스타일) — 시안 확인 후 반영
+
+## v3 (11-15 추가분) — 설치됨 (7d0bb86)
+- 같은 경로에 덮어 설치, `hera-mcp.exe`도 같은 폴더에 함께 설치됨. 설치 직후 idle 메모리 95MB (Deskflow 건드리지 않음)
+- 기능: Liquid Glass B 디자인, 포스트잇·앱 메모, 월 달력 + 공휴일(2026~2030), OCR(화면 글자 복사), 스니펫, LP 상자(독)·Island 재생, 아스키 = LP판, Hera Team(달력·메모 공유 그룹), Hera Link(마우스·키보드·클립보드·파일·모니터별 배치·물결·키 매핑), MCP(로컬 AI 제어, docs/mcp.md)
+- 확인 필요(잠금 해제 상태): OCR 끝까지, 스니펫 붙여넣기, 메모 끌기·앱 메모 위치, Link(Deskflow 종료 후 `link-manual.ps1`), Team 실제 LAN·방화벽, MCP 실제 AI 클라이언트
