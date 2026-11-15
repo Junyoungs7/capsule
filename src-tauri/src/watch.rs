@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 /// 창별 히트 rect: (라벨, [x, y, w, h] 클라이언트 기준 물리 px). JS `reportHitRects` 가 갱신.
 static HITS: Mutex<Vec<(String, Vec<[f64; 4]>)>> = Mutex::new(Vec::new());
 
-/// 클릭 통과·전체화면 숨김 대상 오버레이 창 (라벨, HWND as isize). dock/island 는 상시, turntable 은 보일 때만.
+/// 클릭 통과·전체화면 숨김 대상 오버레이 창 (라벨, HWND as isize). dock/island 는 상시, 효과·메모 창은 있을 때만.
 /// 루프가 매 틱 읽는다(창 핸들 조회를 메인 스레드에 보내지 않도록 생성 시 등록).
 static OVERLAYS: Mutex<Vec<(&'static str, isize)>> = Mutex::new(Vec::new());
 

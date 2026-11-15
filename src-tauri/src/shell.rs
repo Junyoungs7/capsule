@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicI32, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use windows::core::{w, BOOL};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -48,6 +48,10 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 static TRAY: AtomicIsize = AtomicIsize::new(0);
 static TRAY_HOOK: AtomicIsize = AtomicIsize::new(0);
 static LIFT: AtomicI32 = AtomicI32::new(0);
+/// v3 앱 메모: 앞 앱 창 (Hera 자기 창 제외) + 그 스레드에만 건 위치 변경 훅
+static FG: AtomicIsize = AtomicIsize::new(0);
+static FG_HOOK: AtomicIsize = AtomicIsize::new(0);
+const T_FG: usize = 5;
 
 const T_REFRESH: usize = 1;
 const T_SAFETY: usize = 2;
@@ -231,6 +235,44 @@ pub fn lift() -> i32 {
     LIFT.load(Ordering::Relaxed)
 }
 
+/// 앞 앱 창 rect (DWM 실제 테두리, 물리 px) → 메모 창들에 'fg-rect' (메모 창이 있을 때만, 최소화면 null)
+fn emit_fg_rect() {
+    let Some(app) = APP.get() else { return };
+    if app.get_webview_window("notes0").is_none() {
+        return;
+    }
+    let h = HWND(FG.load(Ordering::Relaxed) as _);
+    let rect = unsafe {
+        let mut r = RECT::default();
+        let ok = !h.is_invalid() && !IsIconic(h).as_bool() && DwmGetWindowAttribute(h, windows::Win32::Graphics::Dwm::DWMWA_EXTENDED_FRAME_BOUNDS, (&mut r as *mut RECT).cast(), std::mem::size_of::<RECT>() as u32).is_ok();
+        ok.then_some([r.left, r.top, r.right - r.left, r.bottom - r.top])
+    };
+    let _ = app.emit("fg-rect", serde_json::json!({ "hwnd": h.0 as isize, "rect": rect }));
+}
+
+unsafe extern "system" fn on_fg_loc(_: HWINEVENTHOOK, _: u32, h: HWND, obj: i32, _: i32, _: u32, _: u32) {
+    if obj == OBJID_WINDOW.0 && h.0 as isize == FG.load(Ordering::Relaxed) {
+        SetTimer(Some(HWND(HOST.load(Ordering::Relaxed) as _)), T_FG, 30, None);
+    }
+}
+
+/// 앞 앱이 바뀜: 그 창의 스레드에만 위치 변경 훅 (끌어 옮기면 앱 메모가 따라감)
+unsafe fn follow_fg(h: HWND) {
+    let mut pid = 0;
+    let tid = GetWindowThreadProcessId(h, Some(&mut pid));
+    if pid == GetCurrentProcessId() || h.is_invalid() {
+        return; // Hera 자기 창(메모 편집 등)은 앞 앱으로 치지 않는다
+    }
+    FG.store(h.0 as isize, Ordering::Relaxed);
+    let old = FG_HOOK.swap(0, Ordering::Relaxed);
+    if old != 0 {
+        let _ = UnhookWinEvent(HWINEVENTHOOK(old as _));
+    }
+    let hk = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, None, Some(on_fg_loc), pid, tid, WINEVENT_OUTOFCONTEXT);
+    FG_HOOK.store(hk.0 as isize, Ordering::Relaxed);
+    emit_fg_rect();
+}
+
 unsafe extern "system" fn on_tray(_: HWINEVENTHOOK, _: u32, h: HWND, obj: i32, _: i32, _: u32, _: u32) {
     if obj == OBJID_WINDOW.0 && h.0 as isize == TRAY.load(Ordering::Relaxed) {
         update_lift();
@@ -268,6 +310,7 @@ unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, h: HWND, obj: i32,
         EVENT_SYSTEM_FOREGROUND => {
             unflash(h.0 as isize);
             IME_STATE.store(-1, Ordering::Relaxed); // 새 앞 창: 칩은 다음 변화 때만
+            follow_fg(h);
             schedule();
         }
         _ if GetAncestor(h, GA_ROOT) != h => {}
@@ -287,6 +330,10 @@ unsafe extern "system" fn wndproc(h: HWND, m: u32, wp: WPARAM, lp: LPARAM) -> LR
                 4 => {
                     let _ = KillTimer(Some(h), 4);
                     check_ime();
+                }
+                T_FG => {
+                    let _ = KillTimer(Some(h), T_FG);
+                    emit_fg_rect();
                 }
                 T_LIFT => {
                     let _ = KillTimer(Some(h), T_LIFT);

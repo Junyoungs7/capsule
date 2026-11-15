@@ -35,6 +35,8 @@ static RING: Mutex<VecDeque<Clip>> = Mutex::new(VecDeque::new());
 static OWNER: AtomicIsize = AtomicIsize::new(0);
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// 이 시각(epoch ms)까지는 기록하지 않는다 — 상용구 붙여넣기가 클립보드를 잠깐 빌려 쓰는 동안
+static QUIET_UNTIL: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 /// 맨 앞에 넣기 (같은 텍스트는 앞으로 옮김). 공백뿐이거나 이미 맨 앞이면 false.
 fn push(ring: &mut VecDeque<Clip>, text: String, at: i64, id: u64) -> bool {
@@ -101,6 +103,10 @@ unsafe fn read_text() -> Option<String> {
 }
 
 fn on_update() {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    if now < QUIET_UNTIL.load(Ordering::Relaxed) {
+        return;
+    }
     let text = unsafe {
         if !open() {
             return;
@@ -142,6 +148,47 @@ pub fn add_remote(text: &str) {
     if let Some(app) = APP.get() {
         let _ = app.emit_to("palette", "clips", snapshot);
     }
+}
+
+/// 지금 클립보드 텍스트 (비밀번호 관리자 표시 내용은 None)
+pub fn get() -> Option<String> {
+    unsafe {
+        if !open() {
+            return None;
+        }
+        let t = read_text();
+        let _ = CloseClipboard();
+        t
+    }
+}
+
+/// v3 상용구 붙여넣기: 클립보드에 넣고 → 직전 앱으로 포커스 → Ctrl+V → 약 0.5초 뒤 원래 텍스트로 되돌림
+/// (그 사이 다른 누가 클립보드를 바꿨으면 되돌리지 않음 · 텍스트만 되돌림 · 그동안 기록 안 함)
+pub fn paste(text: &str, focus: impl FnOnce()) -> Result<(), String> {
+    use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
+    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+    QUIET_UNTIL.store(now + 1500, Ordering::Relaxed);
+    let old = get();
+    set(text)?;
+    let ours = unsafe { GetClipboardSequenceNumber() };
+    focus();
+    std::thread::sleep(Duration::from_millis(120)); // 포커스가 넘어간 뒤
+    let ev = |vk: VIRTUAL_KEY, up: bool| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() }, ..Default::default() } } };
+    let keys = [ev(VK_CONTROL, false), ev(VIRTUAL_KEY(b'V' as u16), false), ev(VIRTUAL_KEY(b'V' as u16), true), ev(VK_CONTROL, true)];
+    unsafe {
+        SendInput(&keys, std::mem::size_of::<INPUT>() as i32);
+    }
+    let old = old.filter(|o| o != text);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        if unsafe { GetClipboardSequenceNumber() } == ours {
+            if let Some(o) = old {
+                let _ = set(&o);
+            }
+        }
+    });
+    Ok(())
 }
 
 /// 팔레트에서 고른 기록을 다시 클립보드에 (소유 창 = 메시지 전용 창 — NULL 소유자면 SetClipboardData 가 실패한다)

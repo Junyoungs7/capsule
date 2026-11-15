@@ -8,6 +8,8 @@ mod icons;
 #[cfg(windows)]
 mod launch;
 #[cfg(windows)]
+mod ocr;
+#[cfg(windows)]
 mod ripple;
 #[cfg(windows)]
 mod shell;
@@ -18,7 +20,7 @@ mod watch;
 #[cfg(not(windows))]
 mod stub;
 #[cfg(not(windows))]
-use stub::{clip, icons, launch, shell, taskbar, watch};
+use stub::{clip, icons, launch, ocr, shell, taskbar, watch};
 mod link;
 mod link_files;
 mod link_layout;
@@ -43,8 +45,6 @@ const DOCK_TALL: f64 = 640.0;
 static DOCK_IS_TALL: AtomicBool = AtomicBool::new(false);
 const ISLAND: (f64, f64) = (440.0, 144.0);
 const PANEL: (f64, f64) = (384.0, 540.0);
-// C1: 서랍을 연 최대 크기로 고정 (카드 272 + 서랍 186 + 여백), 모양은 히트 rect 로
-const TURNTABLE: (f64, f64) = (288.0, 520.0);
 const PALETTE: (f64, f64) = (596.0, 460.0);
 /// C3 팔레트 단축키 (Open Question 2 — Win+K 는 OS 예약, Alt+Space 는 PowerToys 와 충돌)
 const PALETTE_HOTKEY: &str = "Ctrl+Alt+K";
@@ -118,54 +118,11 @@ fn toggle(app: &AppHandle, tab: &str) -> tauri::Result<()> {
     win.set_focus()
 }
 
-/// C1 턴테이블: 보이기 = 창 생성(+ 레코드 올리기), 숨기기 = 창 파괴(안 쓰면 메모리 0). 상태는 store `turntable.open`.
-fn set_turntable(app: &AppHandle, show: bool, play: Option<String>) -> tauri::Result<()> {
-    if let Ok(s) = app.store("hera.json") {
-        s.set("turntable.open", show);
-    }
-    match (show, app.get_webview_window("turntable")) {
-        (false, Some(w)) => w.destroy(),
-        (false, None) => Ok(()),
-        (true, Some(_)) => play.map_or(Ok(()), |id| app.emit_to("turntable", "tt-play", id)),
-        (true, None) => {
-            let win = overlay(app, "turntable", &play.map(|id| format!("&play={id}")).unwrap_or_default(), TURNTABLE)?;
-            // Destroyed(→ OVERLAYS 정리)를 먼저 걸고, 이후 단계가 실패하면 창을 파괴한다 (죽은 오버레이 항목이 남지 않게)
-            let h = app.clone();
-            win.on_window_event(move |e| match e {
-                // 드래그 이동(data-tauri-drag-region) → 위치 저장
-                WindowEvent::Moved(p) => {
-                    if let Ok(s) = h.store("hera.json") {
-                        s.set("turntable.pos", serde_json::json!([p.x, p.y]));
-                    }
-                }
-                WindowEvent::Destroyed => watch::remove_overlay("turntable"),
-                _ => {}
-            });
-            // 위치: 저장된 물리 px 가 어느 모니터 안이면 그대로, 아니면 주 모니터 작업 영역 왼쪽 가운데
-            let on_screen = |&(x, y): &(i32, i32)| {
-                app.available_monitors().unwrap_or_default().iter().any(|m| {
-                    let (p, z) = (m.position(), m.size());
-                    x >= p.x && y >= p.y && x < p.x + z.width as i32 && y < p.y + z.height as i32
-                })
-            };
-            let saved = app.store("hera.json").ok().and_then(|s| s.get("turntable.pos")).and_then(|v| serde_json::from_value(v).ok()).filter(on_screen);
-            let pos = saved.or_else(|| {
-                let m = app.primary_monitor().ok()??;
-                let (s, wa) = (m.scale_factor(), *m.work_area());
-                Some((wa.position.x + (32.0 * s) as i32, wa.position.y + ((wa.size.height as f64 - TURNTABLE.1 * s) / 2.0).max(0.0) as i32))
-            });
-            let r = pos.map_or(Ok(()), |(x, y)| win.set_position(PhysicalPosition::new(x, y))).and_then(|_| win.show());
-            if r.is_err() {
-                let _ = win.destroy();
-            }
-            r
-        }
-    }
-}
-
+/// v3: 떠 있는 턴테이블 창은 없어졌다 (LP 는 독 상자 → Island). 독에서 LP 를 끄는 동안 위치를 Island 창에 전달한다.
+/// phase = start | move | end, (x, y) = 화면 좌표(논리 px), Island 가 자기 플래터 위인지 판단하고 end 에서 놓기 처리.
 #[tauri::command]
-async fn turntable(app: AppHandle, show: bool, play: Option<String>) -> Result<(), String> {
-    set_turntable(&app, show, play).map_err(|e| e.to_string())
+fn lp_drag(app: AppHandle, phase: String, x: f64, y: f64, record_id: String) -> Result<(), String> {
+    app.emit_to("island", "lp-drag", serde_json::json!({ "phase": phase, "x": x, "y": y, "recordId": record_id })).map_err(|e| e.to_string())
 }
 
 /// C3 팔레트: 시작 시 숨김 상태로 1회 생성해 두고 단축키마다 보이기/숨기기.
@@ -214,6 +171,15 @@ fn close_palette_win(app: &AppHandle, restore: bool) -> tauri::Result<()> {
 #[tauri::command]
 async fn palette(app: AppHandle) -> Result<(), String> {
     toggle_palette(&app).map_err(|e| e.to_string())
+}
+
+/// v3 상용구 붙여넣기: 팔레트를 숨기고 직전 앱으로 포커스를 돌려준 뒤 그 앱에 붙여넣는다 (클립보드는 잠깐 빌림)
+#[tauri::command]
+async fn snippet_paste(app: AppHandle, text: String) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("palette") {
+        let _ = w.hide();
+    }
+    tauri::async_runtime::spawn_blocking(move || clip::paste(&text, || ui::restore_foreground(PALETTE_PREV.load(Ordering::Relaxed)))).await.map_err(|e| e.to_string())?
 }
 
 /// 숨기기. restore = Esc/바깥 클릭(이전 앱으로 포커스 반환). 실행·포커스 잃음은 false.
@@ -307,7 +273,7 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         let _ = win.destroy();
         return r;
     }
-    for l in ["turntable", "dock", "island"] {
+    for l in ["dock", "island"] {
         if let Some(w) = app.get_webview_window(l) {
             ui::raise(&w);
         }
@@ -323,6 +289,139 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+/* ── v3 메모 창: 모니터마다 투명 오버레이 1개, 보일 메모가 있을 때만 (없으면 600ms 뒤 파괴 — 접힘 애니메이션 시간) ── */
+const NOTE_WINS: [&str; 4] = ["notes0", "notes1", "notes2", "notes3"];
+static NOTES_GEN: AtomicU32 = AtomicU32::new(0);
+
+/// 메모 창이 필요한가: (메모 펼침 && 바탕화면 메모 있음) || 지금 앞 앱에 붙은 메모 있음.
+/// store: `notes.shown`(기본 true), `note:<id>` {appId?: 레코드 id}, 레코드 `record:<id>` {target, exe?}, 앞 앱 키 = watch 실행 키(소문자 exe / shell:appsfolder\aumid)
+pub(crate) fn notes_needed(entries: &[(String, serde_json::Value)], shown: bool, fg_keys: &[String]) -> bool {
+    let rec_key = |id: &str| {
+        entries.iter().find(|(k, _)| k == &format!("record:{id}")).map(|(_, v)| v["exe"].as_str().or(v["target"].as_str()).unwrap_or("").to_lowercase())
+    };
+    entries.iter().filter(|(k, _)| k.starts_with("note:")).any(|(_, v)| match v["appId"].as_str() {
+        None | Some("") => shown,
+        Some(id) => rec_key(id).is_some_and(|k| !k.is_empty() && fg_keys.contains(&k)),
+    })
+}
+
+fn fg_keys() -> Vec<String> {
+    let st = watch::STATE.lock().unwrap();
+    st.0.as_ref().map(|f| serde_json::to_value(f).unwrap_or_default()).map_or(vec![], |f| {
+        let mut k = vec![f["exePath"].as_str().unwrap_or("").to_lowercase()];
+        if let Some(a) = f["aumid"].as_str().filter(|a| !a.is_empty()) {
+            k.push(format!(r"shell:appsfolder\{a}").to_lowercase());
+        }
+        k
+    })
+}
+
+/// 메모 창 맞추기 (메모·펼침 변경, 앞 앱 변경 때)
+pub(crate) fn notes_sync(app: &AppHandle) {
+    let Ok(s) = app.store("hera.json") else { return };
+    let need = notes_needed(&s.entries(), s.get("notes.shown").and_then(|v| v.as_bool()).unwrap_or(true), &fg_keys());
+    let gen = NOTES_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    if need {
+        let mons = app.available_monitors().unwrap_or_default();
+        for (i, m) in mons.iter().take(NOTE_WINS.len()).enumerate() {
+            let label = NOTE_WINS[i];
+            if app.get_webview_window(label).is_some() {
+                continue;
+            }
+            let (pos, size, sc) = (*m.position(), *m.size(), m.scale_factor());
+            // 높이 -1px: 모니터를 꽉 채운 최상위 창은 셸이 전체화면 앱으로 본다 (효과 창과 같은 이유)
+            let size = PhysicalSize::new(size.width, size.height.saturating_sub(1));
+            let q = format!("&mon={i}&x={}&y={}&s={sc}", pos.x, pos.y);
+            match overlay(app, label, &q, (size.width as f64 / sc, size.height as f64 / sc)) {
+                Ok(win) => {
+                    win.on_window_event(move |e| {
+                        if let WindowEvent::Destroyed = e {
+                            watch::remove_overlay(label);
+                        }
+                    });
+                    let _ = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
+                    for l in ["dock", "island"] {
+                        if let Some(w) = app.get_webview_window(l) {
+                            ui::raise(&w); // 메모는 독·아일랜드 아래
+                        }
+                    }
+                }
+                Err(e) => eprintln!("notes window: {e}"),
+            }
+        }
+    } else {
+        let h = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            if NOTES_GEN.load(Ordering::Relaxed) == gen {
+                for l in NOTE_WINS {
+                    if let Some(w) = h.get_webview_window(l) {
+                        let _ = w.destroy();
+                    }
+                }
+            }
+        });
+    }
+}
+
+/* ── v3 화면 글자 복사 (OCR) ── */
+const OCR_HOTKEY: &str = "Ctrl+Alt+T";
+
+/// 단축키·⌘K: 커서 모니터를 먼저 캡처하고 그 위에 어둡게·선택 창 (필요할 때만 생성)
+pub(crate) fn ocr_open(app: &AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("ocr") {
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    if let Some(p) = app.get_webview_window("palette").filter(|p| p.is_visible().unwrap_or(false)) {
+        let _ = p.hide(); // 팔레트가 찍히지 않게
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+    let r = ocr::capture_at_cursor()?;
+    let m = app.monitor_from_point(r[0] as f64 + 1.0, r[1] as f64 + 1.0).ok().flatten().or(app.primary_monitor().ok().flatten()).ok_or("모니터 없음")?;
+    let sc = m.scale_factor();
+    let win = builder(app, "ocr", format!("index.html?surface=ocr&s={sc}"), (r[2] as f64 / sc, r[3] as f64 / sc)).shadow(false).disable_drag_drop_handler().build().map_err(|e| e.to_string())?;
+    win.on_window_event(|e| {
+        if let WindowEvent::Destroyed = e {
+            ocr::clear(); // 캡처는 메모리에만, 창이 닫히면 버림
+        }
+    });
+    let shown = win.set_position(PhysicalPosition::new(r[0], r[1])).and_then(|_| win.set_size(PhysicalSize::new(r[2] as u32, r[3] as u32))).and_then(|_| win.show());
+    if let Err(e) = shown {
+        let _ = win.destroy();
+        return Err(e.to_string());
+    }
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn ocr_start(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ocr_open(&app)).await.map_err(|e| e.to_string())?
+}
+
+/// 선택 영역(오버레이 CSS px) → (텍스트, 언어 태그)
+#[tauri::command]
+async fn ocr_region(window: WebviewWindow, x: f64, y: f64, w: f64, h: f64) -> Result<(String, String), String> {
+    let s = window.scale_factor().unwrap_or(1.0);
+    let r = [(x * s).round() as i32, (y * s).round() as i32, (w * s).round() as i32, (h * s).round() as i32];
+    tauri::async_runtime::spawn_blocking(move || ocr::region(r))
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 결과를 Downloads\Hera 에 .txt 로 저장하고 독 선반에 ('shelf-add')
+#[tauri::command]
+fn ocr_save(app: AppHandle, text: String) -> Result<String, String> {
+    let dir = app.path().download_dir().map_err(|e| e.to_string())?.join("Hera");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let path = link_files::safe_name(&dir, &format!("화면 글자 {ts}.txt"));
+    std::fs::write(&path, text.replace('\n', "\r\n").as_bytes()).map_err(|e| e.to_string())?;
+    let p = path.display().to_string();
+    let _ = app.emit_to("dock", "shelf-add", p.clone());
+    Ok(p)
 }
 
 /// 수동 '지금 보기' (스위치와 무관, 전체화면 중엔 무시)
@@ -514,7 +613,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
-            turntable, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
+            lp_drag, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, dock_tall, clips, set_clip, ascii, fx, windows_list, win_click, win_close,
             shell_key, thumbs, taskbar_lift, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient
         ])
         .setup(|app| {
@@ -559,28 +658,50 @@ pub fn run() {
             // Hera Link: 기본 꺼짐. 켜져 있을 때만 엔진·파일 채널이 뜬다 (꺼져 있으면 스레드 1개가 대기만)
             link::start(h.clone());
             link::files_start(h);
-            // 팔레트·턴테이블은 부가 기능 — 실패해도 시작은 계속 (팔레트는 첫 단축키 때 다시 만든다)
+            // 팔레트는 부가 기능 — 실패해도 시작은 계속 (첫 단축키 때 다시 만든다)
             if let Err(e) = palette_window(h) {
                 eprintln!("palette window: {e}");
             }
-            if s.get("turntable.open").and_then(|v| v.as_bool()).unwrap_or(false) {
-                if let Err(e) = set_turntable(h, true, None) {
-                    eprintln!("turntable window: {e}");
-                }
+            // v3: 턴테이블 창 제거 → 남은 설정 정리
+            for k in ["turntable.open", "turntable.pos"] {
+                s.delete(k);
             }
 
             // C3: 전역 단축키 → 팔레트 (창 생성은 비동기 스레드에서 — toggle_panel 과 같은 경로)
             h.plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_handler(|app, _, e| {
-                        if e.state == ShortcutState::Pressed {
-                            let h = app.clone();
+                    .with_handler(|app, sc, e| {
+                        if e.state != ShortcutState::Pressed {
+                            return;
+                        }
+                        let h = app.clone();
+                        let ocr = OCR_HOTKEY.parse::<tauri_plugin_global_shortcut::Shortcut>().is_ok_and(|o| &o == sc);
+                        if ocr {
+                            tauri::async_runtime::spawn_blocking(move || ocr_open(&h).map_err(|e| eprintln!("ocr: {e}")));
+                        } else {
                             tauri::async_runtime::spawn(async move { toggle_palette(&h) });
                         }
                     })
                     .build(),
             )?;
             let _ = h.global_shortcut().register(PALETTE_HOTKEY); // 다른 앱이 선점하면 실패 → 트레이 '검색' 으로 연다
+            let _ = h.global_shortcut().register(OCR_HOTKEY); // v3 화면 글자 복사 (⌘K 에도 있음)
+            // v3 메모 창: 메모·펼침이 바뀌거나 앞 앱이 바뀌면 다시 판단
+            {
+                use tauri::Listener;
+                let a = h.clone();
+                h.listen_any("store://change", move |e| {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(e.payload()) {
+                        let k = v["key"].as_str().unwrap_or("");
+                        if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
+                            notes_sync(&a);
+                        }
+                    }
+                });
+                let a = h.clone();
+                h.listen_any("foreground", move |_| notes_sync(&a));
+                notes_sync(h);
+            }
 
             // 트레이: skipTaskbar 라 종료 경로가 필요. 자동 시작은 기본 꺼짐(사용자가 켤 때만).
             let auto = CheckMenuItem::with_id(app, "autostart", "로그인 시 자동 시작", true, app.autolaunch().is_enabled().unwrap_or(false), None::<&str>)?;
@@ -593,7 +714,6 @@ pub fn run() {
                 &[
                     &MenuItem::with_id(app, "panel", "패널 열기", true, None::<&str>)?,
                     &MenuItem::with_id(app, "palette", format!("검색 ({PALETTE_HOTKEY})"), true, None::<&str>)?,
-                    &MenuItem::with_id(app, "turntable", "턴테이블 보이기/숨기기", true, None::<&str>)?,
                     &fx_item,
                     &auto,
                     &MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?,
@@ -607,15 +727,9 @@ pub fn run() {
                     "panel" => {
                         let _ = toggle(app, "todo");
                     }
-                    "palette" | "turntable" => {
-                        let (h, id) = (app.clone(), e.id().as_ref().to_string());
-                        tauri::async_runtime::spawn(async move {
-                            if id == "palette" {
-                                toggle_palette(&h)
-                            } else {
-                                set_turntable(&h, h.get_webview_window("turntable").is_none(), None)
-                            }
-                        });
+                    "palette" => {
+                        let h = app.clone();
+                        tauri::async_runtime::spawn(async move { toggle_palette(&h) });
                     }
                     "fx" => {
                         // 체크 표시는 메뉴가 이미 뒤집었다 → 그 값을 저장 (패널 스위치는 store 변경 이벤트로 따라온다)
@@ -642,4 +756,26 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running hera");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn notes_window_rule() {
+        let e = |v: Vec<(&str, serde_json::Value)>| v.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<Vec<_>>();
+        let rec = ("record:code", json!({ "id": "code", "target": "C:\\Apps\\Code.exe" }));
+        let fg = vec![r"c:\apps\code.exe".to_string()];
+        // 바탕화면 메모: 펼침일 때만
+        assert!(notes_needed(&e(vec![("note:a", json!({ "text": "x" }))]), true, &[]));
+        assert!(!notes_needed(&e(vec![("note:a", json!({ "text": "x" }))]), false, &[]));
+        // 앱 메모: 그 앱이 앞에 있을 때만 (접힘과 무관)
+        let app_note = ("note:b", json!({ "appId": "code" }));
+        assert!(notes_needed(&e(vec![app_note.clone(), rec.clone()]), false, &fg));
+        assert!(!notes_needed(&e(vec![app_note.clone(), rec.clone()]), true, &["c:\\other.exe".to_string()]));
+        // 메모 없음 → 창 없음
+        assert!(!notes_needed(&e(vec![rec]), true, &fg));
+    }
 }

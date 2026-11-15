@@ -86,6 +86,9 @@ pub mod clip {
         Err(super::NA.into())
     }
     pub fn add_remote(_: &str) {}
+    pub fn paste(_: &str, _: impl FnOnce()) -> Result<(), String> {
+        Err(super::NA.into())
+    }
 }
 
 pub mod shell {
@@ -115,6 +118,17 @@ pub mod shell {
     pub fn lift() -> i32 {
         0
     }
+}
+
+pub mod ocr {
+    // 맥: Vision 프레임워크 VNRecognizeTextRequest (docs/mac-port.md)
+    pub fn capture_at_cursor() -> Result<[i32; 4], String> {
+        Err(super::NA.into())
+    }
+    pub fn region(_: [i32; 4]) -> Result<(String, String), String> {
+        Err(super::NA.into())
+    }
+    pub fn clear() {}
 }
 
 pub mod taskbar {
