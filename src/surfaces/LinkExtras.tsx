@@ -29,6 +29,7 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
   const xs = mons.flatMap((m) => [m.at[0], m.at[0] + m.at[2]]), ys = mons.flatMap((m) => [m.at[1], m.at[1] + m.at[3]])
   const [minX, minY] = [Math.min(...xs), Math.min(...ys)]
   const k = Math.min((W - 2 * PAD) / (Math.max(...xs) - minX || 1), (H - 2 * PAD) / (Math.max(...ys) - minY || 1))
+  const h = Math.min(H, Math.ceil((Math.max(...ys) - minY) * k + 2 * PAD) + 24) // 내용 높이에 맞춤 (+끌 여유)
   const px = (x: number) => PAD + (x - minX) * k, py = (y: number) => PAD + (y - minY) * k
   const wins = mons.filter((m) => !m.mac)
   const wb = wins.length ? [Math.min(...wins.map((m) => m.at[0])), Math.min(...wins.map((m) => m.at[1])), Math.max(...wins.map((m) => m.at[0] + m.at[2])), Math.max(...wins.map((m) => m.at[1] + m.at[3]))] : [0, 0, 0, 0]
@@ -64,7 +65,7 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
     setDrag(null)
     start.current = null
     // store 쓰기 → 엔진이 링크 다시 만들고 → 결과(구간·제약) 다시 받기
-    window.setTimeout(() => (void linkApply(), refresh()), 300)
+    if (isTauri) window.setTimeout(() => (void linkApply(), refresh()), 300)
   }
   // 파란 막대: PC 경계 상자 가장자리의 % 구간 → 캔버스
   const bar = (g: LinkSeg) => {
@@ -79,7 +80,7 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
   const macs = macMons ?? plan.mons.filter((m) => m.mac).map((m) => ({ id: m.id, rect: m.rect }))
   return (
     <div className="mon-wrap">
-      <div className="mon-canvas" style={{ width: W, height: H }}>
+      <div className="mon-canvas" style={{ width: W, height: h }}>
         {mons.map((m) => (
           <div
             key={m.id}
@@ -109,7 +110,7 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
               <input type="number" value={m.rect[3]} onChange={(e) => setMacMons(macs.map((x, j) => (j === i ? { ...x, rect: [x.rect[0], x.rect[1], x.rect[2], Number(e.target.value) || 1] } : x)))} aria-label={`${m.id} 높이`} />
             </label>
           ))}
-          <button onClick={() => window.setTimeout(() => (void linkApply(), refresh()), 300)}>반영</button>
+          <button onClick={() => isTauri && window.setTimeout(() => (void linkApply(), refresh()), 300)}>반영</button>
         </div>
       )}
     </div>
