@@ -205,9 +205,13 @@ export const openFx = (kind: string) => invoke('fx', { kind })
 export const closeSelf = () => invoke('close_panel')
 
 /* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
-export type FloatKind = 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'
+export type FloatKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'
 export const floatOpen = (f: FloatKind) => invoke('float_open', { f })
 // 떼어내기: 유령 자리(아일랜드 CSS rect)에 만들어 첫 페인트 뒤 보이기 / 흡수: 유령을 그린 뒤 창 파괴 / 떠 있는 창: 첫 페인트 끝
+/** 떼어내기 준비: 숨긴 채 만들기 → 그려질 자리 (물리 px [x, y, w, h]). 첫 페인트가 끝나면 'float-ready' */
+export const floatPrepare = (f: FloatKind) => invoke<[number, number, number, number]>('float_prepare', { f })
+/** 머리줄 끌기 (start | move | end) · 'Island로' (absorb) */
+export const floatDrag = (phase: 'start' | 'move' | 'end' | 'absorb') => invoke('float_drag', { phase })
 export const floatShow = (f: FloatKind, r: DOMRect) => invoke('float_show', { f, rect: [r.x, r.y, r.width, r.height] })
 export const floatAbsorbed = (f: FloatKind) => invoke('float_absorbed', { f })
 export const floatReady = () => invoke('float_ready')
@@ -281,3 +285,21 @@ export const teamInvite = (group: string) => invoke<[string, string]>('team_invi
 export const teamJoin = (input: string) => invoke('team_join', { input })
 export const teamFlags = (group: string, alarms: boolean, news: boolean) => invoke('team_flags', { group, alarms, news })
 export const teamName = (name: string) => invoke('team_name', { name })
+
+/* ── 내 펫 (Rust pets.rs: %APPDATA%\Hera\pets) ── */
+export type PetPack = { id: string; name: string; style: 'pixel' | 'smooth'; sheet: { frames: number; fps: number } | null; files: Record<string, { path: string; w: number; h: number; v: number }> }
+export const petList = () => invoke<PetPack[]>('pet_list')
+/** 저장 몸통 = [u32 LE json 길이][json][이미지 바이트 …] */
+export async function petSave(meta: { id?: string; name: string; style: 'pixel' | 'smooth'; sheet: { frames: number; fps: number } | null }, files: [string, Blob][]) {
+  const bufs = await Promise.all(files.map(([, b]) => b.arrayBuffer()))
+  const json = new TextEncoder().encode(JSON.stringify({ ...meta, files: files.map(([st], i) => [st, bufs[i].byteLength]) }))
+  const out = new Uint8Array(4 + json.length + bufs.reduce((n, b) => n + b.byteLength, 0))
+  new DataView(out.buffer).setUint32(0, json.length, true)
+  out.set(json, 4)
+  let at = 4 + json.length
+  for (const b of bufs) out.set(new Uint8Array(b), at), (at += b.byteLength)
+  return invoke<string>('pet_save', out)
+}
+export const petDelete = (id: string) => invoke('pet_delete', { id })
+export const petImport = async (zip: Blob) => invoke<string>('pet_import', new Uint8Array(await zip.arrayBuffer()))
+export const petExport = (id: string) => invoke<string>('pet_export', { id })

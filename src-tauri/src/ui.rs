@@ -64,6 +64,27 @@ mod imp {
         }
     }
 
+    /// 클라이언트 왼쪽 위를 (x, y) 로 (크기 그대로) — 떠 있는 창 머리줄 끌기
+    pub fn move_client(win: &WebviewWindow, x: i32, y: i32) {
+        use windows::Win32::Foundation::{POINT, RECT};
+        use windows::Win32::Graphics::Gdi::ClientToScreen;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SWP_NOSIZE};
+        let Ok(hwnd) = win.hwnd() else { return };
+        unsafe {
+            let (mut wr, mut o) = (RECT::default(), POINT::default());
+            if GetWindowRect(hwnd, &mut wr).is_ok() && ClientToScreen(hwnd, &mut o).as_bool() {
+                let _ = SetWindowPos(hwnd, None, x - (o.x - wr.left), y - (o.y - wr.top), 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+            }
+        }
+    }
+
+    /// 커서 화면 위치 (물리 px) — 떠 있는 창 끌기 (읽기만)
+    pub fn cursor() -> (i32, i32) {
+        let mut p = windows::Win32::Foundation::POINT::default();
+        let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p) };
+        (p.x, p.y)
+    }
+
     /// 최상위 무리의 맨 위로 (효과 창 위로 독·아일랜드를 다시 올릴 때)
     pub fn raise(win: &WebviewWindow) {
         if let Ok(h) = win.hwnd() {
@@ -106,6 +127,12 @@ mod imp {
     }
     pub fn hwnd(_: &WebviewWindow) -> isize {
         0
+    }
+    pub fn move_client(win: &WebviewWindow, x: i32, y: i32) {
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    pub fn cursor() -> (i32, i32) {
+        (0, 0)
     }
     pub fn set_client_bounds(win: &WebviewWindow, x: i32, y: i32, w: i32, h: i32) {
         set_bounds(win, x, y, w, h)

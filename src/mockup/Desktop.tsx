@@ -1,27 +1,30 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openAscii, openFx, panelOpen, sendAlert, setClip,
+  clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openFx, panelOpen, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  chatSendPaths, floatAbsorbed, floatOpen, storeGet, floatShow, fxStop, hubAction, islandFocus, islandPaste, islandTall, storeSet, teamState, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
+  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, islandPaste, islandTall, storeSet, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
-import { Island, type LinkView, type NextItem, type TeamNews } from '../surfaces/Island'
+import { fmtWhen, Island, type Alert, type NextItem } from '../surfaces/Island'
 import { CalendarFilter, groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
 import { Panel, TodoTab, type Tab } from '../surfaces/Panel'
-import { GhostLayer, Hub, useMagnet, VIEW_SIZE, VIEWS, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
+import { DETACHABLE, GhostLayer, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
+import { customOf, draftOf, newDraft, PetImportView, SettingsView, useCustomPets, type Draft, type IslandPrefs } from '../surfaces/PetSettings'
+import { NOTE_COLORS } from '../surfaces/Notes'
+import { Ico } from '../surfaces/Icons'
+import type { CapSize } from '../surfaces/Pet'
 import { useSnippets } from '../surfaces/Snippets'
 import { expand } from '../data/snippets'
-import { ClipsList, FloatShell, ShelfList } from '../surfaces/Float'
+import { ClipsList, FloatShell, FloatWin, ShelfList } from '../surfaces/Float'
 import { Player, type PlayerRec } from '../surfaces/Player'
 import { ChatWindow, type Msg as ChatMsg } from '../surfaces/Chat'
-import { TermHead, TermPreview, TermWindow } from '../surfaces/Term'
+import { TermPreview, TermWindow } from '../surfaces/Term'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
-import { ASCII_RECORDS } from '../surfaces/Lp'
 import { newNote, setV3, useV3, V3Demo, V3Layer } from '../surfaces/Notes'
 import { Ocr } from '../surfaces/Ocr'
 import { reportHitRects } from '../data/api'
@@ -100,7 +103,6 @@ export function Desktop({ only }: { only?: string }) {
   const [swap, setSwap] = useState<{ onPeer: boolean; n: number } | null>(null)
   const [ime, setIme] = useState<{ source: 'ko' | 'en'; n: number } | null>(null)
   const imeTimer = useRef(0)
-  const [peerAscii, setPeerAscii] = useState(false)
   const swapTimer = useRef(0)
   const xferTimer = useRef(0)
   const shelveRef = useRef<(paths: string[]) => void>(() => {})
@@ -135,7 +137,7 @@ export function Desktop({ only }: { only?: string }) {
       }))
     return () => offs.forEach((off) => off())
   }, [])
-  const linkView: LinkView | null = link && link.state !== 'off' ? { connected: link.state === 'connected', peer: link.peer || linkCfg?.peer || 'Mac', files: !!filesPeer, swap, pair, xfer } : pair || xfer || swap ? { connected: !isTauri, peer: pair?.name ?? 'MacBook', files: !isTauri || !!filesPeer, swap, pair, xfer } : null
+  const linkView = link && link.state !== 'off' ? { connected: link.state === 'connected', peer: link.peer || linkCfg?.peer || 'Mac', files: !!filesPeer, swap, pair, xfer } : pair || xfer || swap ? { connected: !isTauri, peer: pair?.name ?? 'MacBook', files: !isTauri || !!filesPeer, swap, pair, xfer } : null
   const sendToPeer = (paths: string[]) => paths.forEach((p) => void linkSend(p).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })))
   // 설정 저장은 store 에 비동기로 쓰인다 → 잠깐 뒤에 Rust 가 다시 읽게
   const applyLink = () => window.setTimeout(() => void linkApply(), 250)
@@ -243,13 +245,6 @@ export function Desktop({ only }: { only?: string }) {
   const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
   const members = (r: LpRecord) => (r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r])
 
-  // 아스키 LP: 전체화면 아스키가 Island 자리에서 커진다. Island 는 '아스키 재생 중' + 정지.
-  const playAscii = (r: LpRecord) => {
-    const scene = !r.scene || r.scene === 'auto' ? pickScene(clock) : r.scene
-    const from = document.querySelector('.island-shape')?.getBoundingClientRect() ?? null
-    if (isTauri) return void openAscii(from && [from.left + screenX, from.top + screenY, from.width, from.height], scene)
-    setAscii({ open: true, from, saver: false, scene, lp: `${SCENES[scene].name}${r.scene === 'auto' ? ' · 자동' : ''}` })
-  }
   // LP 플레이어로 튼 화면 효과 → Island '재생 중' 알약 (효과 창 수명을 따른다)
   const [fxPlaying, setFxPlaying] = useState<string | null>(null)
   // 실제 앱: 아스키·효과 창 열림/닫힘 → Island '재생 중' · Hera Team 변경 소식 → Island
@@ -271,7 +266,7 @@ export function Desktop({ only }: { only?: string }) {
   }, [])
 
   // Hera Team 변경 소식 (시안: 데모 바에서 발생, 4초 뒤 사라짐). 실제 앱: 그룹원이 바꾸면 Hera Link 로 받아 Island 에.
-  const [news, setNews] = useState<TeamNews | null>(null)
+  const [news, setNews] = useState<{ who: string; group: string; what: string; detail: string; n: number } | null>(null)
   useEffect(() => {
     if (!news) return
     const t = window.setTimeout(() => setNews(null), 4200)
@@ -288,7 +283,6 @@ export function Desktop({ only }: { only?: string }) {
   const [chatUnread, setChatUnread] = useValue('chat.unread', 0)
   const [msg, setMsg] = useState<{ who: string; group: string; color: string; text: string; n: number; gid: string } | null>(null)
   const msgT = useRef(0)
-  const [meTeam, setMeTeam] = useState({ name: '나', pk: 'me' })
   const showMsg = (m: ChatMsg) => {
     const g = groupOf(m.group)
     setMsg((x) => ({ who: m.by, group: g?.name ?? '', color: g?.color ?? '#64748b', gid: m.group, text: m.kind === 'text' ? m.text ?? '' : m.kind === 'image' ? `사진 · ${m.name}` : `파일 · ${m.name}`, n: (x?.n ?? 0) + 1 }))
@@ -301,7 +295,6 @@ export function Desktop({ only }: { only?: string }) {
   }
   useEffect(() => {
     if (!isTauri || only !== 'island') return
-    void teamState().then((t) => setMeTeam({ name: t.name, pk: t.pk }), () => {})
     return onEvent<ChatMsg>('chat-msg', showMsg)
   }, [])
   // 한 줄 알림 (터미널 완료 ✓ / 실패 ✕ · 아라로 넘기는 중 …)
@@ -334,13 +327,6 @@ export function Desktop({ only }: { only?: string }) {
     const offs = [onEvent<string>('float-opened', (f) => f === 'chat' && setChatOpen(true)), onEvent<string>('float-closed', (f) => f === 'chat' && setChatOpen(false))]
     return () => offs.forEach((off) => off())
   }, [])
-  const reply = (t: string) => {
-    if (!msg) return
-    const id = crypto.randomUUID()
-    storeSet(`chat:${id}`, { id, group: msg.gid, by: meTeam.name, byPk: meTeam.pk, kind: 'text', text: t, at: Date.now() })
-    setMsg(null)
-    setChatUnread(0)
-  }
 
   // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
   // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
@@ -439,203 +425,270 @@ export function Desktop({ only }: { only?: string }) {
   const done = () => ack((x) => ('done' in x ? { done: true } : {}))
   const snooze = () => ack(() => ({ snooze: new Date(Date.now() + 600_000).toISOString() }))
 
-  /* ── Island-only: 허브(노치 아래) · 떠 있는 기능 창 ── */
+  /* ── Island (a3): 모서리 펫 캡슐 · 허브 · 안의 화면 · 떼어낸 창 ── */
   const [hub, setHub] = useState(false)
-  const [hubRect, setHubRect] = useState<DOMRect | null>(null)
   const [hubView, setHubView] = useState<ViewKind | null>(null)
   hubNow.current = { hub, view: hubView }
-  const [ghost, setGhost] = useState<(Ghost & { pointer?: { x: number; y: number; dx: number; dy: number; id: number; el: HTMLElement } }) | null>(null)
+  const [ghost, setGhost] = useState<(Ghost & { hold?: boolean }) | null>(null)
   const [detached, setDetached] = useState<Set<string>>(new Set())
-  const [magnet, setMagnet] = useState<number | null>(null)
-  useMagnet(magnet)
-  const nextView = useRef<ViewKind | null>(null) // 흡수한 화면 = 다음에 노치를 누르면 그 화면
+  const [magnet, setMagnet] = useState<'near' | 'hot' | null>(null)
+  const [gulp, setGulp] = useState(0)
+  const nextView = useRef<ViewKind | null>(null) // 흡수한 화면 = 다음에 캡슐을 누르면 그 화면
   const [snippets] = useSnippets()
   const [dragNear, setDragNear] = useState(false)
   const [mockFloats, setMockFloats] = useState<FloatKind[]>([])
   const { notes: notesShown } = useV3()
-  const dwell = useRef(0)
-  const onHover = (on: boolean, type: string) => {
-    clearTimeout(dwell.current)
-    if (on && type === 'mouse') dwell.current = window.setTimeout(() => openHub(), 300)
-  }
-  const [, tickClock] = useState(0) // 노치·알약 시계 (30초마다)
+  // 캡슐 설정 (설정 화면): 펫 · 크기 · 위치 · 전체화면 숨김 · 알림
+  const [petKey, setPetKey] = useValue('island.pet', 'cat')
+  const [capSize, setCapSize] = useValue<CapSize>('island.size', 'm')
+  const [place, setPlace] = useValue<'br' | 'bl'>('island.place', 'br')
+  const [autohide, setAutohide] = useValue('island.autohide', true)
+  const [petAlerts, setPetAlerts] = useValue('island.alerts', true)
+  const prefs: IslandPrefs = { pet: petKey, size: capSize, place, autohide, alerts: petAlerts }
+  const setPref = <K extends keyof IslandPrefs>(k: K, v: IslandPrefs[K]) =>
+    void ({ pet: setPetKey, size: setCapSize, place: setPlace, autohide: setAutohide, alerts: setPetAlerts } as Record<keyof IslandPrefs, (x: unknown) => void>)[k](v)
+  const customs = useCustomPets()
+  const [draft, setDraft] = useState<Draft>(newDraft)
+  const [toastMsg, setToastMsg] = useState<{ text: string; n: number } | null>(null)
+  const toast = (text: string) => setToastMsg((t) => ({ text, n: (t?.n ?? 0) + 1 }))
   useEffect(() => {
-    if (only && only !== 'island') return
-    const t = setInterval(() => tickClock((n) => n + 1), 30_000)
-    return () => clearInterval(t)
-  }, [])
+    if (!toastMsg) return
+    const t = setTimeout(() => setToastMsg(null), 1800)
+    return () => clearTimeout(t)
+  }, [toastMsg?.n])
   useEffect(() => {
     if (!isTauri || only !== 'island') return
-    // 실제 앱: 아일랜드 창은 클릭 통과라 바깥 클릭을 못 본다 → watch 루프가 알려 줌 · 파일을 끌고 위쪽 가운데로 오면 드롭존
+    // 실제 앱: 아일랜드 창은 클릭 통과라 바깥 클릭을 못 본다 → watch 루프가 알려 줌 · 파일을 끌고 캡슐 근처로 오면 드롭존
     const offs = [
       onEvent('island-outside', () => !ghostRef.current && setHub(false)),
       onEvent<boolean>('drag-near', setDragNear),
-      // Ctrl+` = 터미널 드롭다운
+      // Ctrl+` = 터미널 (모서리에서 위로 640×300)
       onEvent<string>('island-open', (v) => ((VIEWS as string[]).includes(v) ? openHub(v as ViewKind) : openHub())),
-      // 떼어낸 창 목록 · 흡수 (창을 머리줄로 끌어 노치에)
+      // 떼어낸 창 목록 · 흡수 (창을 머리줄로 끌어 캡슐에 놓기 · 'Island로')
       onEvent<string>('float-opened', (f) => setDetached((d) => new Set(d).add(f))),
       onEvent<string>('float-closed', (f) => setDetached((d) => ((d = new Set(d)), d.delete(f), d))),
-      onEvent<{ f: string; d: number }>('absorb-near', (e) => setMagnet(e.d < 200 ? e.d : null)),
+      onEvent<{ f: string; d: number }>('absorb-near', (e) => setMagnet(e.d < 48 ? 'hot' : e.d < 160 ? 'near' : null)),
       onEvent<{ f: string; rect: [number, number, number, number] }>('absorb', (e) => void absorb(e.f as ViewKind, new DOMRect(...e.rect))),
     ]
     return () => offs.forEach((off) => off())
   }, [])
   // 허브가 접히면 키보드 포커스를 직전 앱에 돌려주고 첫 화면으로
   useEffect(() => {
-    // 아일랜드 창은 유령이 움직일 때만 화면 높이 (화면 높이 투명 표면 = GPU 메모리 +40~50MB — 허브를 열어 둔 동안 들고 있지 않는다)
     if (hub) return
     if (isTauri) void islandFocus(false)
-    const t = setTimeout(() => (setHubView(null), isTauri && !ghostRef.current && void islandTall(false)), 420)
+    const t = setTimeout(() => setHubView(null), 420)
     return () => clearTimeout(t)
   }, [hub])
   useEffect(() => {
     if (!hub) return
-    // 실제 앱: 포커스를 받으면 Esc 가 아일랜드로 온다
     const key = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && setHub(false)
     addEventListener('keydown', key)
     return () => removeEventListener('keydown', key)
   }, [hub])
   useEffect(() => {
     if (!hub || isTauri) return
-    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.hub, .island-shape, .ghost, .mock-float') && setHub(false)
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && setHub(false)
+    const down = (e: PointerEvent) => !(e.target as Element).closest?.('.isl, .ghost, .mock-float') && setHub(false)
     addEventListener('pointerdown', down, true)
-    addEventListener('keydown', key)
-    return () => (removeEventListener('pointerdown', down, true), removeEventListener('keydown', key))
+    return () => removeEventListener('pointerdown', down, true)
   }, [hub])
   const openFloat = (f: FloatKind) => (isTauri ? void floatOpen(f).catch((e) => showAlert({ title: '창을 열 수 없어요', body: String(e) })) : setMockFloats((fs) => [...fs.filter((x) => x !== f), f]))
   // 허브 열기 (v = 바로 그 화면). 떼어낸 화면이면 그 창을 앞으로.
   const openHub = (v?: ViewKind | null) => {
-    if (!v && hubNow.current.hub) return // 이미 열림 (머묾 타이머가 탭 뒤에 또 와도 화면을 바꾸지 않게)
     const want = v ?? nextView.current
     nextView.current = null
-    if (want && detached.has(want)) return openFloat(want)
+    if (want && detachedRef.current.has(want)) return openFloat(want as FloatKind)
     setHubView(want ?? null)
     setHub(true)
     if (isTauri && want) void islandFocus(true)
   }
-  const onView = (v: ViewKind | null) => {
-    if (v && detachedRef.current.has(v)) return (setHub(false), openFloat(v))
-    setHubView(v)
+  const go = (k: HubKind) => {
+    if (k === 'lp') return (setHub(false), openFloat('lp')) // LP 플레이어 = 바탕화면 소품
+    if (detachedRef.current.has(k)) return (setHub(false), openFloat(k as FloatKind))
+    setHubView(k)
   }
   const detachedRef = useRef(detached)
   detachedRef.current = detached
-  const pick = (k: HubKind) => {
-    setHub(false)
-    if (k === 'lp') return openFloat('lp') // LP 플레이어 = 바탕화면 소품
-    if (isTauri) return void hubAction(k as 'notes').catch((e) => showAlert({ title: '열 수 없어요', body: String(e) }))
-    if (k === 'notes') return setV3({ notes: !notesShown })
-    openPanel('settings')
-  }
 
-  /* ── 떼어내기 · 흡수 ── */
+  /* ── 떼어내기 · 흡수 ──
+     움직이는 동안만 아일랜드 창이 작업 영역 크기 (모서리 기준이라 내용은 그대로). 크기를 먼저 바꾸고, 진짜 창도 먼저 만든 뒤(첫 페인트까지) 움직인다:
+     창 생성·큰 투명 표면 합성이 움직임과 겹치지 않는다. 다 움직이면 진짜 창을 보이고 유령을 지운다. */
   const ghostRef = useRef(ghost)
   ghostRef.current = ghost
-  // 기억한 창 자리 (store float.<f> = 물리 px) → 아일랜드 CSS 좌표, 없으면 화면 가운데
-  const homeRect = async (k: ViewKind, from: DOMRect) => {
-    const [w, h] = VIEW_SIZE[k]
-    const saved = isTauri ? await storeGetRect(k) : null
-    if (saved) return new DOMRect(saved[0] / devicePixelRatio - screenX, saved[1] / devicePixelRatio - screenY, saved[2] / devicePixelRatio, saved[3] / devicePixelRatio)
-    return new DOMRect(Math.round(innerWidth / 2 - w / 2), Math.max(from.bottom + 40, innerHeight * 0.18), w, h)
-  }
-  // 아일랜드 창을 모니터 전체로 (유령이 화면 어디로든). 창 원점이 바뀌므로 그 차이(CSS px)를 돌려준다 — 가운데·위 기준이라 보이는 내용은 그대로.
+  const tall = useRef(false)
   const goTall = async () => {
-    if (!isTauri || innerHeight > 700) return [0, 0] as const
+    if (!isTauri) return [0, 0] as const
     const [x0, y0] = [screenX, screenY]
-    const resized = new Promise<void>((r) => {
-      const f = () => (removeEventListener('resize', f), r())
-      addEventListener('resize', f)
-      setTimeout(f, 300)
-    })
-    await islandTall(true)
-    await resized
+    if (!tall.current) {
+      tall.current = true
+      const resized = new Promise<void>((r) => {
+        const f = () => (removeEventListener('resize', f), r())
+        addEventListener('resize', f)
+        setTimeout(f, 400)
+      })
+      await islandTall(true)
+      await resized
+    }
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
     return [x0 - screenX, y0 - screenY] as const
   }
-  const onDetach = async (k: ViewKind, from0: DOMRect, how: 'drag' | 'button', pointer?: { x: number; y: number; dx: number; dy: number; id: number; el: HTMLElement }) => {
-    // 진짜 창은 놓은 뒤 만든다: 움직이는 동안 새 웹뷰를 만들면 같은 GPU 프로세스를 나눠 써 프레임이 밀린다. 만드는 동안 유령은 같은 그림으로 멈춰 있다.
-    const [ox, oy] = await goTall()
-    const from = new DOMRect(from0.x + ox, from0.y + oy, from0.width, from0.height)
-    if (pointer) pointer = { ...pointer, x: pointer.x + ox, y: pointer.y + oy }
-    const auto = how === 'button' ? await homeRect(k, from) : undefined
-    setGhost({ kind: k, rect: from, mode: 'detach', pointer, auto })
-    setHub(false) // 아일랜드는 노치로 스프링 (목이 늘어나다 끊김)
+  const release = () => {
+    if (!isTauri || !tall.current) return
+    tall.current = false
+    void islandTall(false)
   }
-  const detachDrop = (k: ViewKind, rect: DOMRect) =>
-    new Promise<void>((done) => {
-      if (!isTauri) {
-        setMockFloats((fs) => [...fs.filter((x) => x !== k), k])
-        setMockRects((m) => ({ ...m, [k]: rect }))
-        return done()
-      }
-      // 진짜 창이 유령과 같은 자리·크기로 보이면(첫 페인트 뒤) 유령을 지운다
-      const off = onEvent<string>('float-shown', (f) => f === k && (clearTimeout(t), off(), done()))
-      const t = setTimeout(() => (off(), done()), 2500)
-      void floatShow(k, rect).catch(() => (clearTimeout(t), off(), done()))
-    })
+  const skinRect = () => document.querySelector('.isl .skin')?.getBoundingClientRect() ?? new DOMRect(innerWidth - 80, innerHeight - 68, 64, 48)
+  const detach = async (k: ViewKind) => {
+    if (!DETACHABLE(k)) return
+    if (!isTauri) {
+      const [w, h] = VIEW_SIZE[k]
+      const r = skinRect()
+      const to = new DOMRect(Math.max(24, place === 'br' ? r.right - 360 - w - 104 : r.left + 464), Math.max(24, innerHeight - 72 - h - 40), w, h + 40)
+      setMockRects((m) => ({ ...m, [k]: to }))
+      setGhost({ kind: k, mode: 'detach', rect: to, capsule: r })
+      setHub(false)
+      return
+    }
+    try {
+      const ready = new Promise<void>((res) => {
+        const off = onEvent<string>('float-ready', (f) => f === k && (off(), res()))
+        setTimeout(() => (off(), res()), 3000)
+      })
+      const [x, y, w, h] = await floatPrepare(k as FloatKind)
+      await goTall()
+      await ready
+      const dpr = devicePixelRatio
+      setGhost({ kind: k, mode: 'detach', rect: new DOMRect(x / dpr - screenX, y / dpr - screenY, w / dpr, h / dpr), capsule: skinRect() })
+      setHub(false)
+    } catch (e) {
+      release()
+      showAlert({ title: '떼어내지 못했어요', body: String(e) })
+    }
+  }
   const absorb = async (k: ViewKind, rect0: DOMRect) => {
     setMagnet(null)
     const [ox, oy] = await goTall()
     const rect = new DOMRect(rect0.x + ox, rect0.y + oy, rect0.width, rect0.height)
-    setGhost({ kind: k, rect, mode: 'absorb' })
-    // 유령이 그려진 다음 프레임에 진짜 창을 숨기고 파괴 (바꿔치기)
-    requestAnimationFrame(() => requestAnimationFrame(() => (isTauri ? void floatAbsorbed(k) : setMockFloats((fs) => fs.filter((x) => x !== k)))))
+    setGhost({ kind: k, mode: 'absorb', rect, capsule: skinRect(), hold: true })
+    // 유령이 그려진 다음 프레임에 진짜 창을 파괴하고 (바꿔치기) 움직이기 시작
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (isTauri) void floatAbsorbed(k as FloatKind)
+      else setMockFloats((fs) => fs.filter((x) => x !== k))
+      setGhost((g) => g && { ...g, hold: false })
+    }))
     nextView.current = k
   }
-  const ghostDone = () => {
+  const ghostDone = async (g: Ghost) => {
+    if (g.mode === 'detach') {
+      if (isTauri) {
+        // 진짜 창이 유령과 같은 자리·그림으로 보이면(이미 그려 둠) 유령을 지운다
+        await new Promise<void>((done) => {
+          const off = onEvent<string>('float-shown', (f) => f === g.kind && (clearTimeout(t), off(), done()))
+          const t = setTimeout(() => (off(), done()), 1500)
+          void floatShow(g.kind as FloatKind, g.rect).catch(() => (clearTimeout(t), off(), done()))
+        })
+        await new Promise((r) => requestAnimationFrame(r))
+      } else setMockFloats((fs) => [...fs.filter((x) => x !== g.kind), g.kind as FloatKind])
+    } else setGulp((n) => n + 1)
     setGhost(null)
-    if (isTauri) setTimeout(() => !ghostRef.current && !hubNow.current.hub && void islandTall(false), 80)
+    setTimeout(() => !ghostRef.current && release(), 80)
   }
   const [mockRects, setMockRects] = useState<Record<string, DOMRect>>({})
-  // 허브 '+ 새 메모': 실제 앱은 메모 창이 따로라 store 에 쓰고 note.edit 로 편집 상태를 알린다
-  const addNote = () => {
+  // '데스크톱에 붙이기' · 새 메모: 실제 앱은 메모 창이 따로라 store 에 쓰고 note.edit 로 편집 상태를 알린다
+  const [deskNotes] = useItems<{ id: string; text: string; color?: number; appId?: string }>('note', [])
+  const addNote = (text = '') => {
     setHub(false)
-    if (!isTauri) return (setV3({ notes: true }), void setTimeout(() => newNote(), 60))
+    if (!isTauri) return (setV3({ notes: true }), void setTimeout(() => newNote(undefined, text), 60))
     const id = crypto.randomUUID()
-    storeSet(`note:${id}`, { id, text: '', color: 0, x: Math.round(innerWidth / 2 - 105), y: 160, w: 210, h: 140, pinned: false })
+    storeSet(`note:${id}`, { id, text, color: 0, x: Math.round(screen.width / 2 - 105), y: 160, w: 210, h: 140, pinned: false })
     storeSet('notes.shown', true)
     storeSet('note.edit', id)
     setTimeout(() => storeSet('note.edit', null), 3000)
   }
-  const nextLabel = next ? `${next.at ? hm(next.at) + ' ' : ''}${next.title}` : undefined
   const openTodos = todos.filter((t) => !t.done).length
   const viewBody = (k: ViewKind, ghostOnly = false): ReactNode =>
-    k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
+    k === 'notes' ? <NotesView shown={notesShown} notes={deskNotes} onToggle={() => (isTauri ? void hubAction('notes') : setV3({ notes: !notesShown }))}
+      onAttach={(text) => (addNote(text), say('데스크톱에 붙였어요', 'ok'))} onShow={() => (setHub(false), isTauri ? storeSet('notes.shown', true) : setV3({ notes: true }))} />
+    : k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
     : k === 'snippets' ? (
-      <ul className="float-list">
+      <>
+        <div className="sect">어디서든 ; 로 시작 · 누르면 앞 앱에 붙여 넣기</div>
         {snippets.map((sn) => (
-          <li key={sn.id}><button onClick={() => (setHub(false), isTauri ? void islandPaste(expand(sn.body)).catch((e) => showAlert({ title: '붙여넣지 못했어요', body: String(e) })) : undefined)}><span><b>{sn.title}</b><small>{sn.body.split('\n')[0]}</small></span></button></li>
+          <button key={sn.id} className="row" onClick={() => (setHub(false), isTauri ? void islandPaste(expand(sn.body)).catch((e) => showAlert({ title: '붙여넣지 못했어요', body: String(e) })) : undefined)}>
+            <span className="trig">;{sn.title.slice(0, 6)}</span><span className="tt"><b>{sn.title}</b><small>{sn.body.split('\n')[0]}</small></span>
+          </button>
         ))}
-        <li><button onClick={() => (setHub(false), openPanel('snippets'))}><span><b>스니펫 편집…</b><small>패널 · 상용구</small></span></button></li>
-      </ul>
+        <div className="foot"><small>상용구 {snippets.length}개</small><button className="btn ghost" onClick={() => (setHub(false), openPanel('snippets'))}>편집</button></div>
+      </>
     )
     : k === 'ocr' ? (
-      <div className="view-ocr">
-        <button className="primary" onClick={() => (setHub(false), isTauri ? void hubAction('ocr') : setV3({ ocr: true }))}>화면 글자 복사 시작</button>
-        <small>영역을 골라 글자를 인식해 복사해요 · 언제든 Ctrl+Alt+T</small>
-      </div>
+      <>
+        <button className="ocr-cta" onClick={() => (setHub(false), isTauri ? void hubAction('ocr') : setV3({ ocr: true }))}>
+          <Ico k="ocr" /><div><b>화면 글자 복사</b><small>영역을 고르면 글자를 읽어 복사해요 · Ctrl Alt T</small></div>
+        </button>
+        <div className="foot"><small>인식은 이 PC 에서만 (Windows OCR)</small></div>
+      </>
     )
     : k === 'team' ? <div className="view-team"><TeamSection /></div>
     : k === 'link' ? (
-      <div className="view-link">
-        <b>{link?.state === 'connected' ? `${link.peer || linkCfg?.peer || 'Mac'} 연결됨` : linkOn ? '연결 기다리는 중' : 'Hera Link 꺼짐'}</b>
-        <small>{filesPeer ? `파일 채널: ${filesPeer}` : '맥과 마우스·키보드·클립보드·파일을 나눠 써요'}</small>
-        <button className="primary" onClick={() => (setHub(false), isTauri ? void hubAction('link') : openPanel('settings'))}>Link 설정 열기</button>
-      </div>
+      <>
+        <div className="row" style={{ background: 'var(--fill-1)', minHeight: 60 }}>
+          <span className="sq" style={{ color: 'var(--teal)', background: 'rgba(64,200,224,.14)' }}><Ico k="laptop" /></span>
+          <span className="tt"><b>{link?.peer || linkCfg?.peer || 'Mac'}</b><small>{filesPeer ? `파일 채널: ${filesPeer}` : '마우스·키보드·클립보드·파일 나눠 쓰기'}</small></span>
+          <span className={`status ${link?.state === 'connected' ? 'ok' : 'idle'}`}>{link?.state === 'connected' ? '연결됨' : linkOn ? '기다리는 중' : '꺼짐'}</span>
+        </div>
+        <div className="foot"><small>Hera Link · 암호화됨</small><button className="btn ghost" onClick={() => (setHub(false), isTauri ? void hubAction('link') : openPanel('settings'))}><Ico k="link2" />Link 설정</button></div>
+      </>
     )
-    : floatBody(k)
+    : k === 'settings' ? <SettingsView prefs={prefs} set={setPref} onToast={toast} onPanel={() => (setHub(false), isTauri ? void hubAction('settings') : openPanel('settings'))}
+        onImport={() => (setDraft(newDraft()), setHubView('petimport'))} onEdit={(c) => void draftOf(c).then((d) => (setDraft(d), setHubView('petimport')))} />
+    : k === 'petimport' ? <PetImportView draft={draft} setDraft={setDraft} size={capSize} onCancel={() => setHubView('settings')} onSaved={(id) => (setPetKey(`custom:${id}`), setHubView('settings'))} />
+    : floatBody(k as FloatKind)
   const floatBody = (f: FloatKind) =>
     f === 'todo' ? <TodoTab todos={todos} setTodos={setTodos} onAdded={peekIsland} />
     : f === 'calendar' ? <><div className="float-tools"><CalendarFilter /></div><MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={peekIsland} /></>
     : f === 'clips' ? <ClipsList clips={clips} onCopy={copyClip} />
     : f === 'shelf' ? (
-      <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
-        onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
+      <>
+        <div className="dropz"><div><Ico k="upload" />파일을 캡슐로 끌어다 놓으세요<br /><small style={{ color: 'var(--t3)' }}>최대 4개 · 나중에 다른 앱으로 끌어 쓰기</small></div></div>
+        <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
+          onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
+      </>
     )
     : f === 'chat' ? <ChatWindow setEvents={setEvents} />
     : f === 'term' ? <TermWindow />
-    : f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
+    : f === 'notes' || f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
     : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
     : <p className="float-empty">준비 중이에요.</p>
+  /* 캡슐 알림 = 펫 자세 + 짧은 글 (예전 알약들을 한 곳에) */
+  const flashParts = flash ? ((x) => (x.length > 1 ? [x.slice(1).join(' · '), x[0]] : [flash.text, flash.icon === 'ok' ? '완료' : flash.icon === 'fail' ? '실패' : '']))(flash.text.split(' · ')) : ['', '']
+  const asciiLabel = ascii.open && ascii.lp ? ascii.lp : fxPlaying ?? (!isTauri && fx && !only ? `${FX_LABEL[fx.kind]} · 화면 효과` : null)
+  const stopPlaying = () => (ascii.open ? (isTauri ? void asciiStop() : setAscii((a) => ({ ...a, open: false }))) : isTauri ? void fxStop() : setFx(null))
+  const pct = linkView?.xfer ? Math.round((100 * linkView.xfer.bytes) / Math.max(1, linkView.xfer.size)) : 0
+  const islandAlert: Alert | null = linkView?.pair
+    ? { key: 'pair', pet: 'event', b: `${linkView.pair.code.slice(0, 3)} ${linkView.pair.code.slice(3)}`, s: `${linkView.pair.name} 연결 · 양쪽 숫자가 같나요?`, sticky: true, acts: [{ label: '취소', run: () => void linkPair(false) }, { label: '같아요', primary: true, run: () => void linkPair(true) }] }
+    : alert
+      ? { key: alert.id, pet: 'event', b: alert.title, s: alert.body, cls: 'warn', sticky: true, onOpen: () => openHub(alert.key?.startsWith('todo:') ? 'todo' : 'calendar'), acts: [{ label: '10분 뒤', run: snooze }, { label: '완료', primary: true, run: done }] }
+      : !petAlerts ? null
+      : msg ? { key: `msg${msg.n}`, pet: 'chat', b: msg.who, s: msg.text, onOpen: () => (setMsg(null), setChatUnread(0), openHub('chat')) }
+      : flash ? { key: `flash${flash.n}`, pet: flash.icon === 'fail' ? 'fail' : flash.icon === 'ok' ? 'done' : 'typing', b: flashParts[0], s: flashParts[1], cls: flash.icon === 'fail' ? 'bad' : flash.icon === 'ok' ? 'ok' : undefined, fail: flash.icon === 'fail', onOpen: flashTerm ? () => (setFlash(null), openHub('term')) : undefined }
+      : ime ? { key: `ime${ime.n}`, pet: 'idle', b: ime.source === 'ko' ? '한' : 'A', s: '입력 언어' }
+      : linkView?.xfer ? { key: 'xfer', pet: linkView.xfer.done ? 'done' : 'typing', b: linkView.xfer.name, s: `${linkView.xfer.dir === 'in' ? `${linkView.peer}에서 받는 중` : `${linkView.peer}으로 보내는 중`} · ${pct}%`, cls: linkView.xfer.done ? 'ok' : undefined }
+      : asciiLabel ? { key: 'ascii', pet: 'idle', b: 'LP 재생 중', s: asciiLabel, acts: [{ label: '정지', run: stopPlaying }] }
+      : linkView?.swap ? { key: `swap${linkView.swap.n}`, pet: 'idle', b: linkView.swap.onPeer ? `→ ${linkView.peer}` : '← Windows', s: 'Hera Link' }
+      : news ? { key: `news${news.n}`, pet: 'event', b: `${news.who}님이 ${groupOf(news.group)?.name ?? ''} ${news.what}`, s: news.detail }
+      : peek && next ? { key: 'peek', pet: 'event', b: next.title, s: `${next.kind === 'event' ? '일정' : '할 일'} · ${fmtWhen(next.at)}`, onOpen: () => openHub(next.kind === 'event' ? 'calendar' : 'todo') }
+      : null
+  const renderOpen = (k: string): ReactNode =>
+    k === 'hub' ? (
+      <HubHome next={next} events={events.filter((e) => e.start.slice(0, 10) === new Date().toISOString().slice(0, 10)).length} todos={{ left: openTodos, total: todos.length }} unread={chatUnread}
+        weather={weather ? { city, text: weather.text, temp: weather.temp } : null} onGo={go} onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))} />
+    ) : (
+      <ViewShell k={k as ViewKind} onBack={() => setHubView(k === 'petimport' ? 'settings' : null)} onDetach={() => void detach(k as ViewKind)}
+        extra={k === 'todo' ? <span className="chp">{todos.length - openTodos} / {todos.length}</span> : k === 'notes' ? <button className="ib" aria-label="새 메모" onClick={() => addNote()}><Ico k="plus" /></button> : null}>
+        {viewBody(k as ViewKind)}
+        {toastMsg && <div key={toastMsg.n} className="vtoast on" role="status">{toastMsg.text}</div>}
+      </ViewShell>
+    )
   const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
   // 시안: LP 플레이어가 실제 창 대신 이 페이지에서 재생
   const mockPlay = (r: PlayerRec) =>
@@ -719,79 +772,39 @@ export function Desktop({ only }: { only?: string }) {
       )}
 
       {show('island') && (
-        <Island
-          alert={alert}
-          next={next}
-          playing={null}
-          peek={peek}
-          ascii={ascii.open && ascii.lp ? ascii.lp : fxPlaying ?? (!isTauri && fx && !only ? `${FX_LABEL[fx.kind]} · 화면 효과` : null)}
-          onAscii={() => playAscii(ASCII_RECORDS[0])}
-          onAsciiStop={() => (ascii.open ? (isTauri ? void asciiStop() : setAscii((a) => ({ ...a, open: false }))) : isTauri ? void fxStop() : setFx(null))}
-          news={news}
-          onDone={done}
-          onSnooze={snooze}
-          onOpen={() => (hub ? setHub(false) : openHub())}
-          onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
-          onFlashTap={flashTerm ? () => (setFlash(null), openHub('term')) : undefined}
-          pill={{ clock: hm(Date.now()), next: nextLabel, notch: !hub, shelf: shelf.length, onShelf: () => openHub('shelf'), onTerm: () => openHub('term'), badge: chatUnread, busy: termRun ? `터미널 · ${termRun}` : undefined }}
-          flash={flash}
-          onHover={onHover}
-          forceDrop={dragNear}
-          msg={msg}
-          onReply={reply}
-          onMsgOpen={() => (setMsg(null), openHub('chat'))}
-          dropTo={chatOpen || (hub && hubView === 'chat') ? { label: '채팅에 보내기', sub: groupOf(chatGroup)?.name ?? '열린 채팅방', onFiles: (paths) => void (isTauri && chatGroup ? chatSendPaths(chatGroup, paths).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) : undefined) } : null}
-          extraRect={ghost ? new DOMRect(0, 0, innerWidth, innerHeight) : hub ? hubRect : null}
-          link={linkView}
-          onSendFiles={sendToPeer}
-          onPair={(ok) => void linkPair(ok)}
-          ime={ime}
-          onChip={filesPeer ? () => void linkAmbient({ kind: 'ascii', action: peerAscii ? 'stop' : 'start' }).then(() => setPeerAscii((v) => !v)) : undefined}
-        />
-      )}
-      {show('island') && (
         <div onPointerDownCapture={() => isTauri && hub && void islandFocus(true)}>
-          <Hub open={hub} view={hubView} onView={onView} next={next} todos={openTodos} onPick={pick} onNewNote={addNote} onRect={setHubRect}
-            onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))}
-            renderView={(k) => viewBody(k)} viewTools={(k) => (k === 'term' ? <TermHead /> : null)} onDetach={(k, r, how, ptr) => void onDetach(k, r, how, ptr)} onClose={() => setHub(false)}
-            badges={{ notes: notesShown && '•', todo: openTodos || null, shelf: shelf.length || null, chat: chatUnread || null, term: termRun ? '●' : null }} />
+          <Island
+            place={place}
+            size={capSize}
+            pet={customOf(petKey, customs) ? petKey : petKey.startsWith('custom:') ? 'cat' : petKey}
+            custom={customOf(petKey, customs)}
+            ambient={{ unread: chatUnread, running: !!termRun, shelf: shelf.length }}
+            alert={islandAlert}
+            open={hub ? hubView ?? 'hub' : null}
+            render={renderOpen}
+            viewSize={(k) => (k === 'hub' ? null : VIEW_SIZE[k as ViewKind])}
+            onTap={() => openHub()}
+            magnet={magnet}
+            gulp={gulp}
+            onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
+            forceDrop={dragNear}
+            dropTo={chatOpen || (hub && hubView === 'chat') ? { label: '채팅에 보내기', onFiles: (paths) => void (isTauri && chatGroup ? chatSendPaths(chatGroup, paths).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) : undefined) }
+              : filesPeer ? { label: `${filesPeer}으로 보내기`, onFiles: sendToPeer } : null}
+          />
         </div>
       )}
       {show('island') && (
-        <GhostLayer ghost={ghost} notch={() => document.querySelector('.island-shape')?.getBoundingClientRect() ?? null} onDetachDrop={detachDrop} onDone={ghostDone}
-          render={(k) => <FloatShell f={k} ghost>{viewBody(k, true)}</FloatShell>} />
+        <GhostLayer ghost={ghost} onDone={(g) => void ghostDone(g)}
+          render={(k) => <WinChrome k={k} moving>{viewBody(k, true)}</WinChrome>} />
       )}
       {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
-      {only === 'float' && floatQ && <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell>}
+      {only === 'float' && floatQ && (floatQ === 'lp' ? <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell> : <FloatWin f={floatQ}>{floatBody(floatQ)}</FloatWin>)}
       {!only && mockFloats.map((f, i) => {
         const r = mockRects[f]
         return (
-          <div key={f} className="mock-float" style={r ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: 340 + i * 36, top: 90 + i * 30 }}
-            onPointerDown={(e) => {
-              // 시안: 머리줄 끌기 = 창 옮기기, 노치 가까이 놓으면 흡수 (실제 앱 = OS 이동 + WM_MOVING)
-              if (!(e.target as Element).closest('.float-head') || (e.target as Element).closest('button') || f === 'lp') return
-              const el = e.currentTarget, b = el.getBoundingClientRect(), [x0, y0] = [e.clientX, e.clientY]
-              el.setPointerCapture(e.pointerId)
-              let d = 9999
-              const mv = (ev: PointerEvent) => {
-                const nr = new DOMRect(b.left + ev.clientX - x0, b.top + ev.clientY - y0, b.width, b.height)
-                el.style.left = `${nr.left}px`
-                el.style.top = `${nr.top}px`
-                d = Math.hypot(nr.left + nr.width / 2 - innerWidth / 2, nr.top)
-                setMagnet(d < 200 ? d : null)
-              }
-              const up = () => {
-                el.removeEventListener('pointermove', mv)
-                el.removeEventListener('pointerup', up)
-                setMagnet(null)
-                const nr = el.getBoundingClientRect()
-                if (d < 80) void absorb(f as ViewKind, nr)
-                else setMockRects((m) => ({ ...m, [f]: nr }))
-              }
-              el.addEventListener('pointermove', mv)
-              el.addEventListener('pointerup', up)
-            }}>
-            <FloatShell f={f} mock onClose={() => setMockFloats((fs) => fs.filter((x) => x !== f))}>{floatBody(f)}</FloatShell>
+          <div key={f} className="mock-float" style={r ? { left: r.left, top: r.top, width: r.width, height: r.height } : { left: 340 + i * 36, top: 90 + i * 30 }}>
+            {f === 'lp' ? <FloatShell f={f} mock onClose={() => setMockFloats((fs) => fs.filter((x) => x !== f))}>{floatBody(f)}</FloatShell>
+              : <FloatWin f={f} mock onClose={() => setMockFloats((fs) => fs.filter((x) => x !== f))} onAbsorb={() => void absorb(f as ViewKind, (document.querySelector(`.mock-float .win[data-kind=${f}]`) as HTMLElement).getBoundingClientRect())}>{floatBody(f)}</FloatWin>}
           </div>
         )
       })}
@@ -942,8 +955,36 @@ function FxCloser() {
   return null
 }
 
-/** 기억한 떠 있는 창 자리 (store float.<f> = 물리 [x, y, w, h]) */
-async function storeGetRect(k: string) {
-  const v = await storeGet<[number, number, number, number]>(`float.${k}`).catch(() => null)
-  return Array.isArray(v) && v.length === 4 ? v : null
+
+/** 아일랜드 안 '메모' (승인 시안): 빠른 메모 → '데스크톱에 붙이기' · 바탕화면 메모 카드 · 새 메모 */
+function NotesView({ shown, notes, onToggle, onAttach, onShow }: { shown: boolean; notes: { id: string; text: string; color?: number; appId?: string }[]; onToggle: () => void; onAttach: (text: string) => void; onShow: () => void }) {
+  const [text, setText] = useState('')
+  const [q, setQ] = useState('')
+  const desk = notes.filter((n) => !n.appId && (!q || n.text.toLowerCase().includes(q.toLowerCase())))
+  const attach = () => (onAttach(text.trim()), setText(''))
+  return (
+    <>
+      <div className="quick">
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Ctrl+Enter = 데스크톱에 붙이기)" rows={2} aria-label="빠른 메모"
+          onKeyDown={(e) => e.key === 'Enter' && e.ctrlKey && (e.preventDefault(), attach())} />
+      </div>
+      {notes.length > 4 && <div className="field"><Ico k="search" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="메모 검색" /></div>}
+      <div className="memos">
+        {desk.slice(0, 6).map((n) => {
+          const [t, ...rest] = (n.text || '(빈 메모)').split('\n')
+          return (
+            <button key={n.id} className="memo" style={{ '--c': NOTE_COLORS[n.color ?? 0] } as CSSProperties} onClick={onShow}>
+              <b>{t}</b><p>{rest.join('\n')}</p><small>바탕화면</small>
+            </button>
+          )
+        })}
+      </div>
+      {desk.length === 0 && <div className="empty">아직 메모가 없어요 — 위에 쓰고 붙여 보세요</div>}
+      <div className="foot">
+        <small>메모 {notes.length}개 · {shown ? '바탕화면에 펼침' : '접혀 있음'}</small>
+        <button className="btn ghost" onClick={onToggle}>{shown ? '접기' : '펼치기'}</button>
+        <button className="btn" data-attach onClick={attach}><Ico k="plus" />데스크톱에 붙이기</button>
+      </div>
+    </>
+  )
 }

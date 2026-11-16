@@ -8,3 +8,7 @@ src/.omc/
 
 # Hera Link engine binaries (scripts/fetch-deskflow.ps1)
 src-tauri/resources/link/
+
+# 내 펫 팩 (사용자 이미지 — %APPDATA%\Hera\pets 에만, 저장소에 넣지 않는다)
+*.herapet.zip
+pets/

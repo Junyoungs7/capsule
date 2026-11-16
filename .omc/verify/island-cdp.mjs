@@ -1,123 +1,287 @@
-// Island-only (a2: 화면은 아일랜드 안, 떠 있는 창은 떼어낼 때만) on an ISOLATED-identifier build over CDP — the user's installed Hera / store are untouched:
-//   npx tauri build --debug --no-bundle --config '{"identifier":"dev.hera.islandtest"}'
-//   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--remote-debugging-port=9333'; start src-tauri\target\debug\hera.exe; node .omc/verify/island-cdp.mjs
-// Never toggles '상단 공간 확보' (AppBar). OS window dragging (WM_MOVING) can't be driven over CDP → absorb is triggered by its event; the
-// distance rule is unit-tested (float::absorb_distance_from_notch).
-import { page, PORT, storeSet } from './cdp.mjs'
+// (a3) Island suite — HEADLESS only (see headless.mjs: Vite + headless Chrome + mocked Tauri IPC). Never launches Hera, never moves the real mouse.
+//   node .omc/verify/island-cdp.mjs
+// Covers: corner capsule geometry + hit rect · hover intent (150ms dwell / 300ms grace / hysteresis, no restart) · tap → hub
+//   · all 13 hub icons give a visible response · 메모 view (bug 1) · Ctrl+` terminal 640×300 upward · capsule size live · place bl
+//   · alerts drive the pet · sleep + paused animations · detach/absorb/close keep the capsule clickable (bug 5) · frame times (bug 2/4)
+//   · float drag = own pointer drag (no OS caption / no maximise on double-click) + absorb on the capsule (bug 3).
+import { start, sleep, suite, WA, ISL } from './headless.mjs'
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const pages = async () => (await (await fetch(`http://127.0.0.1:${PORT}/json`)).json()).filter((x) => x.type === 'page').map((x) => new URL(x.url).search)
-const has = async (q) => (await pages()).some((s) => s.includes(q))
-const inv = (cmd, args = {}) => `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`
-const emit = (event, payload) => `window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: ${JSON.stringify(event)}, payload: ${JSON.stringify(payload)} })`
-const get = (key) => `(async () => { const I = window.__TAURI_INTERNALS__; const rid = await I.invoke('plugin:store|get_store', { path: 'hera.json' }); const r = await I.invoke('plugin:store|get', { rid, key: ${JSON.stringify(key)} }); return Array.isArray(r) ? r[0] : r })()`
-let fails = 0
-const ok = (name, cond, extra = '') => (console.log(`${cond ? 'PASS' : 'FAIL'} ${name} ${extra}`), cond || fails++)
-const until = async (f, ms = 5000) => {
-  for (let t = 0; t < ms; t += 120) {
-    if (await f()) return true
-    await sleep(120)
+const { ok, until, done } = suite('island')
+const h = await start()
+let isl
+const VIEW = { notes: [380, 400], todo: [380, 420], calendar: [480, 420], chat: [400, 480], term: [640, 300], clips: [380, 400], shelf: [360, 340], ocr: [360, 300], snippets: [380, 400], team: [400, 440], link: [380, 360], settings: [380, 610] }
+const skin = () => isl.eval(`(() => { const r = document.querySelector('.isl .skin').getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round) })()`)
+const mode = () => isl.eval(`document.querySelector('.isl').dataset.mode`)
+const hubOpen = () => isl.eval(`document.querySelector('.isl').dataset.open === 'true'`)
+const capsuleCenter = async () => { const s = await skin(); return [s[0] + s[2] / 2, s[1] + s[3] / 2] }
+const frames = () => isl.eval(`(() => { const f = (window.__heraFrames || []).slice(2); const s = f.slice().sort((a, b) => a - b); return { n: f.length, p50: +(s[Math.floor(f.length * 0.5)] ?? 0).toFixed(1), p95: +(s[Math.floor(f.length * 0.95)] ?? 0).toFixed(1), max: +(s[f.length - 1] ?? 0).toFixed(1), within17: +(f.filter((x) => x <= 17).length / Math.max(1, f.length)).toFixed(3) } })()`)
+const allFrames = []
+// 허브·화면 열기 (펼쳐지는 중에는 위쪽이 잘려 있으니 다 펼쳐진 뒤 누른다)
+const openView = async (k) => {
+  if (!(await hubOpen())) await isl.click(...(await capsuleCenter()))
+  await until(hubOpen)
+  if (await isl.eval(`!!document.querySelector('.isl .view')`)) await isl.clickSel('.isl .view [data-back]')
+  await until(async () => (await isl.eval(`!!document.querySelector('.hub .app')`)) && (await skin())[2] === 432)
+  await sleep(250)
+  await isl.clickSel(`.hub .app[data-go=${k}]`)
+  await until(() => isl.eval(`!!document.querySelector('.view[data-k=${k}]')`))
+  await sleep(650)
+}
+const hitOk = async (label) => {
+  // Rust 가 쥔 히트 rect(가짜 Rust 가 island_tall 때 옮긴 값) 가 지금 캡슐을 덮는가 + 실제 마우스 길(헤드리스)로 머묾·탭이 되는가
+  const r = (h.hits.get('island') ?? [])[0], s = await skin()
+  const covers = !!r && r[0] <= s[0] && r[1] <= s[1] && r[0] + r[2] >= s[0] + s[2] && r[1] + r[3] >= s[1] + s[3] && (await isl.eval('innerWidth')) === ISL.w
+  ok(`${label}: island back to ${ISL.w}×${ISL.h} and hit rect still covers the capsule`, covers, JSON.stringify({ r, s }))
+  const [x, y] = await capsuleCenter()
+  await isl.mouse('mouseMoved', x, y)
+  ok(`${label}: hover still works`, await until(() => isl.eval(`document.querySelector('.isl').dataset.hover === 'true'`), 1500))
+  await isl.click(x, y)
+  ok(`${label}: tap still opens the hub`, await until(hubOpen, 1500))
+  await isl.key('Escape')
+  await until(async () => !(await hubOpen()))
+  await isl.mouse('mouseMoved', 10, 10)
+  await until(() => isl.eval(`document.querySelector('.isl').dataset.hover === 'false'`), 1500)
+  await sleep(450)
+}
+
+try {
+  isl = await h.open('island')
+  await until(() => isl.eval(`!!document.querySelector('.isl .pet')`), 8000)
+  await sleep(500)
+
+  /* 1. 모서리 캡슐 */
+  const s0 = await skin()
+  ok('capsule = 80×60 (보통) at the bottom-right corner, 16px in · 8px above the taskbar', s0[2] === 80 && s0[3] === 60 && s0[0] + s0[2] === ISL.w - 16 && s0[1] + s0[3] === ISL.h - 8, JSON.stringify(s0))
+  ok('no clock, no dots — a pet lives in it', await isl.eval(`!document.querySelector('.isl .time, .isl .dot, .island-shape, .hubnotch') && document.querySelector('.isl .pet').dataset.pet === 'cat'`))
+  const hr0 = (h.hits.get('island') ?? [])[0]
+  ok('hit rect = capsule + 6px', JSON.stringify(hr0) === JSON.stringify([s0[0] - 6, s0[1] - 6, s0[2] + 12, s0[3] + 12]), JSON.stringify(hr0))
+  ok('Pretendard (bundled) is the UI font', /Pretendard/.test(await isl.eval(`getComputedStyle(document.querySelector('.isl')).fontFamily`)))
+
+  /* 2. 머묾 (hover intent) */
+  const [cx, cy] = await capsuleCenter()
+  await isl.mouse('mouseMoved', cx, cy)
+  await sleep(90)
+  ok('no expand before 150ms dwell', (await isl.eval(`document.querySelector('.isl').dataset.hover`)) === 'false')
+  ok('expands after the dwell', await until(() => isl.eval(`document.querySelector('.isl').dataset.hover === 'true'`), 400))
+  await sleep(380)
+  const tf = await isl.eval(`getComputedStyle(document.querySelector('.isl .skin')).transform`)
+  ok('hover = calm scale 1.06 (no overshoot)', /matrix\(1\.06/.test(tf), tf)
+  const hr1 = (h.hits.get('island') ?? [])[0]
+  ok('hysteresis: hit area grows to +16px while hovered', hr1 && hr1[0] === s0[0] - 16 && hr1[2] === s0[2] + 32, JSON.stringify(hr1))
+  await isl.mouse('mouseMoved', 20, 20)
+  await sleep(180)
+  ok('300ms grace before collapsing', (await isl.eval(`document.querySelector('.isl').dataset.hover`)) === 'true')
+  ok('collapses after the grace', await until(() => isl.eval(`document.querySelector('.isl').dataset.hover === 'false'`), 500))
+  // 오갔다 돌아옴: 트랜지션이 중간에서 되돌아간다 (처음부터 다시 돌지 않음) — 애니메이션 아님 · 깃발 하나
+  ok('hover is a single transition flag (no keyframe restart)', await isl.eval(`getComputedStyle(document.querySelector('.isl .skin')).animationName === 'none' && /transform 0\\.32s/.test(getComputedStyle(document.querySelector('.isl .skin')).transition)`))
+  await isl.mouse('mouseMoved', cx, cy)
+  await sleep(60)
+  await isl.mouse('mouseMoved', 20, 20)
+  await sleep(400)
+  ok('a quick pass-through never expands', (await isl.eval(`document.querySelector('.isl').dataset.hover`)) === 'false')
+
+  /* 3. 탭 → 허브 (모서리에서 위·안쪽으로) */
+  await isl.click(cx, cy)
+  ok('tap opens the hub', await until(hubOpen))
+  await sleep(700)
+  const hs = await skin()
+  ok('hub grows up and inward from the corner (432 wide, bottom-right fixed)', hs[2] === 432 && hs[0] + hs[2] === ISL.w - 16 && hs[1] + hs[3] === ISL.h - 8 && hs[3] > 300, JSON.stringify(hs))
+  const labels = await isl.eval(`[...document.querySelectorAll('.hub .app')].map((b) => b.textContent).join(',')`)
+  ok('13 labelled icons in tinted wells', labels === '메모,할 일,달력,채팅,터미널,최근 복사,선반,OCR,스니펫,LP,Team,Link,설정' && (await isl.eval(`document.querySelectorAll('.hub .app .well svg').length`)) === 13, labels)
+  ok('hit rect = whole hub while open', (() => { const r = (h.hits.get('island') ?? [])[0]; return r && r[2] === 432 })())
+
+  /* 4. 아이콘 13개 모두 눈에 보이는 반응 (버그 1) */
+  for (const k of ['notes', 'todo', 'calendar', 'chat', 'term', 'clips', 'shelf', 'ocr', 'snippets', 'lp', 'team', 'link', 'settings']) {
+    if (!(await hubOpen()) || (await isl.eval(`!!document.querySelector('.isl .view')`))) {
+      await isl.key('Escape')
+      await until(async () => !(await hubOpen()))
+      await sleep(450)
+      const [x, y] = await capsuleCenter()
+      await isl.click(x, y)
+      await until(() => isl.eval(`!!document.querySelector('.hub .app[data-go=notes]')`))
+      await sleep(200)
+    }
+    const n0 = h.calls.length
+    await isl.clickSel(`.hub .app[data-go=${k}]`)
+    if (k === 'lp') {
+      ok(`icon LP → LP player window (desktop prop)`, await until(() => h.pages.has('float-lp') && h.calls.slice(n0).some((c) => c[1] === 'float_open' && c[2]?.f === 'lp')), '')
+      await h.closePage('float-lp')
+      continue
+    }
+    const shown = await until(() => isl.eval(`(() => { const v = document.querySelector('.isl .view[data-k=${k}]'); return !!v && v.offsetWidth > 0 && document.querySelector('.isl .vhead b')?.textContent?.length > 0 })()`), 2000)
+    await sleep(650)
+    const s = await skin()
+    ok(`icon ${k} → its view opens in the Island (${VIEW[k]})`, shown && s[2] === VIEW[k][0] && s[3] === VIEW[k][1], JSON.stringify(s))
   }
-  return false
+
+  /* 5. 메모 (버그 1): 목록 · 새 메모 · '데스크톱에 붙이기' */
+  await isl.clickSel('[data-back]')
+  await until(() => isl.eval(`!!document.querySelector('.hub .app[data-go=notes]')`))
+  await sleep(200)
+  await isl.clickSel('.hub .app[data-go=notes]')
+  await until(() => isl.eval(`!!document.querySelector('.view[data-k=notes] textarea')`))
+  ok('메모 view has a new-note button and 데스크톱에 붙이기', await isl.eval(`!!document.querySelector('.view[data-k=notes] .vhead [aria-label="새 메모"]') && /데스크톱에 붙이기/.test(document.querySelector('.view[data-k=notes] [data-attach]')?.textContent ?? '')`))
+  await isl.clickSel('.view[data-k=notes] textarea')
+  await isl.type('배너 QA 3시')
+  await isl.clickSel('.view[data-k=notes] [data-attach]')
+  ok('데스크톱에 붙이기 → a desktop note + notes shown', await until(() => [...h.store].some(([k, v]) => k.startsWith('note:') && v?.text === '배너 QA 3시') && h.store.get('notes.shown') === true))
+  ok('…and the Island answers (collapses)', await until(async () => !(await hubOpen())))
+  await sleep(450)
+  await openView('notes')
+  ok('memo list shows the note', await until(() => isl.eval(`[...document.querySelectorAll('.view[data-k=notes] .memo b')].some((b) => b.textContent === '배너 QA 3시')`)))
+  await isl.key('Escape')
+  await until(async () => !(await hubOpen()))
+  await sleep(450)
+
+  /* 6. Ctrl+` 터미널 (전역 단축키 → 'island-open') */
+  await h.emitTo('island', 'island-open', 'term')
+  ok('Ctrl+` opens the terminal view', await until(() => isl.eval(`!!document.querySelector('.view[data-k=term]')`)))
+  ok('xterm lazy-loaded inside', await until(() => isl.eval(`!!document.querySelector('.view[data-k=term] .xterm')`), 8000))
+  await sleep(700)
+  const ts = await skin()
+  ok('terminal = 640×300, opens upward and inward from the corner', ts[2] === 640 && ts[3] === 300 && ts[0] + ts[2] === ISL.w - 16 && ts[1] + ts[3] === ISL.h - 8, JSON.stringify(ts))
+  await isl.key('Escape')
+  ok('Esc folds it back into the capsule', await until(async () => !(await hubOpen())))
+  await sleep(500)
+
+  /* 7. 알림 → 펫 자세 + 글 알약 */
+  const pose = () => isl.eval(`document.querySelector('.isl .pet').dataset.s`)
+  await h.emitTo('island', 'term-done', { ok: true, cmd: 'npm run build', ms: 2400, focused: false })
+  ok('terminal done → cheering pet + "완료" pill', await until(async () => (await pose()) === 'done' && (await mode()) === 'alert' && /npm run build/.test(await isl.eval(`document.querySelector('.isl .ptext').textContent`))))
+  await sleep(500)
+  const ps = await skin()
+  ok('alert pill keeps the corner, only width grows', ps[3] === 60 && ps[0] + ps[2] === ISL.w - 16 && ps[2] > 80, JSON.stringify(ps))
+  await h.emitTo('island', 'term-done', { ok: false, cmd: 'cargo test', ms: 2400, focused: false })
+  ok('terminal fail → worried pet, red rim', await until(async () => (await pose()) === 'fail' && (await isl.eval(`document.querySelector('.isl .skin').classList.contains('fail')`))))
+  await isl.clickSel('.isl .ptext')
+  ok('tapping the fail pill opens the terminal view', await until(() => isl.eval(`!!document.querySelector('.view[data-k=term]')`)))
+  await isl.key('Escape')
+  await until(async () => !(await hubOpen()))
+  await h.emitTo('island', 'term-state', { running: true, cmd: 'npm run dev' })
+  ok('terminal running → persistent typing pose', await until(async () => (await pose()) === 'typing', 8000))
+  await h.emitTo('island', 'term-state', { running: false, cmd: '' })
+  await h.emit('chat-msg', { id: 'm1', group: 'g', by: '민수', byPk: 'ff', kind: 'text', text: '내일 3시 회의 어때요?', at: Date.now() })
+  ok('chat → pet perks up with a bubble + pill', await until(async () => (await pose()) === 'chat' && /민수/.test(await isl.eval(`document.querySelector('.isl .ptext').textContent`))))
+
+  /* 8. 크기 (live) · 정수 픽셀 · 위치 */
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.size', value: 'xl' })`)
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.pet', value: 'pxcat' })`)
+  await sleep(2000) // 알림이 사라지기를 (6초 중 남은 시간은 아래에서)
+  ok('capsule size applies live: 아주 크게 = 112×84', await until(async () => { const s = await skin(); return s[2] === 112 && s[3] === 84 }, 8000), JSON.stringify(await skin()))
+  const pk = await isl.eval(`parseFloat(getComputedStyle(document.querySelector('.isl')).getPropertyValue('--pk'))`)
+  ok('pixel pet: one art pixel = whole device pixels', Number.isInteger(+(pk * 2.5 * 1).toFixed(6)) && pk * 2.5 === 4, String(pk))
+  ok('hub/views never scale with the capsule', (await (async () => { await isl.click(...(await capsuleCenter())); await until(hubOpen); await sleep(600); const s = await skin(); await isl.key('Escape'); await until(async () => !(await hubOpen())); return s[2] })()) === 432)
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.size', value: 'm' })`)
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.place', value: 'bl' })`)
+  await sleep(700)
+  const bl = await skin()
+  ok('place = 왼쪽 아래 moves the capsule to the left corner', bl[0] === 16 && bl[1] + bl[3] === ISL.h - 8, JSON.stringify(bl))
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.place', value: 'br' })`)
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.pet', value: 'cat' })`)
+  await sleep(700)
+
+  /* 9. 잠 (2분 → 시험은 짧게) · 멈춘 자세 */
+  await isl.eval(`window.__heraSleepMs = 400`)
+  await h.closePage('island')
+  isl = await h.open('island', { init: 'window.__heraSleepMs = 600' })
+  await until(() => isl.eval(`!!document.querySelector('.isl .pet')`), 8000)
+  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'chat.unread', value: 0 })`)
+  ok('no events for the sleep time → the pet sleeps', await until(() => isl.eval(`document.querySelector('.isl .pet').dataset.s === 'sleep'`), 4000))
+  ok('…and its animations pause (idle CPU ≈ 0)', await until(() => isl.eval(`document.querySelector('.isl').dataset.still === 'true' && getComputedStyle(document.querySelector('.isl .pbody')).animationPlayState === 'paused'`), 12000))
+  await h.closePage('island')
+  isl = await h.open('island')
+  await until(() => isl.eval(`!!document.querySelector('.isl .pet')`), 8000)
+  await sleep(500)
+
+  /* 10. 떼어내기 → 흡수 → 닫기: 캡슐이 계속 클릭된다 (버그 5) + 프레임 (버그 2 · 4) */
+  await openView('todo')
+  await isl.eval(`window.__heraFrames = []`)
+  const n0 = h.calls.length
+  await isl.clickSel('.view[data-k=todo] [data-detach]')
+  ok('detach: the real window is created hidden first (float_prepare)', await until(() => h.calls.slice(n0).some((c) => c[1] === 'float_prepare' && c[2]?.f === 'todo')))
+  ok('…the Island pre-sizes to the work area before anything moves', await until(() => isl.eval(`innerWidth === ${WA.w}`)))
+  ok('…ghost (solid, no backdrop-filter) moves only after the window painted', await until(() => isl.eval(`(() => { const g = document.querySelector('.ghost-win'); return !!g && getComputedStyle(g).backdropFilter === 'none' })()`)) && h.pages.get('float-todo')?.ready === true)
+  ok('…window shown in place, ghost removed', await until(() => h.pages.get('float-todo')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 4000))
+  const fd = await frames()
+  allFrames.push(['detach', fd])
+  ok('detach frames ≥95% ≤17ms', fd.within17 >= 0.95, JSON.stringify(fd))
+  const calls = h.calls.slice(n0).map((c) => c[1])
+  ok('window creation never overlaps the motion (prepare → ready → move → show)', calls.indexOf('float_prepare') < calls.indexOf('float_show'))
+  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  await hitOk('after detach')
+
+  // 떠 있는 창: 'Island로' · 핀 · 닫기 (최소화 없음), 머리줄 두 번 누르기 = 아무 일 없음
+  const fw = h.pages.get('float-todo')
+  await until(() => fw.eval(`!!document.querySelector('.win .wbar')`), 5000)
+  ok('window chrome = Island로 · pin · close (no minimise)', await fw.eval(`[...document.querySelectorAll('.wbar .act button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()).join('|')`) === 'Island로|항상 위|닫기')
+  ok('no OS caption drag region anywhere', await fw.eval(`!document.querySelector('[data-tauri-drag-region]')`))
+  const nd = h.calls.length
+  await fw.click(120, 20, 2)
+  await sleep(300)
+  ok('double-clicking the header does not maximise', !h.calls.slice(nd).some((c) => /maxim|toggle/i.test(c[1])) && fw.geo.w === 380)
+
+  // 'Island로' → 흡수 (단색 유령, transform/opacity 만)
+  await isl.eval(`window.__heraFrames = []`)
+  await fw.clickSel('[data-absorb]')
+  ok('Island로: window destroyed', await until(() => !h.pages.has('float-todo'), 4000))
+  ok('…genie into the capsule finished (gulp)', await until(() => isl.eval(`!document.querySelector('.ghost-win')`), 4000))
+  const fa = await frames()
+  allFrames.push(['absorb', fa])
+  ok('absorb frames ≥95% ≤17ms', fa.within17 >= 0.95, JSON.stringify(fa))
+  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  await sleep(500)
+  // 흡수 직후 탭 = 그 화면
+  await isl.click(...(await capsuleCenter()))
+  ok('tap right after = the absorbed view', await until(() => isl.eval(`!!document.querySelector('.view[data-k=todo]')`)))
+  await isl.key('Escape')
+  await until(async () => !(await hubOpen()))
+  await sleep(450)
+  await hitOk('after absorb')
+
+  // 머리줄 끌기 → 캡슐 위에 놓으면 흡수 (자석)
+  await openView('calendar')
+  await isl.clickSel('.view[data-k=calendar] [data-detach]')
+  await until(() => h.pages.get('float-calendar')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 5000)
+  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  const fc = h.pages.get('float-calendar')
+  await until(() => fc.eval(`!!document.querySelector('.wbar')`), 5000)
+  const g0 = { ...fc.geo }
+  h.setCursor(g0.x + 100, g0.y + 20)
+  await fc.mouse('mouseMoved', 100, 20)
+  await fc.mouse('mousePressed', 100, 20)
+  const io = h.pages.get('island').geo, cap = (h.hits.get('island') ?? [])[0]
+  const target = [io.x + cap[0] + cap[2] / 2, io.y + cap[1] + cap[3] / 2]
+  for (let i = 1; i <= 12; i++) {
+    const [x, y] = [g0.x + 100 + ((target[0] - g0.x - 100) * i) / 12, g0.y + 20 + ((target[1] - g0.y - 20) * i) / 12]
+    h.setCursor(Math.round(x), Math.round(y))
+    await fc.mouse('mouseMoved', 100 + (x - g0.x - 100), 20 + (y - g0.y - 20), { buttons: 1 })
+    await sleep(20)
+  }
+  ok('own drag moves the window with the cursor (SetWindowPos path)', fc.geo.x !== g0.x && h.calls.some((c) => c[1] === 'float_drag' && c[2]?.phase === 'move'))
+  ok('magnet: capsule swells near the corner', await until(() => isl.eval(`document.querySelector('.isl').dataset.magnet === 'hot'`), 2000))
+  await fc.mouse('mouseReleased', 100 + (target[0] - g0.x - 100), 20 + (target[1] - g0.y - 20))
+  ok('dropping on the capsule absorbs the window', await until(() => !h.pages.has('float-calendar'), 4000))
+  await until(() => isl.eval(`!document.querySelector('.ghost-win') && innerWidth === ${ISL.w}`), 4000)
+  await sleep(500)
+  await hitOk('after drag-absorb')
+
+  // 떼어낸 뒤 ✕ 로 닫기
+  await openView('chat')
+  await isl.eval(`window.__heraFrames = []`)
+  await isl.clickSel('.view[data-k=chat] [data-detach]')
+  await until(() => h.pages.get('float-chat')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 5000)
+  allFrames.push(['detach chat', await frames()])
+  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  await h.pages.get('float-chat').clickSel('[data-wclose]')
+  ok('✕ destroys the window', await until(() => !h.pages.has('float-chat'), 3000))
+  await sleep(400)
+  await hitOk('after close')
+
+  ok('no page errors in the Island', isl.errors.length === 0, isl.errors.slice(0, 3).join(' | '))
+  console.log('\nFRAMES', JSON.stringify(allFrames))
+} catch (e) {
+  ok('suite ran to the end', false, String(e?.stack ?? e))
+} finally {
+  await h.close()
 }
-const frames = (p) => p.evaluate(`(() => { const f = (window.__heraFrames || []).slice(2); const s = f.slice().sort((a, b) => a - b); return { n: f.length, p95: +(s[Math.floor(f.length * 0.95)] ?? 0).toFixed(1), ok: +(f.filter((x) => x <= 17.5).length / Math.max(1, f.length)).toFixed(3) } })()`)
-
-ok('no dock window', !(await has('surface=dock')))
-const island = await page('island')
-await island.evaluate(`dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`) // 앞 시험이 열어 둔 허브 접기
-await until(() => island.evaluate(`document.querySelector('.island').dataset.mode === 'idle' && !document.querySelector('.hub')`), 8000)
-await sleep(1200)
-
-// 1. idle = 120×6 notch, window = monitor width top band
-const notch = await island.evaluate(`(() => { const r = document.querySelector('.island-shape').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: r.top, cx: Math.round(r.left + r.width / 2), vw: innerWidth, sw: screen.width, sx: screenX, vh: innerHeight, mode: document.querySelector('.island').dataset.mode } })()`)
-ok('idle notch is 120×6', notch.w === 120 && notch.h === 6 && notch.mode === 'idle', JSON.stringify(notch))
-ok('island window = small top-centre band while idle', notch.vw <= 690 && notch.vh <= 600 && Math.abs(notch.cx - notch.vw / 2) <= 1 && Math.abs(notch.sx + notch.cx - notch.sw / 2) <= 1, JSON.stringify(notch))
-
-// 2. tap → hub A
-await island.evaluate(`document.querySelector('.island').click()`)
-ok('hub opens on tap', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.show === 'true'`)))
-// 앞 시험이 흡수한 화면이 있으면 그 화면으로 열린다 → ‹ 로 첫 화면
-await island.evaluate(`document.querySelector('.hub')?.dataset.view !== 'home' && document.querySelector('.hub-back')?.click()`)
-await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'home'`), 2000)
-const hub = await island.evaluate(`({ n: document.querySelectorAll('.hub-icon').length, labels: [...document.querySelectorAll('.hub-label')].map((x) => x.textContent) })`)
-ok('13 labelled icons', hub.n === 13 && hub.labels.join(',') === '메모,할 일,달력,채팅,터미널,최근 복사,선반,OCR,스니펫,LP,Team,Link,설정', hub.labels.join(','))
-
-// 3. icon → view IN PLACE (no extra window)
-const before = (await pages()).length
-await island.evaluate(`document.querySelector('.hub-icon[data-k=calendar]').click()`)
-ok('달력 opens inside the Island', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'calendar' && !!document.querySelector('.hub [class*=mc-]')`)))
-ok('no new webview for an in-Island view', (await pages()).length === before)
-const vw = await island.evaluate(`document.querySelector('.hub').offsetWidth`)
-ok('달력 view ≤ 480 wide', vw <= 480, `(${vw})`)
-await island.evaluate(`document.querySelector('.hub-back').click()`)
-ok('‹ back to the grid', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'home'`)))
-await island.evaluate(`document.querySelector('.hub-icon[data-k=todo]').click()`)
-ok('할 일 view in place', await until(() => island.evaluate(`!!document.querySelector('.hub[data-view=todo] .add')`)))
-
-// 4. DETACH (button = automatic path) → hidden window prepared, shown at the ghost rect, ghost removed
-await island.evaluate(`window.__heraFrames = []`)
-await island.evaluate(`document.querySelector('.hub-detach').click()`)
-ok('ghost appears (island goes full-screen only now)', await until(() => island.evaluate(`!!document.querySelector('.ghost') && innerHeight > 600`), 2000))
-ok('detached window created', await until(() => has('f=todo'), 4000))
-ok('ghost swapped for the real window', await until(() => island.evaluate(`!document.querySelector('.ghost')`), 5000))
-ok('island back to the top band', await until(() => island.evaluate(`innerHeight <= 600`), 3000))
-const fd = await frames(island)
-ok('detach frames ≥95% ≤17ms', fd.ok >= 0.95, JSON.stringify(fd))
-const todo = await page('float&f=todo')
-ok('detached window visible + painted', await until(() => todo.evaluate(`document.visibilityState === 'visible' && !!document.querySelector('.float .add')`), 4000))
-// 떼어낸 화면을 허브에서 누르면 = 그 창 앞으로 (아일랜드 안에 두 번 열지 않음)
-await island.evaluate(`document.querySelector('.island').click()`)
-await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.show === 'true'`))
-await island.evaluate(`document.querySelector('.hub-icon[data-k=todo]').click()`)
-ok('detached view focuses its window instead', await until(() => island.evaluate(`!document.querySelector('.hub') || document.querySelector('.hub').dataset.show === 'false'`)) && (await pages()).filter((s) => s.includes('f=todo')).length === 1)
-
-// 5. ABSORB (event from the WM_EXITSIZEMOVE hook) → ghost at the window rect → window destroyed → genie into notch → next tap shows the view
-await island.evaluate(`window.__heraFrames = []`)
-const wr = await todo.evaluate(`[screenX - 0, screenY, outerWidth, outerHeight]`)
-await island.evaluate(emit('absorb-near', { f: 'todo', d: 40 }))
-ok('magnet glow near the notch', await until(() => island.evaluate(`document.querySelector('.island').dataset.magnet === 'hot'`), 2000))
-const [ix, iy] = await island.evaluate(`[screenX, screenY]`) // Rust 가 보내는 rect = 아일랜드 창 기준 CSS px
-await island.evaluate(emit('absorb', { f: 'todo', rect: [wr[0] - ix, wr[1] - iy, wr[2], wr[3]] }))
-ok('window destroyed on absorb', await until(async () => !(await has('f=todo')), 4000))
-ok('genie finished, ghost gone', await until(() => island.evaluate(`!document.querySelector('.ghost')`), 4000))
-const fa = await frames(island)
-ok('absorb frames ≥95% ≤17ms', fa.ok >= 0.95, JSON.stringify(fa))
-await sleep(500)
-await island.evaluate(`document.querySelector('.island').click()`)
-ok('tap right after = the absorbed view', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'todo'`), 3000))
-await island.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
-await island.evaluate(`dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`)
-ok('Esc collapses to the notch', await until(() => island.evaluate(`!document.querySelector('.hub') || document.querySelector('.hub').dataset.show === 'false'`)))
-
-// 6. terminal drop-down (Ctrl+` → 'island-open')
-await island.evaluate(emit('island-open', 'term'))
-ok('Ctrl+` opens the terminal drop-down inside the Island', await until(() => island.evaluate(`document.querySelector('.hub')?.dataset.view === 'term'`)))
-ok('xterm lazy-loaded inside the Island', await until(() => island.evaluate(`!!document.querySelector('.hub .xterm')`), 8000))
-await sleep(900) // 크기 스프링이 끝날 때까지
-const tsz = await island.evaluate(`[document.querySelector('.hub').offsetWidth, document.querySelector('.hub-vbody').offsetHeight]`)
-ok('drop-down ≈ 640×300', Math.abs(tsz[0] - 640) <= 2 && Math.abs(tsz[1] - 300) <= 2, JSON.stringify(tsz))
-await island.evaluate(`dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`)
-ok('Esc folds it back (shell keeps running)', await until(() => island.evaluate(`!document.querySelector('.hub') || document.querySelector('.hub').dataset.show === 'false'`)) && (await island.evaluate(inv('term_state'))).alive)
-await island.evaluate(inv('term_kill'))
-
-// 7. other actions
-const shown = await island.evaluate(get('notes.shown'))
-await island.evaluate(inv('hub_action', { kind: 'notes' }))
-ok('메모 toggles notes.shown', await until(async () => (await island.evaluate(get('notes.shown'))) === !(shown ?? true)))
-await island.evaluate(inv('hub_action', { kind: 'notes' }))
-await island.evaluate(inv('float_open', { f: 'lp' }))
-ok('LP stays a desktop widget (float)', await until(() => has('f=lp')))
-const lp = await page('float&f=lp')
-void lp.evaluate(inv('float_close'))
-lp.close()
-await island.evaluate(storeSet('float.todo', [140, 160, 420, 500]))
-
-// 8. removed natives are gone
-for (const c of ['windows_list', 'win_click', 'taskbar_lift', 'thumbs', 'dock_tall', 'shell_key', 'lp_drag']) {
-  const r = await island.evaluate(`${inv(c)}.then(() => 'ok', (e) => String(e))`)
-  ok(`command ${c} removed`, /not found|unknown|Command/i.test(r), r)
-}
-
-island.close()
-console.log(fails ? `\n${fails} FAILED` : '\nALL PASS')
-process.exit(fails ? 1 : 0)
+process.exit(done() ? 1 : 0)

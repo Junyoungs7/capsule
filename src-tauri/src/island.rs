@@ -1,35 +1,40 @@
-// 아일랜드 창 (노치 · 알약 · 허브 · 안에서 여는 기능 화면). 창 = 맨 위 가운데 680 × 600 (투명, 클릭 통과 = 히트 rect 만).
-// - tall: 떼어내기·흡수 애니메이션 동안만 주 모니터 전체 (유령 화면이 화면 어디로든 따라가게). 가운데·위쪽 기준이라 내용은 움직이지 않는다.
-//   평소엔 작게 — 투명 표면이 클수록 GPU 프로세스 메모리가 는다 (모니터 전체 ≈ +40MB).
+// 아일랜드 창 (펫 캡슐 · 알림 알약 · 허브 · 안에서 여는 기능 화면). 창 = 작업 영역 오른쪽(왼쪽) 아래 모서리 680 × 680 (투명, 클릭 통과 = 히트 rect 만).
+// 캡슐·허브·화면은 그 모서리에 붙어 위·안쪽으로 펼쳐진다 (store `island.place` = br | bl).
+// - tall: 떼어내기·흡수 유령이 움직이는 동안만 작업 영역 전체. 모서리 기준이라 내용은 움직이지 않는다.
+//   창 원점이 바뀌면 이미 보고된 히트 rect(클라이언트 기준)를 같은 만큼 옮긴다 — 안 그러면 캡슐이 클릭을 못 받는다 (a3 버그 5).
 // - interactive: 안의 화면에 글자를 칠 때(할 일·채팅·터미널) 키보드 포커스를 받는다. 접히면 직전 앱으로 돌려준다.
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_store::StoreExt;
 
-pub const HEIGHT: f64 = 600.0; // 논리 px (터미널 640×300 · 달력 480×420 + 알약)
+pub const HEIGHT: f64 = 680.0; // 논리 px (펫 추가 440×640 · 설정 380×610 · 터미널 640×300 + 여백)
 pub const WIDTH: f64 = 680.0;
 pub static TALL: AtomicBool = AtomicBool::new(false);
 pub static INTERACTIVE: AtomicBool = AtomicBool::new(false);
 static PREV: AtomicIsize = AtomicIsize::new(0);
 
-/// 주 모니터 (물리 px) → 아일랜드 창 (x, y, w, h)
-pub fn bounds(mon: [i32; 4], scale: f64, tall: bool) -> [i32; 4] {
+/// 작업 영역 (물리 px) → 아일랜드 창 (x, y, w, h). left = 왼쪽 아래.
+pub fn bounds(wa: [i32; 4], scale: f64, left: bool, tall: bool) -> [i32; 4] {
     if tall {
-        return [mon[0], mon[1], mon[2], mon[3] - 1]; // -1px: 꽉 채운 최상위 창 = '전체화면 앱' 판정 회피
+        return [wa[0], wa[1] + 1, wa[2], wa[3] - 1]; // -1px: 작업 표시줄 자동 숨김이면 작업 영역 = 모니터 → '전체화면 앱' 판정 회피
     }
-    // 가운데 정렬 — 폭이 모니터와 홀짝이 같아야 가운데가 반 픽셀도 안 움직인다
-    let mut w = ((WIDTH * scale).round() as i32).min(mon[2]);
-    if (mon[2] - w) % 2 != 0 {
-        w += 1;
-    }
-    let h = ((HEIGHT * scale).round() as i32).min(mon[3] - 1);
-    [mon[0] + (mon[2] - w) / 2, mon[1], w, h]
+    let w = ((WIDTH * scale).round() as i32).min(wa[2]);
+    let h = ((HEIGHT * scale).round() as i32).min(wa[3] - 1);
+    [if left { wa[0] } else { wa[0] + wa[2] - w }, wa[1] + wa[3] - h, w, h]
+}
+
+pub fn left(app: &AppHandle) -> bool {
+    app.store("hera.json").ok().and_then(|s| s.get("island.place")).is_some_and(|v| v == "bl")
 }
 
 pub fn place(app: &AppHandle) {
     let (Ok(Some(m)), Some(win)) = (app.primary_monitor(), app.get_webview_window("island")) else { return };
-    let (p, z) = (m.position(), m.size());
-    let [x, y, w, h] = bounds([p.x, p.y, z.width as i32, z.height as i32], m.scale_factor(), TALL.load(Ordering::Relaxed));
+    let wa = m.work_area();
+    let [x, y, w, h] = bounds([wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32], m.scale_factor(), left(app), TALL.load(Ordering::Relaxed));
+    if let Ok(o) = win.outer_position() {
+        crate::watch::shift_rects("island", (o.x - x) as f64, (o.y - y) as f64);
+    }
     crate::ui::set_bounds(&win, x, y, w, h);
 }
 
@@ -83,10 +88,26 @@ mod tests {
 
     #[test]
     fn island_window_bounds() {
-        assert_eq!(bounds([0, 0, 1920, 1080], 1.0, false), [620, 0, 680, 600]);
-        assert_eq!(bounds([0, 0, 2560, 1440], 1.5, false), [770, 0, 1020, 900]);
-        assert_eq!(bounds([0, 0, 1921, 1080], 1.0, false), [620, 0, 681, 600]); // 홀짝 맞춤 → 가운데 그대로
-        assert_eq!(bounds([-1920, 0, 1920, 1080], 1.0, true), [-1920, 0, 1920, 1079]); // tall = 모니터 - 1px
-        assert_eq!(bounds([0, 0, 600, 500], 1.0, false), [0, 0, 600, 499]); // 작은 모니터
+        let wa = [0, 0, 1920, 1032]; // 작업 표시줄 48px
+        assert_eq!(bounds(wa, 1.0, false, false), [1240, 352, 680, 680]); // 오른쪽 아래
+        assert_eq!(bounds(wa, 1.0, true, false), [0, 352, 680, 680]); // 왼쪽 아래
+        assert_eq!(bounds([0, 0, 2560, 1392], 1.5, false, false), [1540, 372, 1020, 1020]);
+        assert_eq!(bounds([-1920, 0, 1920, 1080], 1.0, false, true), [-1920, 1, 1920, 1079]); // tall = 작업 영역 - 1px (위쪽)
+        assert_eq!(bounds([0, 0, 600, 500], 1.0, false, false), [0, 1, 600, 499]); // 작은 모니터
+    }
+
+    /// 버그 5 회귀: 떼어내기·흡수 동안 창이 커졌다 돌아와도 캡슐 히트 rect 는 화면 같은 자리
+    #[test]
+    fn tall_round_trip_keeps_capsule_hit() {
+        let wa = [0, 0, 1920, 1032];
+        let small = bounds(wa, 1.0, false, false);
+        let tall = bounds(wa, 1.0, false, true);
+        let cap = [580.0, 612.0, 84.0, 64.0]; // 작은 창 기준 클라이언트 rect (보통 캡슐 + 여유)
+        let screen = |o: [i32; 4], r: [f64; 4]| (o[0] as f64 + r[0], o[1] as f64 + r[1]);
+        let mut r = vec![cap];
+        crate::watch::shift(&mut r, (small[0] - tall[0]) as f64, (small[1] - tall[1]) as f64);
+        assert_eq!(screen(tall, r[0]), screen(small, cap));
+        crate::watch::shift(&mut r, (tall[0] - small[0]) as f64, (tall[1] - small[1]) as f64);
+        assert_eq!(r[0], cap);
     }
 }

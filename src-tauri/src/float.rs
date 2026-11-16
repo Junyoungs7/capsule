@@ -1,8 +1,9 @@
 // 떠 있는 기능 창 (`float-<기능>`, URL ?surface=float&f=<기능>) = 아일랜드 안 화면을 '떼어낸' 모양. 필요할 때 만들고 닫으면 파괴.
-// 떼어내기: 유령이 정착하면 같은 자리(클라이언트 영역)에 숨긴 채 만들고 '첫 페인트가 끝나면' 보인다(float_show + float_ready)
-//   → 아일랜드가 유령을 지운다. 만드는 동안 유령은 같은 그림으로 멈춰 있어 생성 지연이 보이지 않는다.
-// 흡수: 창을 머리줄로 끌어 아일랜드에 가까이 = WM_MOVING 마다 거리 → 'absorb-near', 놓으면(WM_EXITSIZEMOVE) 'absorb'
-//   → 아일랜드가 같은 자리에 유령을 그린 뒤 float_absorbed → 창을 숨기고 파괴, 유령이 노치로 빨려 들어간다. (폴링 없음)
+// 떼어내기: 먼저 숨긴 채 만들고(float_prepare) 첫 페인트가 끝나면(float_ready → 'float-ready') 아일랜드가 유령을 움직인다
+//   → 다 움직이면 float_show 로 같은 자리에 보인다. 창 생성과 움직임이 겹치지 않는다 (a3 버그 2).
+// 끌기: 머리줄은 OS 캡션 끌기(HTCAPTION · 이동 루프)를 쓰지 않는다 — 스냅·최대화가 끼어든다 (a3 버그 3).
+//   웹뷰가 포인터를 잡고 float_drag(start|move|end) → Rust 가 커서(GetCursorPos)로 SetWindowPos. 캡슐까지 거리 → 'absorb-near',
+//   캡슐 위에서 놓거나 'Island로' → 'absorb' → 아일랜드가 같은 자리에 유령을 그린 뒤 float_absorbed → 창 파괴, 유령이 캡슐로.
 // 위치·크기 = store `float.<기능>` [x, y, w, h] (물리 px, 그려지는 곳 = 클라이언트 영역), '항상 위' = `float.<기능>.pin`.
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -10,18 +11,19 @@ use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_store::StoreExt;
 
-/// (기능, 제목, 기본 크기 논리 px)
-pub const FEATURES: [(&str, &str, (f64, f64)); 11] = [
-    ("todo", "할 일", (380.0, 520.0)),
-    ("calendar", "달력", (440.0, 600.0)),
-    ("chat", "채팅", (400.0, 600.0)),
-    ("term", "터미널", (760.0, 460.0)),
-    ("clips", "최근 복사", (380.0, 480.0)),
+/// (기능, 제목, 기본 크기 논리 px) = 아일랜드 안 화면 크기 + 머리줄 40
+pub const FEATURES: [(&str, &str, (f64, f64)); 12] = [
+    ("notes", "메모", (380.0, 440.0)),
+    ("todo", "할 일", (380.0, 460.0)),
+    ("calendar", "달력", (480.0, 460.0)),
+    ("chat", "채팅", (400.0, 520.0)),
+    ("term", "터미널", (640.0, 340.0)),
+    ("clips", "최근 복사", (380.0, 440.0)),
     ("shelf", "선반", (360.0, 380.0)),
-    ("snippets", "스니펫", (380.0, 460.0)),
-    ("team", "Team", (400.0, 560.0)),
-    ("link", "Link", (380.0, 420.0)),
-    ("ocr", "OCR", (340.0, 260.0)),
+    ("snippets", "스니펫", (380.0, 440.0)),
+    ("team", "Team", (400.0, 480.0)),
+    ("link", "Link", (380.0, 400.0)),
+    ("ocr", "OCR", (360.0, 340.0)),
     ("lp", "LP", (340.0, 488.0)),
 ];
 const MIN: (f64, f64) = (300.0, 220.0);
@@ -41,11 +43,26 @@ pub fn visible_on(r: [i32; 4], mons: &[[i32; 4]]) -> bool {
     })
 }
 
-/// 창 rect(물리) 의 위쪽 가운데 ↔ 노치(아일랜드 창 위쪽 가운데) 거리
-pub fn notch_dist(r: [i32; 4], notch: (i32, i32)) -> f64 {
-    let (cx, top) = (r[0] + r[2] / 2, r[1]);
-    (((cx - notch.0) as f64).powi(2) + ((top - notch.1) as f64).powi(2)).sqrt()
+/// 처음 자리 (기억한 곳이 없을 때): 캡슐 기둥 옆 (오른쪽 아래면 왼쪽으로 464 논리 px), 작업 표시줄 위 72 — 프로토타입 winTarget
+pub fn default_pos(wa: [i32; 4], s: f64, size: (i32, i32), left: bool) -> (i32, i32) {
+    let gap = (464.0 * s) as i32;
+    let x = if left { wa[0] + gap } else { wa[0] + wa[2] - gap - size.0 };
+    let m = (24.0 * s) as i32;
+    (x.clamp(wa[0] + m, (wa[0] + wa[2] - m - size.0).max(wa[0] + m)), (wa[1] + wa[3] - (72.0 * s) as i32 - size.1).max(wa[1] + m))
 }
+
+/// 끌기: 커서가 창을 잡은 곳(grab = 커서 - 클라이언트 원점)을 그대로 두고 따라간다
+pub fn drag_to(cursor: (i32, i32), grab: (i32, i32)) -> (i32, i32) {
+    (cursor.0 - grab.0, cursor.1 - grab.1)
+}
+
+/// 커서 ↔ 캡슐 거리 (논리 px) → (자석: 가까움, 놓으면 흡수)
+pub fn absorb_state(d: f64) -> (bool, bool) {
+    (d < NEAR_D, d < ABSORB_D)
+}
+pub const NEAR_D: f64 = 160.0;
+/// 놓으면 흡수되는 거리 (논리 px, 커서 ↔ 캡슐 히트 rect)
+pub const ABSORB_D: f64 = 48.0;
 
 fn save_later(app: &AppHandle, w: &WebviewWindow, f: String) {
     let gen = {
@@ -89,6 +106,7 @@ fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
         .inner_size(size.0, size.1)
         .min_inner_size(MIN.0, MIN.1)
         .resizable(!lp)
+        .maximizable(false) // 두 번 누르기·Win+↑ 최대화 없음
         .decorations(false)
         .transparent(true)
         .shadow(!lp) // OS 그림자·둥근 모서리 (유령도 같은 모양으로 그린다). LP 는 CSS 유리 턴테이블
@@ -109,13 +127,12 @@ fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
         None => {
             if let Ok(Some(m)) = app.primary_monitor() {
                 let (sc, wa) = (m.scale_factor(), *m.work_area());
-                let (w, h) = (size.0 * sc, size.1 * sc);
-                win.set_position(PhysicalPosition::new((wa.position.x as f64 + (wa.size.width as f64 - w) / 2.0) as i32, (wa.position.y as f64 + (wa.size.height as f64 - h) / 3.0) as i32))?;
+                let sz = ((size.0 * sc) as i32, (size.1 * sc) as i32);
+                let (x, y) = default_pos([wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32], sc, sz, crate::island::left(app));
+                crate::ui::set_client_bounds(&win, x, y, sz.0, sz.1);
             }
         }
     }
-    #[cfg(windows)]
-    absorb::watch(&win);
     let (h, w2, fl) = (app.clone(), win.clone(), f.to_string());
     win.on_window_event(move |e| match e {
         WindowEvent::Moved(_) | WindowEvent::Resized(_) => save_later(&h, &w2, fl.clone()),
@@ -165,6 +182,18 @@ pub async fn float_open(app: AppHandle, f: String) -> Result<(), String> {
     open(&app, &f).map_err(|e| e.to_string())
 }
 
+/// 떼어내기 준비: 숨긴 채 만들기 → 그려질 클라이언트 rect (물리 px). 준비되면(첫 페인트) 'float-ready'
+#[tauri::command]
+pub async fn float_prepare(app: AppHandle, f: String) -> Result<[i32; 4], String> {
+    let win = create(&app, &f).map_err(|e| e.to_string())?.ok_or(format!("unknown view {f}"))?;
+    let label = win.label().to_string();
+    if READY.lock().unwrap().contains(&label) {
+        let _ = app.emit_to("island", "float-ready", &f);
+    }
+    let (p, z) = (win.inner_position().map_err(|e| e.to_string())?, win.inner_size().map_err(|e| e.to_string())?);
+    Ok([p.x, p.y, z.width as i32, z.height as i32])
+}
+
 /// 떼어내기 끝: 유령 자리(아일랜드 CSS rect)에 보이기 — 아직 그려질 준비가 안 됐으면 준비되는 순간
 #[tauri::command]
 pub async fn float_show(app: AppHandle, f: String, rect: [f64; 4]) -> Result<(), String> {
@@ -186,6 +215,7 @@ pub async fn float_show(app: AppHandle, f: String, rect: [f64; 4]) -> Result<(),
 pub fn float_ready(app: AppHandle, window: WebviewWindow) {
     let label = window.label().to_string();
     READY.lock().unwrap().push(label.clone());
+    let _ = app.emit_to("island", "float-ready", label.trim_start_matches("float-"));
     let p = {
         let mut p = PENDING.lock().unwrap();
         p.iter().position(|(l, _)| l == &label).map(|i| p.remove(i).1)
@@ -220,74 +250,64 @@ pub fn float_pin(app: AppHandle, window: WebviewWindow, on: bool) -> Result<(), 
     Ok(())
 }
 
-/* ── 흡수: 창 이동을 서브클래스로 받는다 (WM_MOVING = 끄는 중 rect, WM_EXITSIZEMOVE = 놓음). 폴링 없음. ── */
-#[cfg(windows)]
-mod absorb {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
-    use windows::Win32::UI::WindowsAndMessaging::{WM_EXITSIZEMOVE, WM_MOVING};
+/* ── 머리줄 끌기 = 직접 이동 (OS 이동 루프를 쓰지 않는다) ──
+   OS 캡션 끌기(HTCAPTION)는 화면 가장자리에서 Aero Snap·최대화가 먼저 잡아 흡수가 일어나지 않았다 (a3 버그 3 원인).
+   phase = start | move | end | absorb('Island로'). 커서는 Rust 가 직접 읽는다 (DPI·모니터와 무관한 물리 px). */
+static GRAB: Mutex<Vec<(String, (i32, i32))>> = Mutex::new(Vec::new());
+static NEAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-    static LABELS: Mutex<Vec<(isize, String)>> = Mutex::new(Vec::new());
-    static NEAR: AtomicBool = AtomicBool::new(false);
+/// 캡슐 화면 rect (물리 px) · 배율 · 아일랜드 창 원점
+fn capsule(app: &AppHandle) -> Option<([f64; 4], f64, (i32, i32))> {
+    let isl = app.get_webview_window("island")?;
+    let (o, s) = (isl.outer_position().ok()?, isl.scale_factor().ok()?);
+    let c = *crate::watch::hit_rects("island").first()?;
+    Some(([o.x as f64 + c[0], o.y as f64 + c[1], c[2], c[3]], s, (o.x, o.y)))
+}
 
-    pub fn watch(win: &WebviewWindow) {
-        let h = crate::ui::hwnd(win);
-        LABELS.lock().unwrap().push((h, win.label().to_string()));
-        unsafe {
-            let _ = SetWindowSubclass(HWND(h as _), Some(proc_), 0x4E7A, 0);
-        }
+#[tauri::command]
+pub fn float_drag(app: AppHandle, window: WebviewWindow, phase: String) {
+    use std::sync::atomic::Ordering;
+    let label = window.label().to_string();
+    let cur = crate::ui::cursor();
+    if phase == "start" {
+        let Ok(p) = window.inner_position() else { return };
+        let mut g = GRAB.lock().unwrap();
+        g.retain(|(l, _)| l != &label);
+        g.push((label, (cur.0 - p.x, cur.1 - p.y)));
+        return;
     }
-
-    fn notch(app: &AppHandle) -> Option<((i32, i32), f64, [i32; 2])> {
-        let w = app.get_webview_window("island")?;
-        let (p, z, s) = (w.outer_position().ok()?, w.outer_size().ok()?, w.scale_factor().ok()?);
-        Some(((p.x + z.width as i32 / 2, p.y), s, [p.x, p.y]))
+    if phase == "move" {
+        let Some(grab) = GRAB.lock().unwrap().iter().find(|(l, _)| l == &label).map(|x| x.1) else { return };
+        let (x, y) = drag_to(cur, grab);
+        crate::ui::move_client(&window, x, y);
     }
-
-    fn report(h: HWND, r: RECT, end: bool) {
-        let Some(app) = APP.get() else { return };
-        let Some(label) = LABELS.lock().unwrap().iter().find(|(x, _)| *x == h.0 as isize).map(|(_, l)| l.clone()) else { return };
-        if label == "float-lp" {
-            return; // LP 위젯은 바탕화면 소품 — 흡수하지 않는다
-        }
-        let Some((n, s, o)) = notch(app) else { return };
-        let rr = [r.left, r.top, r.right - r.left, r.bottom - r.top];
-        let d = notch_dist(rr, n) / s; // 논리 px
-        let f = label.trim_start_matches("float-").to_string();
-        // 아일랜드 CSS 좌표 (흡수 유령을 같은 자리에 그린다)
-        let css = [(rr[0] - o[0]) as f64 / s, (rr[1] - o[1]) as f64 / s, rr[2] as f64 / s, rr[3] as f64 / s];
-        if end {
-            let was = NEAR.swap(false, Ordering::Relaxed);
-            let _ = app.emit_to("island", "absorb-near", serde_json::json!({ "f": f, "d": 9999.0 }));
-            if was && d < 80.0 {
-                let _ = app.emit_to("island", "absorb", serde_json::json!({ "f": f, "rect": css }));
-            }
-            return;
-        }
-        let near = d < 200.0;
-        if near || NEAR.load(Ordering::Relaxed) {
-            let _ = app.emit_to("island", "absorb-near", serde_json::json!({ "f": f, "d": d, "rect": css }));
-        }
-        NEAR.store(near, Ordering::Relaxed);
+    if label == "float-lp" {
+        return; // LP 위젯은 바탕화면 소품 — 흡수하지 않는다
     }
-
-    unsafe extern "system" fn proc_(h: HWND, m: u32, wp: WPARAM, lp: LPARAM, _: usize, _: usize) -> LRESULT {
-        match m {
-            WM_MOVING => report(h, *(lp.0 as *const RECT), false),
-            WM_EXITSIZEMOVE => {
-                // 흡수 유령은 그려지는 곳(클라이언트) 그대로 — 보이지 않는 테두리만큼 어긋나지 않게
-                let (mut c, mut o) = (RECT::default(), windows::Win32::Foundation::POINT::default());
-                let _ = windows::Win32::UI::WindowsAndMessaging::GetClientRect(h, &mut c);
-                let _ = windows::Win32::Graphics::Gdi::ClientToScreen(h, &mut o);
-                report(h, RECT { left: o.x, top: o.y, right: o.x + c.right, bottom: o.y + c.bottom }, true);
-            }
-            0x0082 /* WM_NCDESTROY */ => LABELS.lock().unwrap().retain(|(x, _)| *x != h.0 as isize),
-            _ => {}
-        }
-        DefSubclassProc(h, m, wp, lp)
+    let (Ok(p), Ok(z)) = (window.inner_position(), window.inner_size()) else { return };
+    let Some((cap, s, o)) = capsule(&app) else { return };
+    let f = label.trim_start_matches("float-").to_string();
+    // 아일랜드 CSS 좌표 (흡수 유령을 같은 자리에 그린다)
+    let css = [(p.x - o.0) as f64 / s, (p.y - o.1) as f64 / s, z.width as f64 / s, z.height as f64 / s];
+    if phase == "absorb" {
+        let _ = app.emit_to("island", "absorb", serde_json::json!({ "f": f, "rect": css }));
+        return;
     }
+    let d = crate::watch::rect_dist(cur.0 as f64, cur.1 as f64, cap) / s;
+    let (near, absorb) = absorb_state(d);
+    if phase == "end" {
+        GRAB.lock().unwrap().retain(|(l, _)| l != &label);
+        let was = NEAR.swap(false, Ordering::Relaxed);
+        let _ = app.emit_to("island", "absorb-near", serde_json::json!({ "f": f, "d": 9999.0 }));
+        if was && absorb {
+            let _ = app.emit_to("island", "absorb", serde_json::json!({ "f": f, "rect": css }));
+        }
+        return;
+    }
+    if near || NEAR.load(Ordering::Relaxed) {
+        let _ = app.emit_to("island", "absorb-near", serde_json::json!({ "f": f, "d": d }));
+    }
+    NEAR.store(near, Ordering::Relaxed);
 }
 
 #[cfg(test)]
@@ -305,9 +325,25 @@ mod tests {
     }
 
     #[test]
-    fn absorb_distance_from_notch() {
-        assert_eq!(notch_dist([760, 0, 400, 300], (960, 0)), 0.0); // 창 위쪽 가운데가 노치에
-        assert!((notch_dist([760, 60, 400, 300], (960, 0)) - 60.0).abs() < 1e-9);
-        assert!(notch_dist([100, 400, 400, 300], (960, 0)) > 200.0);
+    fn drag_math() {
+        // 머리줄 (30, 12) 을 잡고 끌면 창은 커서 - (30, 12)
+        assert_eq!(drag_to((1000, 500), (30, 12)), (970, 488));
+        // 화면 위 가장자리까지 끌어도 OS 스냅·최대화가 없으니 그대로 따라간다
+        assert_eq!(drag_to((640, 3), (30, 12)), (610, -9));
+        // 처음 자리: 오른쪽 아래 캡슐 기둥 옆 · 작업 표시줄 위
+        let wa = [0, 0, 1920, 1032];
+        assert_eq!(default_pos(wa, 1.0, (380, 460), false), (1920 - 464 - 380, 1032 - 72 - 460));
+        assert_eq!(default_pos(wa, 1.0, (380, 460), true), (464, 500));
+        assert_eq!(default_pos([0, 0, 800, 600], 1.0, (640, 340), false), (24, 188)); // 작은 화면: 안쪽으로
+    }
+
+    #[test]
+    fn absorb_against_capsule() {
+        use crate::watch::rect_dist;
+        let cap = [1830.0, 964.0, 80.0, 60.0]; // 오른쪽 아래 캡슐 (화면 물리 px)
+        assert_eq!(absorb_state(rect_dist(1860.0, 990.0, cap)), (true, true)); // 캡슐 위에서 놓음
+        assert_eq!(absorb_state(rect_dist(1800.0, 940.0, cap)), (true, true)); // 38px 옆
+        assert_eq!(absorb_state(rect_dist(1700.0, 900.0, cap)), (true, false)); // 자석만
+        assert_eq!(absorb_state(rect_dist(960.0, 10.0, cap)), (false, false)); // 화면 위 (예전 노치 자리) = 아무 일 없음
     }
 }

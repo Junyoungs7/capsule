@@ -19,7 +19,8 @@
         "scope": [
           "$APPDATA/icons/**",
           "$APPDATA/chat/**",
-          "$APPDATA/chat-out/**"
+          "$APPDATA/chat-out/**",
+          "$DATA/Hera/pets/**"
         ]
       }
     }

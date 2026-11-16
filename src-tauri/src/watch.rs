@@ -40,6 +40,32 @@ pub fn remove_overlay(label: &str) {
     HITS.lock().unwrap().retain(|(l, _)| l != label);
 }
 
+/// 창 원점이 (dx, dy) 만큼 반대로 움직였을 때 클라이언트 rect 를 화면 같은 자리로 (아일랜드가 커지고 줄 때)
+pub fn shift(rects: &mut [[f64; 4]], dx: f64, dy: f64) {
+    for r in rects {
+        r[0] += dx;
+        r[1] += dy;
+    }
+}
+
+pub fn shift_rects(label: &str, dx: f64, dy: f64) {
+    if let Some((_, r)) = HITS.lock().unwrap().iter_mut().find(|(l, _)| l == label) {
+        shift(r, dx, dy);
+    }
+}
+
+/// 지금 보고된 히트 rect (클라이언트 기준 물리 px, 아일랜드의 첫 rect = 캡슐)
+pub fn hit_rects(label: &str) -> Vec<[f64; 4]> {
+    HITS.lock().unwrap().iter().find(|(l, _)| l == label).map(|(_, r)| r.clone()).unwrap_or_default()
+}
+
+/// 점 ↔ rect 거리 (안이면 0)
+pub fn rect_dist(x: f64, y: f64, r: [f64; 4]) -> f64 {
+    let dx = (r[0] - x).max(x - (r[0] + r[2])).max(0.0);
+    let dy = (r[1] - y).max(y - (r[1] + r[3])).max(0.0);
+    dx.hypot(dy)
+}
+
 pub fn set_rects(label: &str, rects: Vec<[f64; 4]>) {
     let mut h = HITS.lock().unwrap();
     match h.iter_mut().find(|(l, _)| l == label) {
@@ -200,10 +226,9 @@ const DRAG_MARGIN: f64 = 24.0;
 /// 원하는 확장 스타일. tao 는 자기 플래그로 GWL_EXSTYLE 을 통째로 다시 쓰므로(show/hide 등)
 /// TOOLWINDOW 를 지우고 APPWINDOW 를 되살린다 → 매 틱 비교해 다를 때만 쓴다.
 /// 클릭 통과 = TRANSPARENT|LAYERED (tao 의 set_ignore_cursor_events 와 같은 비트).
-/// 아일랜드 창(모니터 폭, 맨 위) 기준 드롭 띠: 가운데 ±350 논리 px, 위에서 140 논리 px 까지 (s = 배율)
-fn drag_near(x: i32, y: i32, r: &RECT, s: f64) -> bool {
-    let cx = (r.left + r.right) / 2;
-    (x - cx).abs() < (350.0 * s) as i32 && y >= r.top && y < r.top + (140.0 * s) as i32
+/// 바깥에서 끌어오는 파일이 캡슐(클라이언트 rect) 근처 140 논리 px 안 (x, y = 클라이언트 기준, s = 배율)
+fn drag_near(x: f64, y: f64, cap: Option<[f64; 4]>, s: f64) -> bool {
+    cap.is_some_and(|c| rect_dist(x, y, c) < 140.0 * s)
 }
 
 fn ex_style(cur: isize, pass: bool) -> isize {
@@ -536,10 +561,11 @@ pub fn start(app: AppHandle) {
             prev_lb = lb;
             // Hera Link: 바깥에서 끌어오는 중이면 가장자리 띠를 받기 모드로 (근처일 때만)
             crate::edge::tick(pt.x, pt.y, drag_out);
-            // 바깥에서 끌어오는 드래그(파일)가 아일랜드 근처(위쪽 가운데 띠)에 오면 노치를 드롭존으로 — OS 전역 '파일 드래그 중' 신호는 없다
+            // 바깥에서 끌어오는 드래그(파일)가 캡슐 근처에 오면 캡슐을 드롭존으로 — OS 전역 '파일 드래그 중' 신호는 없다
             if let Some(i) = overlays.iter().position(|&(l, _)| l == "island") {
                 let s = windows::Win32::UI::HiDpi::GetDpiForWindow(HWND(overlays[i].1 as _)) as f64 / 96.0;
-                let near = drag_out && drag_near(pt.x, pt.y, &rects[i], if s > 0.0 { s } else { 1.0 });
+                let cap = hit_rects("island").first().copied();
+                let near = drag_out && drag_near((pt.x - rects[i].left) as f64, (pt.y - rects[i].top) as f64, cap, if s > 0.0 { s } else { 1.0 });
                 if near != drag_shown {
                     drag_shown = near;
                     let _ = app.emit_to("island", "drag-near", near);
@@ -547,11 +573,11 @@ pub fn start(app: AppHandle) {
             }
 
             let hits = HITS.lock().unwrap().clone();
-            // 허브가 펼쳐진 동안(아일랜드 히트 rect 2개 이상) 그 밖을 누르면 접기 — 아일랜드 창은 클릭 통과라 스스로 못 본다
+            // 캡슐·허브 밖을 누르면 알림 (펼쳐져 있으면 JS 가 접는다) — 아일랜드 창은 클릭 통과라 스스로 못 본다
             if pressed {
                 if let (Some(i), Some((_, hr))) = (overlays.iter().position(|&(l, _)| l == "island"), hits.iter().find(|(l, _)| l == "island")) {
                     let r = &rects[i];
-                    if hr.len() > 1 && !hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, hr, 0.0) {
+                    if !hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, hr, 0.0) {
                         let _ = app.emit_to("island", "island-outside", ());
                     }
                 }
@@ -610,6 +636,8 @@ pub fn start(app: AppHandle) {
                 slow = Instant::now();
                 let qs = SHQueryUserNotificationState().ok();
                 let full = qs.is_some_and(fullscreen);
+                // 설정 '전체화면 앱에서 자동으로 숨기기' (기본 켬)
+                let autohide = app.store("hera.json").ok().and_then(|s| s.get("island.autohide")).and_then(|v| v.as_bool()).unwrap_or(true);
                 let away = qs == Some(QUNS_NOT_PRESENT); // 잠금·화면보호기·사용자 전환
                 FULLSCREEN.store(full, Ordering::Relaxed);
                 // 화면보호기 열기/정리. 잠기면 바로 파괴(메모리 0), 닫기 요청 후 3초 지나도 남아 있으면 파괴.
@@ -667,10 +695,10 @@ pub fn start(app: AppHandle) {
                     }
                     sky = Some(cur);
                 }
-                if full != hidden {
-                    hidden = full;
+                if (full && autohide) != hidden {
+                    hidden = full && autohide;
                     for &(_, h) in &overlays {
-                        let _ = ShowWindowAsync(HWND(h as _), if full { SW_HIDE } else { SW_SHOWNOACTIVATE });
+                        let _ = ShowWindowAsync(HWND(h as _), if hidden { SW_HIDE } else { SW_SHOWNOACTIVATE });
                     }
                 }
                 // B4: 전체화면 중에는 검사하지 않는다 = 큐 보관. 종료 후 첫 검사에서 밀린 알림이 시각 순으로 나온다.
@@ -707,15 +735,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn drag_band() {
-        let r = RECT { left: 0, top: 0, right: 1920, bottom: 600 }; // 1920 폭 모니터, 배율 1
-        assert!(drag_near(960, 10, &r, 1.0));
-        assert!(drag_near(611, 139, &r, 1.0));
-        assert!(!drag_near(600, 10, &r, 1.0)); // 가운데에서 360
-        assert!(!drag_near(960, 140, &r, 1.0)); // 띠 아래 (앱 위 드래그는 그대로)
-        let r2 = RECT { left: 0, top: 0, right: 2880, bottom: 900 }; // 배율 1.5
-        assert!(drag_near(1440 + 520, 209, &r2, 1.5));
-        assert!(!drag_near(1440, 300, &r2, 1.5));
+    fn drag_near_capsule() {
+        let cap = Some([590.0, 616.0, 80.0, 60.0]); // 680×680 창 오른쪽 아래 캡슐
+        assert!(drag_near(620.0, 640.0, cap, 1.0)); // 위
+        assert!(drag_near(500.0, 600.0, cap, 1.0)); // 90px 옆
+        assert!(!drag_near(300.0, 300.0, cap, 1.0)); // 허브 자리 (앱 위 드래그는 그대로)
+        assert!(!drag_near(620.0, 640.0, None, 1.0)); // 아직 보고 전
+        assert!(drag_near(390.0, 616.0, cap, 1.5)); // 배율 1.5 = 210px
+        assert_eq!(rect_dist(10.0, 10.0, [0.0, 0.0, 20.0, 20.0]), 0.0);
+        assert_eq!(rect_dist(23.0, 24.0, [0.0, 0.0, 20.0, 20.0]), 5.0);
     }
 
     #[test]

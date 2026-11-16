@@ -32,6 +32,7 @@ mod ui;
 mod float;
 mod term;
 mod island;
+mod pets; // 내 펫 (사용자 이미지 팩)
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -71,7 +72,7 @@ fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) 
     Ok(win)
 }
 
-/// 배치: 아일랜드 = 주 모니터 맨 위 가운데 (작업 영역이 아니라 모니터 — '상단 공간 확보'를 켜도 노치는 그 띠 안). DPI/작업 영역 변경 시 재호출.
+/// 배치: 아일랜드 = 주 모니터 작업 영역 오른쪽(왼쪽) 아래 모서리. DPI/작업 영역 변경 시 재호출.
 pub(crate) fn place(app: &AppHandle) {
     let Ok(Some(m)) = app.primary_monitor() else { return };
     let (s, wa) = (m.scale_factor(), *m.work_area());
@@ -794,7 +795,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
-            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_ready, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
@@ -824,7 +826,7 @@ pub fn run() {
             if s.get("appbar.on").and_then(|v| v.as_bool()).unwrap_or(false) {
                 appbar::set(h, true);
             }
-            let island = overlay(h, "island", "", (1280.0, island::HEIGHT))?;
+            let island = overlay(h, "island", "", (island::WIDTH, island::HEIGHT))?;
             place(h);
             {
                 let h = h.clone();
@@ -891,6 +893,9 @@ pub fn run() {
                 listen_store(h, move |k, v| {
                     if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
                         notes_sync(&a);
+                    }
+                    if k == "island.place" {
+                        island::place(&a); // 오른쪽 아래 ↔ 왼쪽 아래
                     }
                     if k == "appbar.on" {
                         appbar::set(&a, v.and_then(|v| v.as_bool()).unwrap_or(false));
