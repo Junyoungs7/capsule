@@ -27,3 +27,24 @@
     --dur-fast: 120ms;
   }
 }
+
+/* ═══ (a6) 모션 팩 — html.mx (src/motion.ts 가 켬, '동작 줄이기'면 꺼짐). 변화가 있을 때만, transform·opacity 만 ═══ */
+html.mx .isl .skin { transition-property: width, height, border-radius, transform, box-shadow, background-color;
+  transition-duration: var(--sp-w-ms, 480ms), var(--sp-h-ms, 480ms), var(--sp-h-ms, 480ms), 320ms, 320ms, 200ms;
+  transition-timing-function: var(--sp-w), var(--sp-h), var(--sp-h), var(--ease-calm, ease), var(--ease-calm, ease), ease; }
+/* 내용은 모양이 바뀐 뒤 90ms 늦게 96.5% 에서 떠오르고, 나갈 땐 빠르게 */
+html.mx .isl .content { transition: opacity 320ms ease-out 90ms, transform 560ms cubic-bezier(.16, 1, .3, 1) 90ms; }
+html.mx .isl .content.out { opacity: 0; transform: scale(.965); transition: opacity 120ms ease-in, transform 160ms ease-in; }
+html.mx .isl[data-place='br'] .content { transform-origin: 100% 100%; }
+html.mx .isl[data-place='bl'] .content { transform-origin: 0 100%; }
+html.mx .vtoast, html.mx .toast { transform: translate(-50%, 8px) scale(.92); transition: opacity 140ms, transform var(--sp-pop-ms, 420ms) var(--sp-pop, ease); }
+html.mx .vtoast.on, html.mx .toast.on { transform: translate(-50%, 0) scale(1); }
+html.mx .sw::after { transition: none; }
+.mx-pillhost { position: relative; }
+.mx-pillhost > .mx-hidebg { background: transparent !important; box-shadow: none !important; }
+.mx-pill { position: absolute; z-index: 0; pointer-events: none; border-radius: 8px; background: var(--fill-3, rgba(255, 255, 255, .16)); box-shadow: inset 0 .5px 0 rgba(255, 255, 255, .2); will-change: transform; }
+.mx-pillhost > button { position: relative; z-index: 1; }
+html.mx .disc.drop { animation-timing-function: var(--sp-settle); }
+html.mx .arm-x { transition-timing-function: var(--sp-soft); }
+.mx-ok { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 22px; background: var(--green, #32d74b); color: #04140a; font: 700 16px/1 var(--font, inherit); }
+.mx-ok svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
