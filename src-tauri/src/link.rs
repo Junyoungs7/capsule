@@ -555,17 +555,39 @@ fn desk_bbox() -> [f64; 4] {
     crate::watch::monitors().iter().fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, (_, r, _, _)| [b[0].min(r[0]), b[1].min(r[1]), b[2].max(r[0] + r[2]), b[3].max(r[1] + r[3])])
 }
 
+static ONCE: Mutex<crate::crossing::Debounce> = Mutex::new(crate::crossing::Debounce(None));
+
+/// 넘어감 물결 + 벽 일렁임 (한 넘어감에 한 번). on_peer = 맥으로 떠남, at = 들어온 자리(이 PC 좌표, 있으면)
+#[cfg(windows)]
+fn crossing_fx(side: &str, on_peer: bool, at: Option<(i32, i32)>) {
+    use crate::crossing::{leave_point, wall_for, Side};
+    if !ONCE.lock().unwrap().accept(on_peer, crate::watch::now_ms()) {
+        return;
+    }
+    let mons: Vec<([i32; 4], f64)> = crate::watch::monitors().iter().map(|(_, r, s, _)| ([r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32], *s)).collect();
+    let b = desk_bbox();
+    let bb = [b[0] as i32, b[1] as i32, b[2] as i32, b[3] as i32];
+    let side = match at {
+        Some((x, y)) => Side::parse(ll::nearest_side(b, x as f64, y as f64)),
+        None => Side::parse(side),
+    }
+    .unwrap_or(Side::Right);
+    // 떠날 때는 '지금 커서'가 아니라 넘어가기 직전 표본 (엔진이 커서를 가운데로 옮겨 숨긴다)
+    let (x, y) = at.unwrap_or_else(|| leave_point(side, &crate::watch::cursor_samples(), crate::watch::now_ms(), bb));
+    let kind = if on_peer { crate::ripple::Kind::Leave } else { crate::ripple::Kind::Enter };
+    crate::ripple::show_crossing(x, y, side.name(), kind, wall_for(side, (x, y), &mons));
+}
+
 fn crossing(app: &AppHandle, on_peer: bool, at: Option<(i32, i32)>) {
     *LAST_SWITCH.lock().unwrap() = Some(Instant::now());
     SAVER_SENT.store(false, std::sync::atomic::Ordering::Relaxed);
-    let bb = desk_bbox();
+    let cfg = read_cfg(app).1;
     if on_peer {
-        // 떠남: 지금 커서(가장자리) 자리에 옅은 물결, 맥에는 들어간 좌표로 진한 물결을 그리게
+        // 떠남: 이 PC 의 벽에 옅은 물결 + 일렁임 (at = 맥 좌표라 쓰지 않는다), 맥에는 들어간 좌표로 진한 물결을 그리게
         #[cfg(windows)]
         {
-            let (x, y) = cursor();
-            crate::ripple::show(x, y, Some(ll::nearest_side(bb, x as f64, y as f64)), crate::ripple::Kind::Leave);
-            if read_cfg(app).1.ime != "off" {
+            crossing_fx(&cfg.side, true, None);
+            if cfg.ime != "off" {
                 crate::shell::ime_forward(true);
             }
         }
@@ -574,22 +596,11 @@ fn crossing(app: &AppHandle, on_peer: bool, at: Option<(i32, i32)>) {
         #[cfg(windows)]
         {
             crate::shell::ime_forward(false);
-            if let Some((x, y)) = at {
-                crate::ripple::show(x, y, Some(ll::nearest_side(bb, x as f64, y as f64)), crate::ripple::Kind::Enter);
-            }
+            crossing_fx(&cfg.side, false, at);
         }
         send(json!({ "t": "crossed", "enter": false }));
     }
-    let _ = (app, bb);
-}
-
-#[cfg(windows)]
-fn cursor() -> (i32, i32) {
-    let mut p = windows::Win32::Foundation::POINT::default();
-    unsafe {
-        let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p);
-    }
-    (p.x, p.y)
+    let _ = cfg;
 }
 
 /// 파일 채널로 제어 메시지 (연결 없으면 조용히 무시)
@@ -659,11 +670,10 @@ fn on_msg(app: &AppHandle, m: &Value) {
         }
         "crossed" => {
             // 맥이 서버일 때(미래) 대비: 들어옴/나감 물결
+            // 같은 넘어감을 이 PC 로그로 이미 그렸으면 Debounce 가 버린다
             #[cfg(windows)]
             if let (Some(x), Some(y)) = (m["x"].as_i64(), m["y"].as_i64()) {
-                let bb = desk_bbox();
-                let kind = if m["enter"] == true { crate::ripple::Kind::Enter } else { crate::ripple::Kind::Leave };
-                crate::ripple::show(x as i32, y as i32, Some(ll::nearest_side(bb, x as f64, y as f64)), kind);
+                crossing_fx(&read_cfg(app).1.side, m["enter"] != true, Some((x as i32, y as i32)));
             }
         }
         _ => {}

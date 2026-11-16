@@ -1,4 +1,5 @@
-// 파란 물결 (화면 경계 넘어감 · 커서 찾기 · 가장자리 끌어 놓기). 웹뷰 없이 네이티브 레이어드 창 1개:
+// 파란 물결 (화면 경계 넘어감 · 커서 찾기 · 가장자리 끌어 놓기). 웹뷰 없이 네이티브 레이어드 창:
+// (a6) Hera Link 넘어감은 물결 + 그 벽 전체가 일렁이는 띠(가장자리 32 논리 px, 그 모니터 길이) — crossing::render_wall, 0.8초 뒤 숨기고 버퍼를 놓는다.
 // 처음 쓸 때 전용 스레드에서 만들고, 20ms 타이머로 30프레임(600ms) 그린 뒤 숨김 + 타이머 끔 → 평소 CPU 0.
 // 그림 = 소프트웨어로 premultiplied BGRA 버퍼 → UpdateLayeredWindow(ULW_ALPHA). 클릭 통과·포커스 안 뺏음.
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -29,16 +30,28 @@ struct Req {
     y: i32,
     edge: Option<String>, // left / right / up / down = 화면의 어느 가장자리인가
     kind: Kind,
+    wall: Option<crate::crossing::Wall>,
 }
 
 static HOST: AtomicIsize = AtomicIsize::new(0);
+static WALL_HOST: AtomicIsize = AtomicIsize::new(0);
+const WALL_FRAMES: u32 = 40; // 20ms × 40 = 0.8초
 static REQ: Mutex<Option<Req>> = Mutex::new(None);
 static STARTED: OnceLock<()> = OnceLock::new();
 const FRAMES: u32 = 30;
 
 /// 물결 1번 (스레드 안전, 바로 반환). x, y = 화면 물리 px (가장자리 위의 점 또는 커서)
 pub fn show(x: i32, y: i32, edge: Option<&str>, kind: Kind) {
-    *REQ.lock().unwrap() = Some(Req { x, y, edge: edge.map(String::from), kind });
+    request(Req { x, y, edge: edge.map(String::from), kind, wall: None })
+}
+
+/// Hera Link 넘어감: 물결 + 벽 일렁임
+pub fn show_crossing(x: i32, y: i32, edge: &str, kind: Kind, wall: Option<crate::crossing::Wall>) {
+    request(Req { x, y, edge: Some(edge.into()), kind, wall })
+}
+
+fn request(r: Req) {
+    *REQ.lock().unwrap() = Some(r);
     if STARTED.set(()).is_ok() {
         std::thread::spawn(run);
     } else {
@@ -135,12 +148,62 @@ struct Anim {
     old: HGDIOBJ,
 }
 
+struct WallAnim {
+    frame: u32,
+    wall: crate::crossing::Wall,
+    reduced: bool,
+    dc: HDC,
+    bmp: HBITMAP,
+    bits: *mut u32,
+    old: HGDIOBJ,
+}
+
 thread_local! {
     static ANIM: std::cell::RefCell<Option<Anim>> = const { std::cell::RefCell::new(None) };
+    static WALL: std::cell::RefCell<Option<WallAnim>> = const { std::cell::RefCell::new(None) };
+}
+
+/// 32비트 DIB (그릴 버퍼) 하나
+unsafe fn dib(w: usize, h: usize) -> Option<(HDC, HBITMAP, *mut u32, HGDIOBJ)> {
+    let bi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: w as i32, biHeight: -(h as i32), biPlanes: 1, biBitCount: 32, biCompression: BI_RGB.0, ..Default::default() },
+        ..Default::default()
+    };
+    let dc = CreateCompatibleDC(None);
+    let mut bits = std::ptr::null_mut();
+    let bmp = CreateDIBSection(Some(dc), &bi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
+    let old = SelectObject(dc, bmp.into());
+    Some((dc, bmp, bits as *mut u32, old))
+}
+
+unsafe fn free_dib(dc: HDC, bmp: HBITMAP, old: HGDIOBJ) {
+    SelectObject(dc, old);
+    let _ = DeleteObject(bmp.into());
+    let _ = windows::Win32::Graphics::Gdi::DeleteDC(dc);
+}
+
+unsafe fn blit(h: HWND, dc: HDC, x: i32, y: i32, w: i32, hh: i32) {
+    let screen = GetDC(None);
+    let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
+    let (pos, size, src) = (POINT { x, y }, SIZE { cx: w, cy: hh }, POINT::default());
+    let _ = UpdateLayeredWindow(h, Some(screen), Some(&pos), Some(&size), Some(dc), Some(&src), COLORREF(0), Some(&blend), ULW_ALPHA);
+    ReleaseDC(None, screen);
 }
 
 unsafe fn start(h: HWND) {
     let Some(r) = REQ.lock().unwrap().take() else { return };
+    // 벽 띠: 지난 것을 거두고 새로 (그 모니터 가장자리 · 띠 크기 버퍼만)
+    WALL.with_borrow_mut(|a| {
+        if let Some(old) = a.take() {
+            free_dib(old.dc, old.bmp, old.old);
+        }
+        let wh = HWND(WALL_HOST.load(Ordering::Relaxed) as _);
+        let Some(wall) = r.wall else { return };
+        let [x, y, w, hh] = wall.rect;
+        let Some((dc, bmp, bits, old)) = dib(w as usize, hh as usize) else { return };
+        *a = Some(WallAnim { frame: 0, wall, reduced: reduced_motion(), dc, bmp, bits, old });
+        let _ = SetWindowPos(wh, Some(HWND_TOPMOST), x, y, w, hh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    });
     let (mut dx, mut dy) = (96u32, 96u32);
     let _ = GetDpiForMonitor(MonitorFromPoint(POINT { x: r.x, y: r.y }, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
     let s = (256 * dx / 96) as i32;
@@ -175,6 +238,26 @@ unsafe fn free(a: Anim) {
 }
 
 unsafe fn frame(h: HWND) {
+    let wall_done = WALL.with_borrow_mut(|a| {
+        let Some(an) = a.as_mut() else { return true };
+        let total = if an.reduced { 12 } else { WALL_FRAMES };
+        let [x, y, w, hh] = an.wall.rect;
+        let (len, depth) = if an.wall.side.horizontal() { (w as usize, hh as usize) } else { (hh as usize, w as usize) };
+        let t = (an.frame as f32 / total as f32).min(1.0);
+        let buf = std::slice::from_raw_parts_mut(an.bits, len * depth);
+        crate::crossing::render_wall(buf, len, depth, an.wall.u0, t, an.reduced, an.wall.side);
+        blit(HWND(WALL_HOST.load(Ordering::Relaxed) as _), an.dc, x, y, w, hh);
+        an.frame += 1;
+        if an.frame > total {
+            // 거두기: 숨기고 버퍼를 놓는다 (평소 메모리·CPU 0)
+            let _ = ShowWindow(HWND(WALL_HOST.load(Ordering::Relaxed) as _), SW_HIDE);
+            if let Some(x) = a.take() {
+                free_dib(x.dc, x.bmp, x.old);
+            }
+            return true;
+        }
+        false
+    });
     let done = ANIM.with_borrow_mut(|a| {
         let Some(an) = a.as_mut() else { return true };
         let total = if an.reduced { 8 } else { FRAMES };
@@ -193,9 +276,11 @@ unsafe fn frame(h: HWND) {
         false
     });
     if done {
-        let _ = KillTimer(Some(h), 1);
         let _ = ShowWindow(h, SW_HIDE);
         ANIM.with_borrow_mut(|a| a.take().map(|x| free(x)));
+    }
+    if done && wall_done {
+        let _ = KillTimer(Some(h), 1);
     }
 }
 
@@ -215,6 +300,9 @@ fn run() {
         RegisterClassW(&wc);
         let ex = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
         let Ok(h) = CreateWindowExW(ex, w!("HeraRipple"), w!(""), WS_POPUP, 0, 0, 1, 1, None, None, Some(inst.into()), None) else { return };
+        if let Ok(wh) = CreateWindowExW(ex, w!("HeraRipple"), w!(""), WS_POPUP, 0, 0, 1, 1, None, None, Some(inst.into()), None) {
+            WALL_HOST.store(wh.0 as isize, Ordering::Relaxed);
+        }
         HOST.store(h.0 as isize, Ordering::Relaxed);
         start(h);
         let mut msg = MSG::default();
@@ -285,7 +373,7 @@ mod tests {
 
     #[test]
     fn ripple_geometry() {
-        let req = |edge: Option<&str>, kind| Req { x: 1920, y: 500, edge: edge.map(String::from), kind };
+        let req = |edge: Option<&str>, kind| Req { x: 1920, y: 500, edge: edge.map(String::from), kind, wall: None };
         assert_eq!(geometry(&req(Some("right"), Kind::Leave), 256), (1664, 244, 256, 512, 256.0, 256.0));
         assert_eq!(geometry(&req(Some("left"), Kind::Enter), 256), (1920, 244, 256, 512, 0.0, 256.0));
         assert_eq!(geometry(&req(None, Kind::Locate), 256), (1728, 308, 384, 384, 192.0, 192.0));

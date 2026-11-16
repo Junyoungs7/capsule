@@ -34,6 +34,7 @@ mod term;
 mod island;
 mod pets; // 내 펫 (사용자 이미지 팩)
 mod notes; // 메모 보드 · 메모장으로 열기
+mod crossing; // Hera Link 넘어감: 벽 · 자리 · 한 번만
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;

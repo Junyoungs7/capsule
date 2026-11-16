@@ -66,6 +66,16 @@ pub fn rect_dist(x: f64, y: f64, r: [f64; 4]) -> f64 {
     dx.hypot(dy)
 }
 
+/// 최근 커서 표본 8개 (x, y, ms) — Hera Link 넘어감 자리 (엔진이 커서를 옮기기 전 자리를 알기 위해)
+static CURSOR: Mutex<Vec<crate::crossing::Sample>> = Mutex::new(Vec::new());
+pub fn cursor_samples() -> Vec<crate::crossing::Sample> {
+    CURSOR.lock().unwrap().clone()
+}
+pub fn now_ms() -> u64 {
+    static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 pub fn set_rects(label: &str, rects: Vec<[f64; 4]>) {
     let mut h = HITS.lock().unwrap();
     match h.iter_mut().find(|(l, _)| l == label) {
@@ -537,6 +547,13 @@ pub fn start(app: AppHandle) {
             // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
+            {
+                let mut c = CURSOR.lock().unwrap();
+                if c.len() >= 8 {
+                    c.remove(0);
+                }
+                c.push((pt.x, pt.y, now_ms()));
+            }
             let lb = GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0;
             // 커서 찾기 (커서가 이 PC 에 있을 때만 — 맥에 있으면 엔진이 커서를 붙잡아 둔다)
             if locator && !hidden && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, 50) {
