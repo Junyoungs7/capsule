@@ -23,7 +23,7 @@ const SECS: [Sec, string, IcoKey, string][] = [
   ['chat', '채팅', 'chat', '--green'], ['term', '터미널 · 아라', 'term', '--gray'], ['keys', '단축키', 'key', '--orange'], ['about', '정보', 'info', '--blue'],
 ]
 const SEC_WORDS: Record<Sec, string> = {
-  general: '시작 자동 실행 윈도우 트레이 상단 공간 메뉴막대 날씨 계절 효과 도시 화면보호기 자리 비움 아스키 폴더',
+  general: '할 일 알림 날짜 시작 자동 실행 윈도우 트레이 상단 공간 메뉴막대 날씨 계절 효과 도시 화면보호기 자리 비움 아스키 폴더',
   island: '위치 오른쪽 왼쪽 아래 크기 작게 보통 크게 아주 전체화면 숨기기 알림 펫 캡슐',
   pet: '펫 내 펫 추가 픽셀 플랫 클레이 라인 잠들기 이미지 zip 가져오기 내보내기',
   link: '연결 페어링 기기 맥 pc 마우스 키보드 클립보드 파일 동기화 모니터 배치 키 매핑 한/영 tls 포트 deskflow 코드 해제 함께',
@@ -166,6 +166,7 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
   const [auto, setAuto] = useState(false)
   useEffect(() => void (isTauri && autostart().then(setAuto, () => {})), [])
   const [appbar, setAppbar] = useValue('appbar.on', false)
+  const [quickAlarm, setQuickAlarm] = useValue('todo.quickAlarm', true)
   const [draft, setDraft] = useState(fx.city)
   const save = () => draft.trim() && draft.trim() !== fx.city && fx.setCity(draft.trim())
   const folder = () => void appDataDir().then((d) => launch(d)).then(() => say('탐색기에서 열었어요'), (e) => say(String(e)))
@@ -185,6 +186,9 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
           <input className="inp" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()} style={{ width: 140 }} aria-label="도시" />
         </Row>
         <Row t="지금 한 번 보기" s="지금 날씨·시간대에 맞는 효과를 바로"><button className="btn ghost sm" onClick={() => (fx.now(), say('바탕화면에 효과를 띄웠어요'))}><Ico k="play" />보기</button></Row>
+      </div></Grp>
+      <Grp h="할 일"><div className="card">
+        <Row t="날짜 없이 저장한 할 일 알림" s="날짜를 고르지 않고 저장하면 지금부터 1시간 뒤에 알려 줘요 · 끄면 날짜 없는 할 일(알림 없음)"><Sw on={quickAlarm} set={setQuickAlarm} label="날짜 없이 저장한 할 일 알림" /></Row>
       </div></Grp>
       <Grp h="자리 비움"><div className="card">
         <Row t="아스키 화면보호기" s="입력이 없으면 계절 장면을 전체화면으로 · 마우스를 움직이면 꺼져요"><Step value={idleMin} set={setIdleMin} max={120} unit="분" label="대기 시간" /></Row>

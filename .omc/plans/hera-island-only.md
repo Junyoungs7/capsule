@@ -133,3 +133,26 @@
   처음 실행 때 Rust `notes::migrate` 가 모든 메모를 보드 격자로 (글·색 그대로, appId·pinned 제거, `notes.board`).
 - **메모장으로 열기**: Rust `note_notepad` = `%APPDATA%\Hera\notes\<id>.txt` (UTF-8 BOM · CRLF) 쓰고 notepad.exe (누를 때만). 그 메모장이 떠 있는 동안만 1초마다 수정 시각 → 바뀌면 메모에 다시 읽어 넣음,
   메모장이 닫히면 마지막 한 번 보고 끝 (평소 비용 0). cargo `notepad_round_trip_with_a_fake_path` · `notes_move_onto_the_board`.
+
+## (a6) 모션 · LP 런처 · 설정 창 · 연결 · 벽 일렁임 (2026-11-16, 승인 시안 motion-pack.html · lp-settings.html)
+- **모션 팩** (`src/motion.ts` + `styles/motion.css`): 진짜 스프링(강성/감쇠 → CSS `linear()`) settle 280/22 · soft 260/24 · pop 520/16 · fade 420/32 · lead 620/36, 허브 폭 380/24 → 높이 300/22,
+  내용 90ms 늦게 .965 에서. 줄마다 45ms 떠오르기(허브 아이콘 5개씩 · 화면 줄 · 설정 섹션 · LP 판 4개씩), 늘어나는 선택 알약(≤1.6배), 스위치 손잡이 늘어남, 스테퍼 숫자 굴리기(한계에서 툭),
+  페어링 숫자 떨어지기 → '연결됨' 으로 모이기, 캡슐 알림 두 줄 굴러 올라오기. 모두 transform·opacity · 변화가 있을 때만(쉬는 동안 0) · '동작 줄이기' 면 html.mx 없음.
+  닫기·꿀꺽·머묾 320ms 는 그대로. 연결선 대시는 상태가 바뀔 때 3번만.
+- **설정 창** (`Settings.tsx`, 별도 창 `settings` 940×680, 처음 열 때 생성·닫으면 파괴): 왼쪽 목록 8개(일반 · Island · 펫 · 연결 · 채팅 · 터미널·아라 · 단축키 · 정보) + 검색(나머지 흐림 · 첫 일치로).
+  진짜 설정에 연결: autostart(Rust `autostart`, 트레이 체크와 같이) · appbar.on · fx.enabled/fx.city/지금 보기 · ascii.idleMin · island.place/size/autohide/alerts · island.pet + 내 펫 편집기·zip·내보내기·삭제
+  · chat.retentionDays/maxMB · Team(채팅 아래) · term.araCmd · MCP(터미널·아라 아래) · link.* 전부. 없는 기능 = 흐린 '준비 중'.
+  허브 '설정' · '전체 설정' · '연결 → 설정에서 자세히' · 트레이 '설정 열기' · 두 번째 실행 = 이 창. 예전 패널 창(toggle_panel/close_panel/panel_open · Panel.tsx · Player.tsx · 아일랜드 안 설정 화면) 삭제.
+- **LP 런처** (`Launcher.tsx`, 아일랜드 안 452×612 · 떼어내면 같은 것이 LP 창): 덱(플래터·암·정보·재생/꺼내기·세트 단계/효과 진행) + 상자 둘 — 앱 LP(앱·URL·세트·묶음) / 효과·아스키 LP(5+5), 섞이지 않음.
+  ★ = 그 상자 맨 앞 + Ctrl+Alt+K 맨 위 (store `lp.star = {app, fx}`, 상자마다 따로). 추가 시트 = URL/exe · 시작 메뉴 · 세트(고른 순서) · 묶음(편집). URL 끌어 놓기 · Space = 재생/정지.
+  덱 = 판 하나, 마지막 판이 앞 판을 바꾼다(효과 창은 하나라 앞 효과가 닫힌 뒤 새 효과). 앱 판을 꺼내도 앱은 닫지 않는다. 덱은 허브를 접었다 열어도 남는다.
+- **연결**: 허브 아이콘 = 두 화면 + 상태 점, 연결되면 허브에 한 줄. 아일랜드 '연결' 화면(상태 칩 · Link 스위치 · 내 기기(여러 대 그릴 수 있게) · 함께 쓰기 6 · 전송 · 페어링 숫자).
+  설정 → 연결 탭 기기 / 함께 쓰기 / 화면 배치 / 키보드 / 고급 (배치·키보드는 고급 밖). 함께 쓰기 = store `link.share.{clip,files,sync,chat,fx}` → Rust `link::shared`
+  (클립 보내기 · 할 일 동기화 보내기/받기 · 가장자리 파일 띠 · 맥이 보낸 효과) + UI(파일 보내기 대상 · 맥 효과 명령) · '채팅 알림은 커서가 있는 PC 에서만' = 커서가 맥이면 여기 펫은 조용.
+  'Deskflow 설정 가져오기' = 설정 파일만 읽는다 (Deskflow 프로세스·포트 24800 은 건드리지 않음).
+- **넘어감 물결 + 벽 일렁임** (`crossing.rs`, ripple.rs 두 번째 레이어드 창): 원인 = 엔진이 맥으로 넘길 때 이 PC 커서를 화면 가운데로 옮겨 숨기는데, 로그를 읽는 순간의 '지금 커서'로 물결 자리를 잡아
+  가운데·엉뚱한 곳에 그리거나(가장자리 판정도 틀림) 맥의 'crossed' 메아리로 한 번 더 그렸다 → watch 루프 커서 표본 8개로 넘어가기 직전 자리를 벽 위에 투영 + 250ms 안 같은 방향은 한 번만.
+  벽 = 그 모니터 그 가장자리 32 논리 px 띠, 넘은 자리에서 바깥으로 감쇠 파동 0.8초 → 숨기고 버퍼 해제. 동작 줄이기 = 옅은 한 번 반짝임.
+- 할 일: '날짜 없이 저장한 할 일 알림' (설정 → 일반 → 할 일, store `todo.quickAlarm`, 기본 켬) — 끄면 날짜를 손대지 않고 저장한 할 일은 날짜·알림 없음 (Todo.tsx add 한 곳).
+- 시험 (헤드리스): island 93 · pets 24 · lp 26 · chat 8 · term 11 · a4 49 · settings 41 · connect 14 · motion 20 · when 41 — 모두 통과. cargo test ×3 (lib 72 + 5 + 3), clippy · tsc 깨끗.
+- 프레임 (헤드리스): 허브 열기 p95 16.8 · 최대 33 (첫 프레임) · ≥95% ≤17ms, 화면 열기 100% ≤17ms, 떼어내기·흡수 100% ≤17ms. 벽 띠 그리기 2160×48 = 4.75ms/프레임 (debug).

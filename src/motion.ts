@@ -97,7 +97,7 @@ export function installMotion() {
       rise([...hub.querySelectorAll('.app')], { dy: 6, scale: 0.94, perRow: 5, s: SP.settle, delay: 90 })
       rise([...hub.children].filter((x) => !x.matches('.grid')), { dy: 4, step: 60 })
     }
-    document.querySelectorAll('.isl .content .view, .swin .pane-in, .lpw .crate-in').forEach((v) => {
+    document.querySelectorAll('.isl .content .view, .swin .pane-in, .lpv .crate-in').forEach((v) => {
       if (seen.has(v)) return
       seen.add(v)
       const body = v.matches('.view') ? v.querySelector('.vbody') : v

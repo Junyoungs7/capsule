@@ -202,6 +202,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       }
       case 'watch_state': return [null, []]
       case 'link_status': return [{ state: 'off', peer: '', onPeer: false }, null]
+      case 'link_plan': return [[], { segs: [], limits: [] }]
       case 'team_state': return { name: '나', pk: 'me', groups: [], online: [] }
       case 'term_state': return { alive: true, running: false, cwd: 'C:\\Users\\me', cmd: '' }
       case 'term_start': return 'C:\\Users\\me'
