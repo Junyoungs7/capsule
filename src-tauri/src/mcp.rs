@@ -480,7 +480,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
                 "macFiles": crate::link::files_connected(),
                 "foreground": fg.map(|f| json!({"title": f["title"], "exe": f["exePath"]})),
                 "next": next_item(s, now),
-                "panelOpen": app.get_webview_window("panel").is_some(),
+                "settingsOpen": app.get_webview_window("settings").is_some(),
             }))
         }
         n => Err(format!("구현되지 않은 도구 '{n}'")),

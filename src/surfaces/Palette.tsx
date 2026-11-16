@@ -18,6 +18,7 @@ type Props = {
   onCopy: (c: Clip) => void
   cmds?: { key: string; title: string; sub: string; run: () => void }[] // 명령 (Hera Link: 맥에 아스키 켜기 …)
   initialQ?: string // 허브 '스니펫' = ';'
+  star?: string[] // (a6) LP ★ = 검색 맨 위
 }
 
 const LIMIT = 30 // 목록 DOM 상한 (시작 메뉴 앱 300여 개)
@@ -28,7 +29,7 @@ const ago = (t: number) => {
 }
 
 // 실제 앱: Ctrl+Alt+K 전역 단축키(C3) → 팔레트 창. 시안: Ctrl+K. 검색은 단순 부분 일치.
-export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy, cmds = [], initialQ = '' }: Props) {
+export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onClose, clips, onCopy, cmds = [], initialQ = '', star = [] }: Props) {
   const [q, setQ] = useState(initialQ)
   const [sel, setSel] = useState(0)
   const [copied, setCopied] = useState<string | null>(null)
@@ -46,8 +47,10 @@ export function Palette({ records, todos, apps, onRun, onLaunch, onOpenTodo, onC
 
   const known = new Set(records.map((r) => r.target.toLowerCase()))
   const all: Item[] = [
-    ...records.map((r) => ({ key: r.id, title: r.title, sub: r.kind === 'set' ? 'LP 세트' : r.target, rec: r })),
-    ...cmds,
+    ...records.filter((r) => star.includes(r.id)).map((r) => ({ key: r.id, title: `★ ${r.title}`, sub: r.kind === 'set' ? 'LP 세트' : r.target, rec: r })),
+    ...cmds.filter((c) => star.includes(c.key)),
+    ...records.filter((r) => !star.includes(r.id)).map((r) => ({ key: r.id, title: r.title, sub: r.kind === 'set' ? 'LP 세트' : r.target, rec: r })),
+    ...cmds.filter((c) => !star.includes(c.key)),
     ...todos.filter((t) => !t.done).map((t) => ({ key: t.id, title: t.title, sub: '할 일' })),
     ...apps.filter(([, t]) => !known.has(t.toLowerCase())).map(([title, target]) => ({ key: target, title, sub: '시작 메뉴 앱', target })),
   ]

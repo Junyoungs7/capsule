@@ -1,24 +1,27 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openFx, panelOpen, sendAlert, setClip,
+  clipList, closePalette, closeSelf, isTauri, islandOpen, launch, openAscii, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, togglePanel, useItems, useValue, type AlertMsg, type FloatKind,
+  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
 import { fmtWhen, Island, type Alert, type NextItem } from '../surfaces/Island'
 import { CalendarFilter, groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
-import { Panel, TodoTab, type Tab } from '../surfaces/Panel'
+import { TodoTab } from '../surfaces/Todo'
+import { SettingsWin } from '../surfaces/Settings'
+import { ConnectHead, ConnectView, linkLook, useShare, type LinkBundle } from '../surfaces/Connect'
+import { FX_RECORDS, Launcher, useStar, type FxRec } from '../surfaces/Launcher'
+import { SnippetTab } from '../surfaces/Snippets'
 import { DETACHABLE, FIXED_H, GhostLayer, recordFrames, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
-import { customOf, draftOf, newDraft, PetImportView, SettingsView, useCustomPets, type Draft, type IslandPrefs } from '../surfaces/PetSettings'
+import { customOf, refreshPets, useCustomPets, type IslandPrefs } from '../surfaces/PetSettings'
 import { NOTE_COLORS } from '../surfaces/Notes'
 import { Ico } from '../surfaces/Icons'
 import type { CapSize } from '../surfaces/Pet'
 import { useSnippets } from '../surfaces/Snippets'
 import { expand } from '../data/snippets'
 import { ClipsList, FloatShell, FloatWin, ShelfList } from '../surfaces/Float'
-import { Player, type PlayerRec } from '../surfaces/Player'
 import { ChatWindow, type Msg as ChatMsg } from '../surfaces/Chat'
 import { TermPreview, TermWindow } from '../surfaces/Term'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
@@ -40,7 +43,7 @@ export function Desktop({ only }: { only?: string }) {
   const show = (s: string) => !only || only === s
   const [theme, setTheme] = useState(document.documentElement.dataset.theme)
   const [records, setRecords] = useItems<LpRecord>('record', seedRecords)
-  const [pinned, setPinned] = useValue<string[]>('dock.pinned', seedRecords.map((r) => r.id))
+  const [star, setStar] = useStar() // (a6) LP ★ = 상자 맨 앞 + 검색 맨 위
   const [todos, setTodos] = useItems('todo', seedTodos)
   const [events, setEvents] = useItems('event', seedEvents)
 
@@ -49,13 +52,11 @@ export function Desktop({ only }: { only?: string }) {
     // .lnk 는 대상 exe 를 한 번 풀어 둔다 (실행 집합은 exe 경로라서)
     const exe = isTauri && /\.lnk$/i.test(target) ? await lnkTarget(target).catch(() => undefined) : undefined
     setRecords((rs) => [...rs, { id, title, target, exe, kind: 'single', cover: COVERS[rs.length % COVERS.length], glyph: 'text' }])
-    setPinned((p) => [...p, id])
   }
   const removeRecord = (id: string) => {
     setRecords((rs) => rs.filter((r) => r.id !== id))
-    setPinned((p) => p.filter((x) => x !== id))
+    setStar({ ...star, app: (star.app ?? []).filter((x) => x !== id) })
   }
-  const togglePin = (id: string) => setPinned((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   // C2: 세트 = 기존 단일 레코드 묶음 (독에는 고정하지 않음 — LP 크레이트·팔레트에서 쓴다)
   const addSet = (title: string, targets: string[]) =>
     setRecords((rs) => [...rs, { id: crypto.randomUUID(), title, target: '', kind: 'set', targets, cover: COVERS[rs.length % COVERS.length], glyph: 'set' }])
@@ -147,6 +148,13 @@ export function Desktop({ only }: { only?: string }) {
   const sendToPeer = (paths: string[]) => paths.forEach((p) => void linkSend(p).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })))
   // 설정 저장은 store 에 비동기로 쓰인다 → 잠깐 뒤에 Rust 가 다시 읽게
   const applyLink = () => window.setTimeout(() => void linkApply(), 250)
+  // (a6) 연결 묶음: 아일랜드 '연결' 화면 · 허브 점 · 설정 창이 같이 쓴다
+  const linkB: LinkBundle = {
+    on: linkOn, setOn: (v) => (setLinkOn(v), applyLink()), cfg: linkCfg, setCfg: (c) => (setLinkCfg(c), applyLink()), status: link, filesPeer, pairedName: peerName, pair,
+    onPair: (ok) => void linkPair(ok), onImport: () => linkImport().then(setLinkCfg), onTrust: (fp) => void linkTrust(fp).catch((e) => showAlert({ title: '신뢰하지 못했어요', body: String(e) })), onUnpair: () => void linkUnpair(), xfer,
+  }
+  const [getShare] = useShare(linkB)
+  const filesTo = getShare('files') ? filesPeer : null // 함께 쓰기 → 파일을 끄면 보내기 대상 없음
 
   // v2 시간·계절 (시안 데모 바에서 바꿔 볼 수 있음) → 아스키 장면·효과 선택
   const [demoNow, setDemoNow] = useState<Date | null>(null)
@@ -343,18 +351,9 @@ export function Desktop({ only }: { only?: string }) {
     })
   }, [])
 
-  const [panel, setPanel] = useState<{ open: boolean; tab: Tab; sec?: string } | null>(() => {
-    const q = new URLSearchParams(location.search)
-    return only === 'panel' ? { open: true, tab: (q.get('tab') as Tab) ?? 'todo', sec: q.get('sec') ?? undefined } : null
-  })
-  // 이미 열린 패널에 허브가 다른 탭·섹션을 요청 ("settings&sec=team")
-  useEffect(() => {
-    if (!isTauri || only !== 'panel') return
-    return onEvent<string>('panel-tab', (t) => {
-      const q = new URLSearchParams('tab=' + t)
-      setPanel({ open: true, tab: (q.get('tab') as Tab) ?? 'todo', sec: q.get('sec') ?? undefined })
-    })
-  }, [])
+  // (a6) 설정 창: 실제 앱 = 별도 창(Rust 가 처음 열 때 생성), 시안 = 이 페이지 안 창
+  const [mockSettings, setMockSettings] = useState<string | null>(null)
+  const openSettingsWin = (sec = 'general') => (isTauri ? void openSettings(sec).catch((e) => showAlert({ title: '설정을 열 수 없어요', body: String(e) })) : setMockSettings(sec))
   const [palette, setPalette] = useState(only === 'palette')
 
   useEffect(() => {
@@ -383,13 +382,6 @@ export function Desktop({ only }: { only?: string }) {
     }
     for (const m of members(r)) await launch(m.target).catch((e) => showAlert({ title: `${m.title} 실행 실패`, body: String(e) }))
   }
-
-  // Tauri: 패널은 별도 창 (dock/island 에서 열면 Rust 가 지연 생성/닫기 요청)
-  const remotePanel = isTauri && only !== 'panel'
-  const openPanel = (tab: Tab) => (remotePanel ? void togglePanel(tab) : setPanel({ open: true, tab }))
-  const closePanel = () => (remotePanel ? void togglePanel('todo') : setPanel((p) => p && { ...p, open: false }))
-  const panelClosed = () => (isTauri && only === 'panel' ? void closePanelWindow() : setPanel(null))
-  useEffect(() => (isTauri && only === 'panel' ? onEvent('panel-close', closePanel) : undefined), [])
 
   const knownIds = useRef(new Set<string>())
   knownIds.current = new Set([...todos, ...events].map((x) => x.id))
@@ -447,9 +439,10 @@ export function Desktop({ only }: { only?: string }) {
   const setPref = <K extends keyof IslandPrefs>(k: K, v: IslandPrefs[K]) =>
     void ({ pet: setPetKey, size: setCapSize, place: setPlace, autohide: setAutohide, alerts: setPetAlerts } as Record<keyof IslandPrefs, (x: unknown) => void>)[k](v)
   const customs = useCustomPets()
-  const [draft, setDraft] = useState<Draft>(newDraft)
+  // (a6) 펫 추가·편집은 설정 창(다른 창)에서 → 모르는 내 펫이 고르면 목록을 다시 읽는다
+  useEffect(() => void (petKey.startsWith('custom:') && !customOf(petKey, customs) && refreshPets()), [petKey])
+  useEffect(() => (isTauri && only === 'island' ? onEvent('pets-changed', () => void refreshPets()) : undefined), [])
   const [toastMsg, setToastMsg] = useState<{ text: string; n: number } | null>(null)
-  const toast = (text: string) => setToastMsg((t) => ({ text, n: (t?.n ?? 0) + 1 }))
   useEffect(() => {
     if (!toastMsg) return
     const t = setTimeout(() => setToastMsg(null), 1800)
@@ -501,7 +494,7 @@ export function Desktop({ only }: { only?: string }) {
     if (isTauri && want) void islandFocus(true)
   }
   const go = (k: HubKind) => {
-    if (k === 'lp') return (setHub(false), openFloat('lp')) // LP 플레이어 = 바탕화면 소품
+    if (k === 'settings') return (setHub(false), openSettingsWin('general')) // (a6) 설정 = 별도 창
     if (detachedRef.current.has(k)) return (setHub(false), openFloat(k as FloatKind))
     setHubView(k)
   }
@@ -605,9 +598,16 @@ export function Desktop({ only }: { only?: string }) {
   }
   const notepad = (id: string) => (isTauri ? void noteNotepad(id).catch((e) => showAlert({ title: '메모장으로 열지 못했어요', body: String(e) })) : undefined)
   const openTodos = todos.filter((t) => !t.done).length
+  const [snipEdit, setSnipEdit] = useState(false) // 스니펫 화면 안 '편집' (예전 패널 '상용구' 탭)
+  // (a6) LP 런처: 아일랜드 안 화면 = 떼어낸 LP 창과 같은 것
+  const lpBody = () => (
+    <Launcher records={records} groups={groups} onRun={run} onAddRecord={(t, n) => void addRecord(t, n)} onRemoveRecord={removeRecord} onAddSet={addSet}
+      onSaveGroup={saveGroup} onRemoveGroup={(id) => setGroups((gs) => gs.filter((g) => g.id !== id))} onPlayFx={isTauri ? undefined : mockPlay} onStopFx={isTauri ? undefined : mockStop} />
+  )
   const viewBody = (k: ViewKind, ghostOnly = false): ReactNode =>
     k === 'notes' ? <NotesView notes={boardNotes} onAttach={(text) => (addNote(text), say('보드에 붙였어요', 'ok'))} onBoard={() => (setHub(false), openFloat('notes'))} onNotepad={notepad} />
     : k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
+    : k === 'snippets' && snipEdit ? <div className="snip-edit"><SnippetTab /><div className="foot"><small>어디서든 ; 로 시작</small><button className="btn ghost" onClick={() => setSnipEdit(false)}>완료</button></div></div>
     : k === 'snippets' ? (
       <>
         <div className="sect">어디서든 ; 로 시작 · 누르면 앞 앱에 붙여 넣기</div>
@@ -616,7 +616,7 @@ export function Desktop({ only }: { only?: string }) {
             <span className="trig">;{sn.title.slice(0, 6)}</span><span className="tt"><b>{sn.title}</b><small>{sn.body.split('\n')[0]}</small></span>
           </button>
         ))}
-        <div className="foot"><small>상용구 {snippets.length}개</small><button className="btn ghost" onClick={() => (setHub(false), openPanel('snippets'))}>편집</button></div>
+        <div className="foot"><small>상용구 {snippets.length}개</small><button className="btn ghost" data-snipedit onClick={() => setSnipEdit(true)}>편집</button></div>
       </>
     )
     : k === 'ocr' ? (
@@ -628,19 +628,8 @@ export function Desktop({ only }: { only?: string }) {
       </>
     )
     : k === 'team' ? <div className="view-team"><TeamSection /></div>
-    : k === 'link' ? (
-      <>
-        <div className="row" style={{ background: 'var(--fill-1)', minHeight: 60 }}>
-          <span className="sq" style={{ color: 'var(--teal)', background: 'rgba(64,200,224,.14)' }}><Ico k="laptop" /></span>
-          <span className="tt"><b>{link?.peer || linkCfg?.peer || 'Mac'}</b><small>{filesPeer ? `파일 채널: ${filesPeer}` : '마우스·키보드·클립보드·파일 나눠 쓰기'}</small></span>
-          <span className={`status ${link?.state === 'connected' ? 'ok' : 'idle'}`}>{link?.state === 'connected' ? '연결됨' : linkOn ? '기다리는 중' : '꺼짐'}</span>
-        </div>
-        <div className="foot"><small>Hera Link · 암호화됨</small><button className="btn ghost" onClick={() => (setHub(false), isTauri ? void hubAction('link') : openPanel('settings'))}><Ico k="link2" />Link 설정</button></div>
-      </>
-    )
-    : k === 'settings' ? <SettingsView prefs={prefs} set={setPref} onToast={toast} onPanel={() => (setHub(false), isTauri ? void hubAction('settings') : openPanel('settings'))}
-        onImport={() => (setDraft(newDraft()), setHubView('petimport'))} onEdit={(c) => void draftOf(c).then((d) => (setDraft(d), setHubView('petimport')))} />
-    : k === 'petimport' ? <PetImportView draft={draft} setDraft={setDraft} size={capSize} onCancel={() => setHubView('settings')} onSaved={(id) => (setPetKey(`custom:${id}`), setHubView('settings'))} />
+    : k === 'link' ? <ConnectView b={linkB} onSettings={(sec) => (setHub(false), openSettingsWin(sec))} />
+    : k === 'lp' ? lpBody()
     : floatBody(k as FloatKind)
   const floatBody = (f: FloatKind) =>
     f === 'todo' ? <TodoTab todos={todos} setTodos={setTodos} onAdded={peekIsland} />
@@ -650,14 +639,14 @@ export function Desktop({ only }: { only?: string }) {
       <>
         <div className="dropz"><div><Ico k="upload" />파일을 캡슐로 끌어다 놓으세요<br /><small style={{ color: 'var(--t3)' }}>최대 4개 · 나중에 다른 앱으로 끌어 쓰기</small></div></div>
         <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
-          onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
+          onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesTo ? (x) => sendToPeer([x.path]) : undefined} peer={filesTo ?? undefined} />
       </>
     )
     : f === 'chat' ? <ChatWindow setEvents={setEvents} onTeam={only === 'island' ? () => setHubView('team') : undefined} />
     : f === 'term' ? <TermWindow />
     : f === 'notes' ? <NoteBoard onNotepad={notepad} />
     : f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
-    : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
+    : f === 'lp' ? lpBody()
     : <p className="float-empty">준비 중이에요.</p>
   /* 캡슐 알림 = 펫 자세 + 짧은 글 (예전 알약들을 한 곳에) */
   const flashParts = flash ? ((x) => (x.length > 1 ? [x.slice(1).join(' · '), x[0]] : [flash.text, flash.icon === 'ok' ? '완료' : flash.icon === 'fail' ? '실패' : '']))(flash.text.split(' · ')) : ['', '']
@@ -669,7 +658,7 @@ export function Desktop({ only }: { only?: string }) {
     : alert
       ? { key: alert.id, pet: 'event', b: alert.title, s: alert.body, cls: 'warn', sticky: true, onOpen: () => openHub(alert.key?.startsWith('todo:') ? 'todo' : 'calendar'), acts: [{ label: '10분 뒤', run: snooze }, { label: '완료', primary: true, run: done }] }
       : !petAlerts ? null
-      : msg ? { key: `msg${msg.n}`, pet: 'chat', b: msg.who, s: msg.text, onOpen: () => (setMsg(null), setChatUnread(0), openHub('chat')) }
+      : msg && !(getShare('chat') && link?.onPeer) ? { key: `msg${msg.n}`, pet: 'chat', b: msg.who, s: msg.text, onOpen: () => (setMsg(null), setChatUnread(0), openHub('chat')) }
       : flash ? { key: `flash${flash.n}`, pet: flash.icon === 'fail' ? 'fail' : flash.icon === 'ok' ? 'done' : 'typing', b: flashParts[0], s: flashParts[1], cls: flash.icon === 'fail' ? 'bad' : flash.icon === 'ok' ? 'ok' : undefined, fail: flash.icon === 'fail', onOpen: flashTerm ? () => (setFlash(null), openHub('term')) : undefined }
       : ime ? { key: `ime${ime.n}`, pet: 'idle', b: ime.source === 'ko' ? '한' : 'A', s: '입력 언어' }
       : linkView?.xfer ? { key: 'xfer', pet: linkView.xfer.done ? 'done' : 'typing', b: linkView.xfer.name, s: `${linkView.xfer.dir === 'in' ? `${linkView.peer}에서 받는 중` : `${linkView.peer}으로 보내는 중`} · ${pct}%`, cls: linkView.xfer.done ? 'ok' : undefined }
@@ -682,19 +671,19 @@ export function Desktop({ only }: { only?: string }) {
   const renderOpen = (k: string): ReactNode =>
     k === 'hub' ? (
       <HubHome next={next} events={events.filter((e) => e.start.slice(0, 10) === new Date().toISOString().slice(0, 10)).length} todos={{ left: openTodos, total: todos.length }} unread={chatUnread}
-        weather={weather ? { city, text: weather.text, temp: weather.temp } : null} onGo={go} onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))} />
+        weather={weather ? { city, text: weather.text, temp: weather.temp } : null} onGo={go} link={linkLook(linkB)} onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))} />
     ) : (
-      <ViewShell k={k as ViewKind} onBack={() => setHubView(k === 'petimport' ? 'settings' : null)} onDetach={() => void detach(k as ViewKind)}
-        extra={k === 'todo' ? <span className="chp">{todos.length - openTodos} / {todos.length}</span> : k === 'notes' ? <button className="ib" aria-label="새 메모" onClick={() => addNote()}><Ico k="plus" /></button> : null}>
+      <ViewShell k={k as ViewKind} onBack={() => (setSnipEdit(false), setHubView(null))} onDetach={() => (k === 'lp' ? (setHub(false), openFloat('lp')) : void detach(k as ViewKind))}
+        extra={k === 'todo' ? <span className="chp">{todos.length - openTodos} / {todos.length}</span> : k === 'notes' ? <button className="ib" aria-label="새 메모" onClick={() => addNote()}><Ico k="plus" /></button> : k === 'link' ? <ConnectHead b={linkB} /> : null}>
         {viewBody(k as ViewKind)}
         {toastMsg && <div key={toastMsg.n} className="vtoast on" role="status">{toastMsg.text}</div>}
       </ViewShell>
     )
   const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
   // 시안: LP 플레이어가 실제 창 대신 이 페이지에서 재생
-  const mockPlay = (r: PlayerRec) =>
+  const mockPlay = (r: FxRec) =>
     r.kind === 'fx' ? setFx((f) => ({ kind: r.arg as FxKind, n: (f?.n ?? 0) + 1 })) : setAscii({ open: true, from: null, saver: false, scene: r.arg === 'auto' ? pickScene(clock) : (r.arg as SceneId), lp: `${r.title} · 아스키` })
-  const mockStop = (r: PlayerRec) => (r.kind === 'fx' ? setFx(null) : setAscii((a) => ({ ...a, open: false })))
+  const mockStop = (r: FxRec) => (r.kind === 'fx' ? setFx(null) : setAscii((a) => ({ ...a, open: false })))
 
   return (
     <div className="desktop" data-only={only ?? 'all'} data-real={isTauri} data-ascii={ascii.open}>
@@ -711,7 +700,7 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={fireAlert}>알림 발생</button>
               <button onClick={() => setHub((h) => !h)}>허브 열기</button>
               <button onClick={() => (setChatUnread((n) => n + 1), showMsg({ id: 'demo', group: 'tg-dev', by: '민수', kind: 'text', text: '내일 3시 회의 어때요? 배포 체크리스트 같이 봐요', at: Date.now() }))}>메시지 받기</button>
-              <button onClick={() => (panel?.open ? closePanel() : openPanel('todo'))}>패널</button>
+              <button onClick={() => (mockSettings ? setMockSettings(null) : openSettingsWin())}>설정 창</button>
               <button onClick={() => setPalette(true)}>검색 <kbd>Ctrl K</kbd></button>
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
             </div>
@@ -760,12 +749,12 @@ export function Desktop({ only }: { only?: string }) {
               }}>파일 전송</button>
             </div>
  <TeamDemo
-              onSettings={() => openPanel('settings')}
-              onCalendar={() => openPanel('calendar')}
+              onSettings={() => openSettingsWin('chat')}
+              onCalendar={() => openHub('calendar')}
               onNews={fireNews}
               onAlarm={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}
             />
-            <V3Demo onPanel={openPanel} onPalette={() => setPalette(true)} />
+            <V3Demo onPanel={(v) => (v === 'snippets' && setSnipEdit(true), openHub(v))} onPalette={() => setPalette(true)} />
           </aside>
           <Taskbar />
           <Ocr open={v3.ocr} onClose={() => setV3({ ocr: false })} onToast={(msg) => showAlert({ title: msg, body: '' })} />
@@ -790,7 +779,7 @@ export function Desktop({ only }: { only?: string }) {
             onDropFiles={(paths) => (setDragNear(false), dropFiles(paths, true))}
             forceDrop={dragNear}
             dropTo={chatOpen || (hub && hubView === 'chat') ? { label: '채팅에 보내기', onFiles: (paths) => void (isTauri && chatGroup ? chatSendPaths(chatGroup, paths).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) : undefined) }
-              : filesPeer ? { label: `${filesPeer}으로 보내기`, onFiles: sendToPeer } : null}
+              : filesTo ? { label: `${filesTo}으로 보내기`, onFiles: sendToPeer } : null}
           />
         </div>
       )}
@@ -809,50 +798,17 @@ export function Desktop({ only }: { only?: string }) {
           </div>
         )
       })}
-      {panel && show('panel') && (
-        <Panel
-          open={panel.open}
-          tab={panel.tab}
-          sec={panel.sec}
-          onTab={(tab) => setPanel({ open: true, tab })}
-          onClose={closePanel}
-          onClosed={panelClosed}
-          onAdded={peekIsland}
-          todos={todos}
-          setTodos={setTodos}
-          events={events}
-          setEvents={setEvents}
-          records={records}
-          pinned={pinned}
-          onAddRecord={addRecord}
-          onRemoveRecord={removeRecord}
-          onTogglePin={togglePin}
-          onAddSet={addSet}
-          groups={groups}
-          onSaveGroup={saveGroup}
-          onRemoveGroup={(id) => setGroups((gs) => gs.filter((g) => g.id !== id))}
-          fxOn={fxOn}
-          setFxOn={setFxOn}
-          city={city}
-          setCity={(c) => (setCity(c), setWeatherOverride(null))}
-          weather={weather}
+      {(only === 'settings' || (!only && mockSettings)) && (
+        <SettingsWin
+          sec={only === 'settings' ? new URLSearchParams(location.search).get('sec') : mockSettings}
+          key={only === 'settings' ? 'w' : mockSettings ?? ''}
+          prefs={prefs}
+          setPref={setPref}
+          fx={{ on: fxOn, setOn: setFxOn, city, setCity: (c) => (setCity(c), setWeatherOverride(null)), weather, now: () => playFx(pickFx(clock, weather)) }}
           idleMin={idleMin}
           setIdleMin={setIdleMin}
-          onFxNow={() => playFx(pickFx(clock, weather))}
-          link={{
-            on: linkOn,
-            setOn: (v) => (setLinkOn(v), applyLink()),
-            cfg: linkCfg,
-            setCfg: (c) => (setLinkCfg(c), applyLink()),
-            status: link,
-            filesPeer,
-            pairedName: peerName,
-            pair,
-            onPair: (ok) => void linkPair(ok),
-            onImport: () => linkImport().then(setLinkCfg),
-            onTrust: (fp) => void linkTrust(fp).catch((e) => showAlert({ title: '신뢰하지 못했어요', body: String(e) })),
-            onUnpair: () => void linkUnpair(),
-          }}
+          link={linkB}
+          onClose={isTauri ? undefined : () => setMockSettings(null)}
         />
       )}
       {palette && show('palette') && (
@@ -864,11 +820,12 @@ export function Desktop({ only }: { only?: string }) {
           apps={apps}
           onRun={run}
           onLaunch={(t) => void launch(t).catch((e) => showAlert({ title: '실행 실패', body: String(e) }))}
-          onOpenTodo={() => (isTauri ? void panelOpen().then((o) => o || togglePanel('todo')) : openPanel('todo'))}
+          onOpenTodo={() => (isTauri ? void islandOpen('todo') : openHub('todo'))}
+          star={[...(star.app ?? []), ...(star.fx ?? [])]}
           onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
           clips={clips}
           onCopy={copyClip}
-          cmds={filesPeer ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : []}
+          cmds={[...FX_RECORDS.filter((r) => star.fx?.includes(r.id)).map((r) => ({ key: r.id, title: `★ ${r.title}`, sub: r.kind === 'fx' ? 'LP · 화면 효과' : 'LP · 아스키 장면', run: () => (isTauri ? void (r.kind === 'fx' ? openFx(r.arg) : openAscii(null, r.arg === 'auto' ? undefined : r.arg)) : mockPlay(r)) })), ...(filesPeer && getShare('fx') ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : [])]}
         />
       )}
       {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}

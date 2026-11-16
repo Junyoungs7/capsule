@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
 import { isTauri, onStore, storeGet, storeSet, useItems } from '../data/api'
 import { reducedMotion } from './Tile'
-import type { Tab } from './Panel'
 import { Avatar, groupOf } from './Team'
 import { EMPTY } from '../data/mock'
 
@@ -169,7 +168,7 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNew, onNotepad, onDel
 const Ico = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
 /* ── 데모 바 'v3' 묶음 (시안 전용) ── */
-export function V3Demo({ onPanel, onPalette }: { onPanel: (t: Tab) => void; onPalette: () => void }) {
+export function V3Demo({ onPanel, onPalette }: { onPanel: (v: 'calendar' | 'snippets') => void; onPalette: () => void }) {
   const snippets = () => {
     onPalette()
     requestAnimationFrame(() => {

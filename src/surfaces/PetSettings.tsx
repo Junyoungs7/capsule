@@ -1,10 +1,10 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { isTauri, petDelete, petExport, petImport, petList, petSave } from '../data/api'
+import { isTauri, petDelete, petList, petSave, petsChanged } from '../data/api'
 import { Ico } from './Icons'
-import { Pet, PETS, petScale, PET_STATES, SIZES_CAP, STYLES, type CapSize, type CustomPet, type PetState, type PetStyle } from './Pet'
+import { Pet, PET_STATES, SIZES_CAP, type CapSize, type CustomPet, type PetState } from './Pet'
 
-/* 설정 (아일랜드 안 화면) = 내 펫 · 크기 · 위치 · 동작, 그리고 '펫 추가' 편집기 (pets/CUSTOM-PETS.md).
+/* 내 펫 목록 · '펫 추가' 편집기 (pets/CUSTOM-PETS.md) — (a6) 설정 창 '펫' 섹션이 쓴다.
    이미지는 이 PC 에만: 실제 앱 = Rust 가 %APPDATA%\Hera\pets 에 검사해서 저장, 시안 = 이 페이지 메모리. */
 
 /* ── 내 펫 목록 (모듈 하나 — 저장·삭제 뒤 다시 읽는다) ── */
@@ -26,83 +26,12 @@ export const customOf = (key: string, list: CustomPet[]) => (key.startsWith('cus
 
 export type IslandPrefs = { pet: string; size: CapSize; place: 'br' | 'bl'; autohide: boolean; alerts: boolean }
 
-function Mini({ k, c }: { k: string; c?: CustomPet }) {
-  return <span className="mini"><Pet kind={k} custom={c} state="idle" pk={c ? 1 : petScale(PETS[k]?.style ?? 'flat', 's')} /></span>
-}
-
-export function SettingsView({ prefs, set, onImport, onEdit, onToast, onPanel }: {
-  prefs: IslandPrefs
-  set: <K extends keyof IslandPrefs>(k: K, v: IslandPrefs[K]) => void
-  onImport: () => void
-  onEdit: (c: CustomPet) => void
-  onToast: (msg: string) => void
-  onPanel: () => void
-}) {
-  const list = useCustomPets()
-  const cur = customOf(prefs.pet, list)
-  const [tab, setTab] = useState<PetStyle | 'custom'>(cur ? 'custom' : PETS[prefs.pet]?.style ?? 'flat')
-  const zip = () => pick('.zip,application/zip', false, false, async (fs) => {
-    try {
-      const id = await petImport(fs[0])
-      await refreshPets()
-      set('pet', `custom:${id}`)
-      onToast('펫을 가져왔어요')
-    } catch (e) {
-      onToast(`가져오지 못했어요 · ${e}`)
-    }
-  })
-  return (
-    <>
-      <div className="sect">내 펫 · 캡슐에 사는 친구 ({Object.keys(PETS).length}종)</div>
-      <div className="pettabs">
-        {(Object.keys(STYLES) as (PetStyle | 'custom')[]).map((k) => (
-          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{STYLES[k]}</button>
-        ))}
-      </div>
-      {tab !== 'custom' ? (
-        <div className="petpick">
-          {Object.entries(PETS).filter(([, p]) => p.style === tab).map(([k, p]) => (
-            <button key={k} className={prefs.pet === k ? 'on' : ''} data-pet-set={k} onClick={() => set('pet', k)}><Mini k={k} /><small>{p.name}</small></button>
-          ))}
-        </div>
-      ) : (
-        <div className="petpick">
-          {list.map((c) => (
-            <div key={c.id} className="ctile">
-              <button className={prefs.pet === `custom:${c.id}` ? 'on' : ''} data-pet-set={`custom:${c.id}`} onClick={() => set('pet', `custom:${c.id}`)}><Mini k={c.id} c={c} /><small>{c.name}</small></button>
-              <span className="cact">
-                <button onClick={() => onEdit(c)} aria-label={`${c.name} 편집·이름 바꾸기`} title="편집·이름 바꾸기">✎</button>
-                <button onClick={() => void petExport(c.id).then((p) => onToast(`내보냈어요 · ${p}`), (e) => onToast(String(e)))} aria-label={`${c.name} 내보내기`} title=".herapet.zip 으로 내보내기">⇩</button>
-                <button data-cpet-del={c.id} onClick={() => void (isTauri ? petDelete(c.id) : Promise.resolve((customs = customs.filter((x) => x.id !== c.id)))).then(() => (prefs.pet === `custom:${c.id}` && set('pet', 'cat'), refreshPets()))} aria-label={`${c.name} 삭제`} title="삭제">✕</button>
-              </span>
-            </div>
-          ))}
-          <button className="cadd" data-cpet="add" onClick={onImport}><Ico k="plus" /><small>펫 추가</small></button>
-          <button className="cadd" onClick={zip} title=".herapet.zip 가져오기"><Ico k="upload" /><small>zip 가져오기</small></button>
-        </div>
-      )}
-      <div className="sect" style={{ marginTop: 8 }}>크기 · 캡슐과 펫만 (허브·화면은 그대로)</div>
-      <div className="seg">
-        {(Object.keys(SIZES_CAP) as CapSize[]).map((k) => (
-          <button key={k} className={prefs.size === k ? 'on' : ''} data-size-set={k} onClick={() => set('size', k)}>{SIZES_CAP[k][0]}</button>
-        ))}
-      </div>
-      <div className="sect" style={{ marginTop: 8 }}>위치</div>
-      <div className="seg">
-        {([['br', '오른쪽 아래'], ['bl', '왼쪽 아래']] as const).map(([k, l]) => (
-          <button key={k} className={prefs.place === k ? 'on' : ''} data-place-set={k} onClick={() => set('place', k)}>{l}</button>
-        ))}
-      </div>
-      <div className="sect" style={{ marginTop: 8 }}>동작</div>
-      {([['autohide', '전체화면 앱에서 자동으로 숨기기', '게임·발표·영상 전체화면일 때'], ['alerts', '펫이 알림 알려 주기', '일정·채팅·터미널·선반']] as const).map(([k, t, s]) => (
-        <div key={k} className="row" style={{ padding: '0 4px' }}>
-          <span className="tt"><b>{t}</b><small>{s}</small></span>
-          <button className={`sw ${prefs[k] ? 'on' : ''}`} aria-label={t} aria-pressed={prefs[k]} onClick={() => set(k, !prefs[k])} />
-        </div>
-      ))}
-      <div className="foot"><small>Ctrl+Alt+K 검색 · Ctrl+` 터미널</small><button className="btn ghost" onClick={onPanel}>전체 설정</button></div>
-    </>
-  )
+/** 내 펫 지우기 (실제 앱 = Rust, 시안 = 이 페이지 메모리) */
+export async function removePet(id: string) {
+  if (isTauri) await petDelete(id)
+  else customs = customs.filter((x) => x.id !== id)
+  await refreshPets()
+  petsChanged()
 }
 
 /* ── 펫 추가 · 편집 ── */
@@ -153,7 +82,7 @@ export function looksPixel(f: { w: number; h: number; img?: HTMLImageElement }) 
 const STATE_KEYS = PET_STATES.map(([k]) => k)
 export const stateOfName = (name: string) => STATE_KEYS.find((k) => new RegExp(`(^|[\\\\/_-])${k}\\.`, 'i').test(name))
 
-function pick(accept: string, multiple: boolean, folder: boolean, cb: (fs: File[]) => void) {
+export function pick(accept: string, multiple: boolean, folder: boolean, cb: (fs: File[]) => void) {
   const inp = document.createElement('input')
   inp.type = 'file'
   inp.accept = accept
@@ -212,6 +141,7 @@ export function PetImportView({ draft, setDraft, size, onSaved, onCancel }: { dr
       const id = isTauri ? await petSave({ id: draft.id, name: c.name, style, sheet: c.sheet }, files) : draft.id ?? Math.random().toString(36).slice(2, 10)
       if (!isTauri) customs = [...customs.filter((x) => x.id !== id), { ...c, id }]
       await refreshPets()
+      petsChanged()
       onSaved(id)
     } catch (e) {
       setErr(String(e))

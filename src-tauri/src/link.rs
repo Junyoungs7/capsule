@@ -646,7 +646,9 @@ fn hello_after_ready(app: &AppHandle) {
     send(json!({ "t": "monitors", "list": mons }));
     let c = read_cfg(app).1;
     send(json!({ "t": "keymap", "preset": c.keymap, "rows": c.key_rows, "ime": c.ime }));
-    send(json!({ "t": "sync", "items": sync_snapshot(app) }));
+    if shared(app, "sync") {
+        send(json!({ "t": "sync", "items": sync_snapshot(app) }));
+    }
 }
 
 fn on_msg(app: &AppHandle, m: &Value) {
@@ -662,7 +664,7 @@ fn on_msg(app: &AppHandle, m: &Value) {
             }
             let _ = app.emit("link-monitors", ());
         }
-        "ambient" => on_ambient(app, m),
+        "ambient" if shared(app, "fx") => on_ambient(app, m),
         "sync" => sync_apply(app, m["items"].clone()),
         // 맥이 알려 준 지금 입력 소스 → Island 칩
         "ime" if m["action"] == "state" => {
@@ -684,7 +686,7 @@ fn on_msg(app: &AppHandle, m: &Value) {
 pub fn update_edges(app: &AppHandle) {
     #[cfg(windows)]
     {
-        let segs = if files_connected().is_some() { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
+        let segs = if files_connected().is_some() && shared(app, "files") { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
         crate::edge::set(segs);
     }
     let _ = app;
@@ -724,6 +726,11 @@ fn with_meta<R>(app: &AppHandle, f: impl FnOnce(&mut ls::Meta) -> R) -> R {
     r
 }
 
+/// (a6) 설정 → 연결 → 함께 쓰기. store `link.share.<k>` (없으면 켬). clip · files · sync · chat · fx
+pub fn shared(app: &AppHandle, k: &str) -> bool {
+    app.store("hera.json").ok().and_then(|s| s.get("link.share")).and_then(|v| v.get(k).and_then(|b| b.as_bool())).unwrap_or(true)
+}
+
 fn personal(scope: &str) -> bool {
     scope == "personal" // Hera Team: 그룹 scope 는 그룹 채널로 (아직 없음)
 }
@@ -735,7 +742,7 @@ fn sync_snapshot(app: &AppHandle) -> Vec<ls::Item> {
 
 /// 이 PC 에서 바뀐 할 일/일정 (store 변경 이벤트) → 메타 갱신 + 맥으로
 fn on_store_change(app: &AppHandle, key: &str, value: Option<Value>) {
-    if !ls::syncable(key) {
+    if !ls::syncable(key) || !shared(app, "sync") {
         return;
     }
     {
@@ -755,6 +762,9 @@ fn on_store_change(app: &AppHandle, key: &str, value: Option<Value>) {
 }
 
 fn sync_apply(app: &AppHandle, items: Value) {
+    if !shared(app, "sync") {
+        return;
+    }
     let Ok(items) = serde_json::from_value::<Vec<ls::Item>>(items) else { return };
     let todo = with_meta(app, |m| {
         let t = ls::merge(m, &items, personal);
@@ -1011,7 +1021,10 @@ pub fn send_file(app: &AppHandle, path: &str) -> Result<(), String> {
 
 /// 이 PC 클립보드 기록에 새 항목 → 맥 Hera 기록에도 (클립보드 자체는 엔진이 맞춘다)
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn on_local_clip(text: &str) {
+pub fn on_local_clip(app: &AppHandle, text: &str) {
+    if !shared(app, "clip") {
+        return;
+    }
     let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) else { return };
     let t = text.to_string();
     std::thread::spawn(move || {

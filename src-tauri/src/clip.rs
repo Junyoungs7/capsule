@@ -126,9 +126,9 @@ fn on_update() {
     };
     if let Some(app) = APP.get() {
         let _ = app.emit("clips", snapshot.clone());
-    }
-    if let Some(c) = snapshot.first() {
-        crate::link::on_local_clip(&c.text);
+        if let Some(c) = snapshot.first() {
+            crate::link::on_local_clip(app, &c.text);
+        }
     }
 }
 

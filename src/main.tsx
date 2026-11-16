@@ -7,6 +7,7 @@ import './styles/v3.css'
 import './styles/team.css'
 import './styles/island.css'
 import './styles/capsule.css'
+import './styles/a6.css'
 import { Desktop } from './mockup/Desktop'
 import { installMotion } from './motion'
 

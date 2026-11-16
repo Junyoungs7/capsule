@@ -13,34 +13,13 @@
 .demo-seg button { flex: 1; padding: 5px 0; border: 0; border-radius: 7px; background: none; font-size: 12px; font-weight: 550; color: var(--text-2); }
 .demo-seg button[aria-pressed='true'] { color: var(--text); background: var(--seg); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 
-.folder-tile {
-  grid-template-columns: 1fr 1fr;
-  gap: 3px;
-  padding: 6px;
-  background: var(--fill-2);
-  box-shadow: inset 0 0 0 1px var(--line-strong), inset 0 1px 0 var(--edge-top);
-}
-.folder-tile .tile { border-radius: 28%; box-shadow: none; }
 /* ── 패널: 탭 4개 · 라이브러리 묶음 · 설정 ── */
 .tabs { grid-template-columns: repeat(4, 1fr); }
 .tab-ind { width: calc((100% - 6px) / 4); }
-.lib-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.list.groups { flex: none; padding-bottom: 6px; box-shadow: inset 0 -1px 0 var(--line); }
-.list .folder-tile { padding: 4px; gap: 2px; border-radius: 26%; }
 .settings { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; }
 .settings h3 { margin: 6px 4px 0; font-size: 12px; font-weight: 650; color: var(--text-2); }
 .settings .row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
 .settings .row > small { color: var(--text-2); }
-.settings input.city, .settings input.mins {
-  width: 92px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--field);
-  box-shadow: inset 0 0 0 1px var(--line);
-}
-.settings input.mins { width: 58px; text-align: right; }
-.settings .now { align-self: flex-end; padding: 7px 16px; }
 .switch {
   appearance: none;
   position: relative;
@@ -195,21 +174,12 @@
 /* 선반 우클릭 메뉴 (연결 중) */
 .shelf { position: relative; }
 .shelf-menu { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); animation: fade 140ms ease-out; }
-/* 패널 설정: 연결 */
-.link-note { margin: 0 4px; padding: 8px 10px; border-radius: 10px; font-size: 12px; color: var(--text); background: var(--accent-soft); }
-.link-note[data-state='blocked'], .link-note[data-state='error'] { background: rgba(255, 159, 10, 0.16); }
 .settings .mono { font-family: 'Cascadia Mono', Consolas, monospace; }
-.settings .pair-row .code { font: 700 18px/1.2 var(--font-display); letter-spacing: 0.1em; color: var(--text); }
 .layout-grid { position: relative; display: grid; grid-template: 18px 30px 18px / 30px 44px 30px; gap: 3px; flex: none; }
 .layout-grid .me { grid-area: 2 / 2; display: grid; place-items: center; border-radius: 6px; font-size: 10px; font-weight: 700; color: var(--text-2); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .layout-grid .slot { padding: 0; border: 1px dashed var(--line-strong); border-radius: 6px; font-size: 9.5px; font-weight: 700; color: #fff; background: none; transition: background 160ms; }
 .layout-grid .slot[aria-checked='true'] { border-style: solid; border-color: transparent; background: #0a84ff; }
 .layout-grid .top { grid-area: 1 / 2; } .layout-grid .bottom { grid-area: 3 / 2; } .layout-grid .left { grid-area: 2 / 1; } .layout-grid .right { grid-area: 2 / 3; }
-.link-fields { gap: 6px; }
-.link-fields label { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; font-size: 11px; color: var(--text-2); }
-.link-fields input { min-width: 0; padding: 6px 8px; border: 0; border-radius: 8px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
-.link-actions { display: flex; align-items: center; gap: 8px; margin: 0 4px; }
-.link-actions small { color: var(--text-2); }
 
 
 /* ── Hera Link 3b: 모니터 배치 · 키 매핑 · 상대 PC · 한/영 칩 ── */
@@ -225,28 +195,16 @@
 .mon-sizes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); }
 .mon-sizes label { display: flex; align-items: center; gap: 3px; }
 .mon-sizes input { width: 52px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
-.keymap { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .presets button { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 0; border-radius: 10px; text-align: left; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 160ms, background 160ms; }
 .presets button[aria-checked='true'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
 .presets b { font-size: 12.5px; }
 .presets small { font-size: 10.5px; line-height: 1.3; color: var(--text-2); }
-.key-rows { display: flex; flex-direction: column; gap: 4px; }
-.key-row { display: flex; align-items: center; gap: 6px; }
-.key-row .cap { min-width: 92px; padding: 6px 8px; border: 0; border-radius: 8px; font-weight: 600; background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
-.key-row .cap[data-on='true'] { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); animation: attn-dot 700ms ease-in-out infinite alternate; }
-.key-row select, .ime-row select { padding: 5px 6px; border: 0; border-radius: 8px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
-.kbd-row { display: flex; gap: 4px; padding: 8px; border-radius: 12px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); }
 .kbd { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 7px; background: var(--seg); box-shadow: inset 0 -2px 0 var(--line-strong); }
 .kbd[data-wide='true'] { flex: 2.4; }
 .kbd b { font-size: 11px; }
 .kbd small { font-size: 9.5px; color: var(--text-2); white-space: nowrap; }
 .kbd[data-changed='true'] small { color: var(--accent); font-weight: 650; }
-.ambient { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
-.amb-btns { display: flex; flex-wrap: wrap; gap: 5px; }
-.amb-btns button { padding: 6px 11px; border: 0; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line); }
-.amb-btns button:hover { color: var(--accent); }
-.ambient > small { color: var(--text-2); font-size: 11px; }
 /* Island: 클릭되는 연결 칩, 한/영 칩 */
 .island button.link-chip { border: 0; cursor: default; }
 .island button.link-chip:hover { background: rgba(80, 160, 255, 0.35); color: #fff; }

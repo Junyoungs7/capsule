@@ -8,24 +8,25 @@ import { Ico, type IcoKey } from './Icons'
    위 = 오늘 (날짜 · 날씨 · 다음 일정 · 할 일 고리), 가운데 = 이름 붙은 아이콘 13개 (색 우물), 아래 = '앱 실행 · 검색'.
    아이콘 = 그 화면을 아일랜드 안에서 (‹ 뒤로). 떠 있는 창은 '떼어낼' 때만 (↗). LP = 바탕화면 소품 (떠 있는 플레이어). */
 
-export type ViewKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'ocr' | 'snippets' | 'team' | 'link' | 'settings' | 'petimport'
-export type HubKind = Exclude<ViewKind, 'petimport'> | 'lp'
+// (a6) 설정 = 별도 설정 창 (아일랜드 안 화면 아님) · LP = 아일랜드 안 런처 화면 · Link → '연결'
+export type ViewKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'ocr' | 'snippets' | 'team' | 'link' | 'lp'
+export type HubKind = ViewKind | 'settings'
 export const HUB: [HubKind, string, string][] = [
   ['notes', '메모', '--yellow'], ['todo', '할 일', '--orange'], ['calendar', '달력', '--red'], ['chat', '채팅', '--green'], ['term', '터미널', '--gray'],
   ['clips', '최근 복사', '--cyan'], ['shelf', '선반', '--indigo'], ['ocr', 'OCR', '--purple'], ['snippets', '스니펫', '--pink'], ['lp', 'LP', '--brown'],
-  ['team', 'Team', '--blue'], ['link', 'Link', '--teal'], ['settings', '설정', '--gray'],
+  ['team', 'Team', '--blue'], ['link', '연결', '--teal'], ['settings', '설정', '--gray'],
 ]
-export const NAME = { ...Object.fromEntries(HUB.map(([k, l]) => [k, l])), petimport: '펫 추가' } as Record<ViewKind | 'lp', string>
-export const COLOR = { ...Object.fromEntries(HUB.map(([k, , c]) => [k, c])), petimport: '--pink' } as Record<ViewKind | 'lp', string>
+export const NAME = Object.fromEntries(HUB.map(([k, l]) => [k, l])) as Record<HubKind, string>
+export const COLOR = Object.fromEntries(HUB.map(([k, , c]) => [k, c])) as Record<HubKind, string>
 /** 안의 화면 [폭, 최대 높이] (논리 px). 높이는 내용에 맞춘다 — 터미널·채팅만 고정 (안을 채우는 화면). 떼어내면 잰 크기로 창이 된다 */
-export const FIXED_H = new Set<ViewKind>(['term', 'chat'])
+export const FIXED_H = new Set<ViewKind>(['term', 'chat', 'lp'])
 export const VIEW_SIZE: Record<ViewKind, [number, number]> = {
   notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480],
-  ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [380, 400], settings: [380, 640], petimport: [440, 640],
+  ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [420, 540], lp: [452, 612],
 }
 export const VIEWS = Object.keys(VIEW_SIZE) as ViewKind[]
-export const DETACHABLE = (k: ViewKind) => k !== 'settings' && k !== 'petimport' && k !== 'notes' // 메모 = '보드 열기' (보드 창이 떼어낸 모양)
-const ICON: Record<ViewKind, IcoKey> = { notes: 'notes', todo: 'todo', calendar: 'calendar', chat: 'chat', term: 'term', clips: 'clips', shelf: 'shelf', ocr: 'ocr', snippets: 'snippets', team: 'team', link: 'link', settings: 'settings', petimport: 'plus' }
+export const DETACHABLE = (k: ViewKind) => k !== 'notes' && k !== 'link' // 메모 = '보드 열기' (보드 창이 떼어낸 모양) · 연결 = 설정 창이 자세한 곳
+const ICON: Record<ViewKind, IcoKey> = { notes: 'notes', todo: 'todo', calendar: 'calendar', chat: 'chat', term: 'term', clips: 'clips', shelf: 'shelf', ocr: 'ocr', snippets: 'snippets', team: 'team', link: 'link', lp: 'lp' }
 
 const ring = (p: number, c: string) => {
   const r = 11, L = 2 * Math.PI * r
@@ -47,9 +48,10 @@ type HomeProps = {
   weather?: { city: string; text: string; temp: number } | null
   onGo: (k: HubKind) => void
   onPalette: () => void
+  link?: { cls: string; label: string; title: string; sub: string } | null // (a6) 연결 아이콘 점 + 한 줄
 }
 
-export function HubHome({ next, events, todos, unread, weather, onGo, onPalette }: HomeProps) {
+export function HubHome({ next, events, todos, unread, weather, onGo, onPalette, link }: HomeProps) {
   return (
     <div className="hub" role="dialog" aria-label="Hera 허브">
       <div className="today">
@@ -80,11 +82,19 @@ export function HubHome({ next, events, todos, unread, weather, onGo, onPalette 
             <span className="well" style={{ '--c': `var(${c})` } as CSSProperties}>
               <Ico k={k} />
               {k === 'chat' && unread > 0 && <i className="badge">{unread}</i>}
+              {k === 'link' && link && <i className={`sdot ${link.cls}`} data-sdot={link.cls} />}
             </span>
             <span>{l}</span>
           </button>
         ))}
       </div>
+      {link && link.cls !== 'off' && (
+        <button className="linkline" data-go="link" onClick={() => onGo('link')}>
+          <span className="well sm" style={{ '--c': 'var(--teal)' } as CSSProperties}><Ico k="link" /></span>
+          <span className="tt"><b>{link.title}</b><small>{link.sub}</small></span>
+          <span className={`chp lchip ${link.cls}`}><i />{link.label}</span>
+        </button>
+      )}
       <button className="search" onClick={onPalette}>
         <Ico k="search" />
         <span>앱 실행 · 검색</span>

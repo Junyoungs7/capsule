@@ -207,7 +207,13 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       case 'term_start': return 'C:\\Users\\me'
       case 'clips': return []
       case 'start_apps': return []
-      case 'panel_open': return false
+      // (a6) 설정 창: 없으면 만들고(940×680), 있으면 그 섹션으로 · 자기 창 닫기
+      case 'settings_open': {
+        if (pages.has('settings')) { await emitTo('settings', 'settings-sec', a.sec); return null }
+        await open(`settings&sec=${a.sec}`, { label: 'settings', geo: { x: 490, y: 176, w: 940, h: 680 } })
+        return null
+      }
+      case 'close_self': await closePage(p.label); return null
       case 'mcp_log': return []
       case 'mcp_info': return ''
       case 'power': return null

@@ -52,7 +52,7 @@ function Lens({ id, map, scale, chroma = true }: { id: string; map: string; scal
   )
 }
 
-const HL = '.panel, .palette, .demo, .note'
+const HL = '.palette, .demo, .note'
 
 export function GlassDefs() {
   const maps = useMemo(
@@ -63,7 +63,6 @@ export function GlassDefs() {
       dock: lensMap(2, 84, 0, 0.28, 12 / 84),
       // 패널·팔레트: ~10px 테두리 띠만 굴절 (가운데는 변위 0). 맵은 비율이라 표면 크기별로 하나씩.
       // ponytail: 높이가 바뀌는 팔레트는 대표 크기 기준 — 띠 폭이 몇 px 달라질 수 있음
-      panel: lensMap(256, 256, 10 / 384, 10 / 540), // 384×540
       palette: lensMap(256, 256, 10 / 580, 10 / 420), // 580×~420
     }),
     [],
@@ -112,7 +111,6 @@ export function GlassDefs() {
       <Lens id="hera-lens" map={maps.lens} scale={0.07} />
       <Lens id="hera-lens-dock" map={maps.dock} scale={0.17} />
       {/* 테두리 렌즈: 처음 안의 ~65% 세기 (사용자 조정) */}
-      <Lens id="hera-rim-panel" map={maps.panel} scale={0.022} chroma={false} />
       <Lens id="hera-rim-palette" map={maps.palette} scale={0.016} chroma={false} />
     </svg>
   )

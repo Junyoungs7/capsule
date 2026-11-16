@@ -148,6 +148,8 @@ export type AlertMsg = { title: string; body: string }
 export const sendAlert = (a: AlertMsg) => emit('hera-alert', a)
 /** 아일랜드 안 화면 열기 (어느 창에서든 — 예전 패널 창을 띄우지 않는다) */
 export const islandOpen = (view: string) => emit('island-open', view)
+// (a6) 설정 창에서 내 펫을 저장·삭제했다 → 아일랜드가 목록을 다시 읽게
+export const petsChanged = () => (isTauri ? void emit('pets-changed') : undefined)
 
 /* ── 클릭 통과 히트 rect ──
    B0-3: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 시안에서는 no-op.
@@ -175,11 +177,10 @@ export function reportHitRects(surface: string, rects: DOMRect[]) {
   sendRects([...lastRects.values()].flat()) // 한 창 안의 여러 표면(예: island + mcp 확인 카드) rect 합집합
 }
 
-// 패널 창: 없으면 지연 생성, 있으면 'panel-close' → 닫힘 애니메이션 → closePanelWindow() 로 파괴.
-// 열림/닫힘은 Rust 가 'panel-state'(bool) 로 알린다.
-export const togglePanel = (tab: string) => invoke('toggle_panel', { tab })
-export const closePanelWindow = () => invoke('close_panel')
-export const panelOpen = () => invoke<boolean>('panel_open')
+// (a6) 설정 창 940×680 (처음 열 때 생성, 닫으면 파괴). sec = general|island|pet|link|chat|term|keys|about, 연결 탭은 'link:devices'
+export const openSettings = (sec = 'general') => invoke('settings_open', { sec })
+// Windows 시작 시 실행 (on 없으면 읽기만)
+export const autostart = (on?: boolean) => invoke<boolean>('autostart', { on })
 
 // B0-1 ② 배경화면 페이크용 원본 바이트. 단색/없음 → null (틴트 폴백)
 export const wallpaper = () =>
@@ -203,8 +204,8 @@ export const setClip = (text: string) => invoke('set_clip', { text })
 // 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
 export const openAscii = (from: [number, number, number, number] | null, scene?: string) => invoke('ascii', { from, scene })
 export const openFx = (kind: string) => invoke('fx', { kind })
-// 호출한 창 파괴 (패널·아스키·효과 공용 — Rust close_panel 은 호출 창을 닫는다)
-export const closeSelf = () => invoke('close_panel')
+// 호출한 창 파괴 (설정·아스키·효과 공용 — Rust close_self 는 호출 창을 닫는다)
+export const closeSelf = () => invoke('close_self')
 
 /* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
 export type FloatKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'

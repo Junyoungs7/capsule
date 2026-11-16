@@ -47,7 +47,7 @@ use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 // 아일랜드 창 = 주 모니터 폭 × 600 (island.rs). 모양은 CSS (노치 120×6 · 알약 · 허브 · 안의 화면) — 클릭 통과는 watch 루프의 히트 rect.
 /// 터미널 드롭다운 단축키 기본값 (store `term.hotkey` 로 바꿈)
 const TERM_HOTKEY: &str = "Ctrl+Backquote";
-const PANEL: (f64, f64) = (384.0, 540.0);
+const SETTINGS: (f64, f64) = (940.0, 680.0); // (a6) 설정 창 (예전 패널 창 대신)
 const PALETTE: (f64, f64) = (596.0, 460.0);
 /// C3 팔레트 단축키 (Open Question 2 — Win+K 는 OS 예약, Alt+Space 는 PowerToys 와 충돌)
 const PALETTE_HOTKEY: &str = "Ctrl+Alt+K";
@@ -88,48 +88,25 @@ pub(crate) fn place(app: &AppHandle) {
     let Ok(Some(m)) = app.primary_monitor() else { return };
     let (s, wa) = (m.scale_factor(), *m.work_area());
     island::place(app);
-    let (x, y, w, h) = (wa.position.x as f64, wa.position.y as f64, wa.size.width as f64, wa.size.height as f64);
-    if let Some(win) = app.get_webview_window("panel") {
-        let _ = win.set_position(PhysicalPosition::new(
-            (x + w - (PANEL.0 + 24.0) * s).round() as i32,
-            (y + h - (PANEL.1 + 120.0) * s).max(y).round() as i32,
-        ));
-    }
+    let _ = (s, wa);
 }
 
-/// 패널: 없으면 생성(지연 생성), 있으면 닫기 이벤트(JS 가 닫힘 애니메이션 후 close_panel 로 파괴).
-fn toggle(app: &AppHandle, tab: &str) -> tauri::Result<()> {
-    if app.get_webview_window("panel").is_some() {
-        return app.emit_to("panel", "panel-close", ());
-    }
-    open_panel(app, tab)
-}
-
-/// 패널 열기 (열려 있으면 그 탭·섹션으로). tab = todo|calendar|library|snippets|settings, 설정은 `settings&sec=team|link` 처럼 섹션까지.
-pub(crate) fn open_panel(app: &AppHandle, tab: &str) -> tauri::Result<()> {
-    if let Some(w) = app.get_webview_window("panel") {
-        app.emit_to("panel", "panel-tab", tab)?;
+/// (a6) 설정 창 940×680: 처음 열 때 만들고(평소 0), 닫으면 파괴. 열려 있으면 그 섹션으로 + 앞으로.
+/// sec = general|island|pet|link|chat|term|keys|about (연결은 `link:devices` 처럼 탭까지)
+pub(crate) fn open_settings(app: &AppHandle, sec: &str) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("settings") {
+        app.emit_to("settings", "settings-sec", sec)?;
         w.show()?;
         return w.set_focus();
     }
-    let mut b = builder(app, "panel", format!("index.html?surface=panel&tab={tab}"), PANEL)
+    let mut b = builder(app, "settings", format!("index.html?surface=settings&sec={sec}"), SETTINGS)
         .shadow(true) // Win11: 라운드 코너 + 그림자
-        .disable_drag_drop_handler(); // B0-4: panel 은 HTML5 드롭(URL)
+        .center()
+        .disable_drag_drop_handler();
     if let Some(island) = app.get_webview_window("island") {
         b = b.parent(&island)?; // 소유 창(owner = TOOLWINDOW 아일랜드) → Alt+Tab 에서 제외
     }
     let win = b.build()?;
-    // 독의 '패널 열림' 점: 생성/파괴를 이벤트로 (localStorage 공유 대체)
-    let h = app.clone();
-    win.on_window_event(move |e| {
-        if let WindowEvent::Destroyed = e {
-            let _ = h.emit("panel-state", false);
-        }
-    });
-    app.emit("panel-state", true)?;
-    // B0-2: panel 만 OS 백드롭
-    let _ = window_vibrancy::apply_acrylic(&win, None);
-    place(app);
     win.show()?;
     win.set_focus()
 }
@@ -511,9 +488,9 @@ async fn hub_action(app: AppHandle, kind: String) -> Result<(), String> {
         "notes" => float::open(&app, "notes").map_err(e), // (a4) 메모 보드
         "ocr" => tauri::async_runtime::spawn_blocking(move || ocr_open(&app)).await.map_err(|e| e.to_string())?,
         "snippets" => show_palette(&app, Some(";".into())).map_err(e),
-        "team" => open_panel(&app, "settings&sec=team").map_err(e),
-        "link" => open_panel(&app, "settings&sec=link").map_err(e),
-        "settings" => open_panel(&app, "settings").map_err(e),
+        "team" => open_settings(&app, "chat").map_err(e),
+        "link" => open_settings(&app, "link").map_err(e),
+        "settings" => open_settings(&app, "general").map_err(e),
         "palette" => show_palette(&app, Some(String::new())).map_err(e),
         _ => Err(format!("unknown hub action {kind}")),
     }
@@ -628,15 +605,32 @@ fn fx_stop(app: AppHandle) {
     });
 }
 
+/// 설정 창 열기 (허브 '설정' · '전체 설정' · 'Link 설정' · 트레이)
 #[tauri::command]
-async fn toggle_panel(app: AppHandle, tab: String) -> Result<(), String> {
-    toggle(&app, &tab).map_err(|e| e.to_string())
+async fn settings_open(app: AppHandle, sec: String) -> Result<(), String> {
+    open_settings(&app, &sec).map_err(|e| e.to_string())
 }
 
+/// 자기 창 닫기 (설정 창 · OCR 등)
 #[tauri::command]
-fn close_panel(window: WebviewWindow) -> Result<(), String> {
+fn close_self(window: WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|e| e.to_string())
 }
+
+/// Windows 시작 시 실행: on = None 이면 읽기만. 트레이 체크 표시도 같이
+#[tauri::command]
+fn autostart(app: AppHandle, on: Option<bool>) -> bool {
+    let a = app.autolaunch();
+    if let Some(on) = on {
+        let _ = if on { a.enable() } else { a.disable() };
+    }
+    let now = a.is_enabled().unwrap_or(false);
+    if let Some(m) = app.try_state::<AutoMenu>() {
+        let _ = m.0.set_checked(now);
+    }
+    now
+}
+struct AutoMenu(tauri::menu::CheckMenuItem<tauri::Wry>);
 
 #[tauri::command]
 fn report_hit_rects(window: WebviewWindow, rects: Vec<[f64; 4]>) {
@@ -711,22 +705,15 @@ async fn lnk_target(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || launch::sta(move || launch::lnk_target(&path))).await.map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-fn panel_open(app: AppHandle) -> bool {
-    app.get_webview_window("panel").is_some()
-}
-
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if app.get_webview_window("panel").is_none() {
-                let _ = toggle(app, "todo");
-            }
+            let _ = open_settings(app, "general"); // 두 번째 실행 = 설정 창
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
+            settings_open, close_self, autostart, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
             float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             notes::note_notepad, pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
@@ -843,11 +830,12 @@ pub fn run() {
             let fx_on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
             let fx_item = CheckMenuItem::with_id(app, "fx", "날씨·계절 효과", true, fx_on, None::<&str>)?;
             app.manage(watch::FxMenu(fx_item.clone()));
+            app.manage(AutoMenu(auto.clone()));
 
             let menu = Menu::with_items(
                 app,
                 &[
-                    &MenuItem::with_id(app, "panel", "패널 열기", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "settings", "설정 열기", true, None::<&str>)?,
                     &MenuItem::with_id(app, "palette", format!("검색 ({PALETTE_HOTKEY})"), true, None::<&str>)?,
                     &fx_item,
                     &auto,
@@ -859,8 +847,8 @@ pub fn run() {
                 .tooltip("Hera")
                 .menu(&menu)
                 .on_menu_event(move |app, e| match e.id().as_ref() {
-                    "panel" => {
-                        let _ = toggle(app, "todo");
+                    "settings" => {
+                        let _ = open_settings(app, "general");
                     }
                     "palette" => {
                         let h = app.clone();

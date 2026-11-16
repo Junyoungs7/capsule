@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { isTauri, linkAmbient, linkApply, linkPlan, useValue, type Ambient, type LinkCfg, type LinkMon, type LinkSeg } from '../data/api'
+import { isTauri, linkApply, linkPlan, useValue, type Ambient, type LinkCfg, type LinkMon, type LinkSeg } from '../data/api'
 
 /* ── Hera Link 3b 패널 조각: 모니터 배치 캔버스 · 키 매핑 · 상대 PC 분위기 ── */
 
@@ -120,9 +120,9 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
 /* ── 키 매핑 ── */
 const MODS = ['ctrl', 'super', 'alt', 'altgr', 'shift', 'meta'] as const
 type Mod = (typeof MODS)[number]
-const WIN_LABEL: Record<Mod, string> = { ctrl: 'Ctrl', super: 'Win', alt: 'Alt', altgr: 'AltGr', shift: 'Shift', meta: 'Meta' }
-const MAC_LABEL: Record<string, string> = { ctrl: '⌃ Control', super: '⌘ Command', alt: '⌥ Option', altgr: '⌥ 오른쪽', shift: '⇧ Shift', meta: 'Meta', none: '없음' }
-const PRESETS = [
+export const WIN_LABEL: Record<Mod, string> = { ctrl: 'Ctrl', super: 'Win', alt: 'Alt', altgr: 'AltGr', shift: 'Shift', meta: 'Meta' }
+export const MAC_LABEL: Record<string, string> = { ctrl: '⌃ Control', super: '⌘ Command', alt: '⌥ Option', altgr: '⌥ 오른쪽', shift: '⇧ Shift', meta: 'Meta', none: '없음' }
+export const PRESETS = [
   ['habit', '윈도우 습관대로', 'Ctrl = ⌘, Win = Ctrl — Ctrl+C/V/Z 가 맥에서도 그대로'],
   ['position', '키 위치대로', 'Win = ⌘, Alt = ⌥ (엔진 기본)'],
   ['shortcuts', '단축키만 바꾸기', 'Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q 만 ⌘ 로 (맥 Hera 가 처리), 나머지 Ctrl 은 Ctrl'],
@@ -138,7 +138,8 @@ export function mapped(c: Pick<LinkCfg, 'keymap' | 'keyRows'>): Record<Mod, stri
 }
 const fromKey = (k: string): Mod | null => ({ Control: 'ctrl', Shift: 'shift', Alt: 'alt', AltGraph: 'altgr', Meta: 'super', OS: 'super' } as Record<string, Mod>)[k] ?? null
 
-export function KeyMapEditor({ c, put }: { c: LinkCfg; put: (p: Partial<LinkCfg>) => void }) {
+/** (a6) '직접 정하기' 줄: 왼쪽 = 누른 수식키, 오른쪽 = 맥에서 쓸 키 */
+export function KeyRows({ c, put }: { c: LinkCfg; put: (p: Partial<LinkCfg>) => void }) {
   const [capture, setCapture] = useState<number | null>(null)
   const rows = c.keyRows ?? []
   useEffect(() => {
@@ -152,55 +153,19 @@ export function KeyMapEditor({ c, put }: { c: LinkCfg; put: (p: Partial<LinkCfg>
     addEventListener('keydown', on, { once: true })
     return () => removeEventListener('keydown', on)
   }, [capture])
-  const m = mapped(c)
   return (
-    <div className="keymap">
-      <div className="presets" role="radiogroup" aria-label="키 매핑">
-        {PRESETS.map(([id, name, desc]) => (
-          <button key={id} role="radio" aria-checked={c.keymap === id} onClick={() => put({ keymap: id })}>
-            <b>{name}</b>
-            <small>{desc}</small>
-          </button>
-        ))}
-      </div>
-      {c.keymap === 'custom' && (
-        <div className="key-rows">
-          {rows.map(([from, to], i) => (
-            <div key={i} className="key-row">
-              <button className="cap" data-on={capture === i} onClick={() => setCapture(i)} title="누른 수식키로 정하기">{capture === i ? '키를 누르세요…' : WIN_LABEL[from as Mod] ?? from}</button>
-              <span>→</span>
-              <select value={to} onChange={(e) => put({ keyRows: rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)) })} aria-label="맥 키">
-                {[...MODS, 'none'].map((x) => <option key={x} value={x}>{MAC_LABEL[x]}</option>)}
-              </select>
-              <button className="icon-btn del" onClick={() => put({ keyRows: rows.filter((_, j) => j !== i) })} aria-label="줄 삭제">×</button>
-            </div>
-          ))}
-          <button onClick={() => put({ keyRows: [...rows, ['ctrl', 'super']] })}>＋ 줄 추가</button>
-          <small>엔진은 수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요</small>
+    <div className="card">
+      {rows.map(([from, to], i) => (
+        <div key={i} className="srow">
+          <button className={`keycap ${capture === i ? 'cap' : ''}`} onClick={() => setCapture(i)} title="누른 수식키로 정하기">{capture === i ? <span>키를 누르세요…</span> : <kbd>{WIN_LABEL[from as Mod] ?? from}</kbd>}</button>
+          <span className="tt"><small>→ 맥에서</small></span>
+          <span className="sel"><select value={to} onChange={(e) => put({ keyRows: rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)) })} aria-label="맥 키">
+            {[...MODS, 'none'].map((x) => <option key={x} value={x}>{MAC_LABEL[x]}</option>)}
+          </select></span>
+          <button className="btn danger sm" onClick={() => put({ keyRows: rows.filter((_, j) => j !== i) })} aria-label="줄 삭제">삭제</button>
         </div>
-      )}
-      {/* 아래 줄 키보드: 윈도우 키 → 맥에서 */}
-      <div className="kbd-row" aria-label="수식키 미리보기">
-        {(['ctrl', 'super', 'alt', 'space', 'altgr', 'ctrl'] as const).map((k, i) => (
-          <span key={i} className="kbd" data-wide={k === 'space'} data-changed={k !== 'space' && m[k] !== k}>
-            <b>{k === 'space' ? '' : WIN_LABEL[k]}</b>
-            <small>{k === 'space' ? 'Space' : c.keymap === 'shortcuts' && k === 'ctrl' ? '⌃ (단축키 ⌘)' : MAC_LABEL[m[k]]}</small>
-          </span>
-        ))}
-      </div>
-      <label className="row ime-row">
-        <span className="grow">
-          <b>한/영 (맥에 커서가 있을 때)</b>
-          <small>{c.ime === 'hera' ? '맥 Hera 가 입력 소스를 바꿔요 (가장 확실)' : c.ime === 'off' ? '한/영 키를 맥으로 넘기지 않음' : '엔진으로 맥 전환 단축키 보내기 (실험적)'}</small>
-        </span>
-        <select value={c.ime} onChange={(e) => put({ ime: e.target.value })} aria-label="한/영 방식">
-          <option value="hera">맥 Hera</option>
-          <option value="capslock">Caps Lock</option>
-          <option value="ctrl-space">Ctrl+Space</option>
-          <option value="cmd-space">⌘+Space</option>
-          <option value="off">끄기</option>
-        </select>
-      </label>
+      ))}
+      <div className="srow"><span className="tt"><small>엔진은 수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요</small></span><button className="btn ghost sm" onClick={() => put({ keyRows: [...rows, ['ctrl', 'super']] })}>줄 추가</button></div>
     </div>
   )
 }
@@ -214,25 +179,3 @@ export const AMBIENT: [string, Ambient][] = [
   ['노을', { kind: 'fx', fx: 'sunset', action: 'start' }],
   ['달·별', { kind: 'fx', fx: 'moon', action: 'start' }],
 ]
-
-export function AmbientControls({ peer, autoMin, setAutoMin }: { peer: string; autoMin: number; setAutoMin: (n: number) => void }) {
-  const [msg, setMsg] = useState('')
-  const go = (a: Ambient) => linkAmbient(a).then(() => setMsg(''), (e) => setMsg(String(e)))
-  return (
-    <div className="ambient">
-      <div className="amb-btns">
-        {AMBIENT.map(([label, a]) => <button key={label} onClick={() => go(a)}>{label}</button>)}
-        <button onClick={() => (go({ kind: 'ascii', action: 'stop' }), go({ kind: 'fx', action: 'stop' }))}>끄기</button>
-      </div>
-      <small>{msg || `${peer} 화면에 켜요 · 그쪽에서 마우스를 움직이면 꺼져요`}</small>
-      <label className="row">
-        <span className="grow">
-          <b>{peer}을(를) 안 쓰면 자동 화면보호기</b>
-          <small>커서가 이 PC 에만 있은 지 N분 · 0 = 끔</small>
-        </span>
-        <input className="mins" type="number" min={0} max={240} value={autoMin} onChange={(e) => setAutoMin(Math.max(0, Number(e.target.value) || 0))} aria-label="분" />
-        <small>분</small>
-      </label>
-    </div>
-  )
-}

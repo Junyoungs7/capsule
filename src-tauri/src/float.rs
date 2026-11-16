@@ -24,7 +24,7 @@ pub const FEATURES: [(&str, &str, (f64, f64)); 12] = [
     ("team", "Team", (400.0, 480.0)),
     ("link", "Link", (380.0, 400.0)),
     ("ocr", "OCR", (360.0, 340.0)),
-    ("lp", "LP", (340.0, 488.0)),
+    ("lp", "LP", (452.0, 612.0)),
 ];
 const MIN: (f64, f64) = (300.0, 220.0);
 
@@ -291,8 +291,8 @@ pub fn float_drag(app: AppHandle, window: WebviewWindow, phase: String) {
         let (x, y) = drag_to(cur, grab);
         crate::ui::move_client(&window, x, y);
     }
-    if label == "float-lp" {
-        return; // LP 위젯은 바탕화면 소품 — 흡수하지 않는다
+    if label == "float-lp" || !label.starts_with("float-") {
+        return; // LP 위젯은 바탕화면 소품 — 흡수하지 않는다 · 설정 창은 끌기만
     }
     let (Ok(p), Ok(z)) = (window.inner_position(), window.inner_size()) else { return };
     let Some((cap, s, o)) = capsule(&app) else { return };

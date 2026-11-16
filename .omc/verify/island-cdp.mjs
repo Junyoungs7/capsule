@@ -10,8 +10,8 @@ const { ok, until, done } = suite('island')
 const h = await start()
 let isl
 // [폭, 최대 높이] — (a4) 높이는 내용에 맞춘다, 터미널·채팅만 고정
-const VIEW = { notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480], ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [380, 400], settings: [380, 640] }
-const FIXED = ['term', 'chat']
+const VIEW = { notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480], ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [420, 540], lp: [452, 612] }
+const FIXED = ['term', 'chat', 'lp']
 // 화면 = 잰 내용 높이 · 보통 내용엔 스크롤 없음
 const fits = (k) => isl.eval(`(() => { const v = document.querySelector('.isl .view[data-k=${k}]'), b = v.querySelector('.vbody'), s = document.querySelector('.isl .skin').getBoundingClientRect(); return { skinH: Math.round(s.height), viewH: v.offsetHeight, scroll: b.scrollHeight - b.clientHeight } })()`)
 
@@ -92,7 +92,7 @@ try {
   const hs = await skin()
   ok('hub grows up and inward from the corner (432 wide, bottom-right fixed)', hs[2] === 432 && hs[0] + hs[2] === ISL.w - 16 && hs[1] + hs[3] === ISL.h - 8 && hs[3] > 300, JSON.stringify(hs))
   const labels = await isl.eval(`[...document.querySelectorAll('.hub .app')].map((b) => b.textContent).join(',')`)
-  ok('13 labelled icons in tinted wells', labels === '메모,할 일,달력,채팅,터미널,최근 복사,선반,OCR,스니펫,LP,Team,Link,설정' && (await isl.eval(`document.querySelectorAll('.hub .app .well svg').length`)) === 13, labels)
+  ok('13 labelled icons in tinted wells', labels === '메모,할 일,달력,채팅,터미널,최근 복사,선반,OCR,스니펫,LP,Team,연결,설정' && (await isl.eval(`document.querySelectorAll('.hub .app .well svg').length`)) === 13, labels)
   ok('hit rect = whole hub while open', (() => { const r = (h.hits.get('island') ?? [])[0]; return r && r[2] === 432 })())
 
   /* 4. 아이콘 13개 모두 눈에 보이는 반응 (버그 1) */
@@ -108,9 +108,10 @@ try {
     }
     const n0 = h.calls.length
     await isl.clickSel(`.hub .app[data-go=${k}]`)
-    if (k === 'lp') {
-      ok(`icon LP → LP player window (desktop prop)`, await until(() => h.pages.has('float-lp') && h.calls.slice(n0).some((c) => c[1] === 'float_open' && c[2]?.f === 'lp')), '')
-      await h.closePage('float-lp')
+    if (k === 'settings') {
+      // (a6) 설정 = 별도 창 940×680 (아일랜드 안 화면 아님)
+      ok(`icon 설정 → the settings window opens (940×680, own window)`, await until(() => h.pages.has('settings') && h.calls.slice(n0).some((c) => c[1] === 'settings_open')), '')
+      await h.closePage('settings')
       continue
     }
     const shown = await until(() => isl.eval(`(() => { const v = document.querySelector('.isl .view[data-k=${k}]'); return !!v && v.offsetWidth > 0 && document.querySelector('.isl .vhead b')?.textContent?.length > 0 })()`), 2000)
@@ -118,11 +119,14 @@ try {
     const s = await skin()
     const f = await fits(k)
     ok(`icon ${k} → its view opens in the Island, sized to its content (w ${VIEW[k][0]}, h ≤ ${VIEW[k][1]})`, shown && s[2] === VIEW[k][0] && (FIXED.includes(k) ? s[3] === VIEW[k][1] : s[3] === f.viewH && s[3] <= VIEW[k][1]), JSON.stringify({ s, f }))
-    if (!['team', 'settings'].includes(k)) ok(`…${k}: no scrollbar for normal content`, f.scroll <= 1, JSON.stringify(f))
+    if (!['team'].includes(k)) ok(`…${k}: no scrollbar for normal content`, f.scroll <= 1, JSON.stringify(f))
   }
 
   /* 5. 메모 (버그 1 · a4 보드): 목록 · 새 메모 · '보드에 붙이기' */
-  await isl.clickSel('[data-back]')
+  // (a6) 마지막 '설정' 은 창을 열고 허브를 접는다 → 다시 연다
+  await until(async () => !(await hubOpen()))
+  await sleep(450)
+  await isl.click(...(await capsuleCenter()))
   await until(() => isl.eval(`!!document.querySelector('.hub .app[data-go=notes]')`))
   await sleep(200)
   await isl.clickSel('.hub .app[data-go=notes]')

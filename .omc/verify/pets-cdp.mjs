@@ -1,5 +1,6 @@
 // (a3) Pets suite — HEADLESS only (headless.mjs). 19 built-in pets × 8 states, pose from events, reduced motion,
 // custom pet import (one image · folder + pet.json · sprite sheet · rename · delete · .herapet.zip import/export) through the real UI.
+// (a6) 펫 고르기 · 펫 추가는 설정 창(940×680) '펫' 섹션 — 캡슐은 같은 store 로 따라 바뀐다.
 // Image files are generated here into a temp folder (no user files, nothing lands in the repo).
 //   node .omc/verify/pets-cdp.mjs
 import { start, sleep, suite } from './headless.mjs'
@@ -41,32 +42,32 @@ const SHEET = file('sheet_idle.png', png(64, 14, (x, y) => blob(x % 16, y)))
 const ZIP = file('펭펭.herapet.zip', Buffer.from('PK\x05\x06' + '\0'.repeat(18), 'binary'))
 
 const h = await start()
-let isl
+let isl, sw
 let chooser = null // 다음 파일 고르기 창에 넣을 파일 (헤드리스 페이지 안에서만)
 const pickNext = (files) => new Promise((r) => (chooser = { files, r }))
 const skinOpen = () => isl.eval(`document.querySelector('.isl').dataset.open === 'true'`)
+const IMP = '[data-k=petimport]'
+// 설정 창 '펫' 섹션 (없으면 연다 · 편집기면 목록으로 돌아올 때까지)
 const settings = async () => {
-  await until(() => isl.eval(`!document.querySelector('.view[data-k=petimport]')`), 1500) // 저장 뒤 설정으로 넘어가는 중
-  if (!(await skinOpen())) await isl.clickSel('.isl .petbox')
-  if (!(await isl.eval(`!!document.querySelector('.view[data-k=settings]')`))) {
-    if (await isl.eval(`!!document.querySelector('.isl .view')`)) await isl.clickSel('.isl .view [data-back]')
-    await until(() => isl.eval(`document.querySelector('.isl .skin').offsetWidth === 432 && !!document.querySelector('.hub .app')`))
-    await sleep(250)
-    await isl.clickSel('.hub .app[data-go=settings]')
+  if (!sw) {
+    sw = await h.open('settings&sec=pet', { label: 'settings', geo: { x: 490, y: 176, w: 940, h: 680 } })
+    await sw.send('Page.setInterceptFileChooserDialog', { enabled: true })
+    sw.on('Page.fileChooserOpened', async (e) => {
+      const c = chooser
+      chooser = null
+      if (c) await sw.send('DOM.setFileInputFiles', { files: c.files, backendNodeId: e.backendNodeId }), c.r()
+    })
   }
-  await until(() => isl.eval(`!!document.querySelector('.view[data-k=settings] .petpick')`))
-  await sleep(500)
+  await until(() => sw.eval(`!document.querySelector('${IMP}')`), 1500)
+  if (!(await sw.eval(`!!document.querySelector('.petgrid')`))) await sw.clickSel('.nav [data-sec=pet]')
+  await until(() => sw.eval(`!!document.querySelector('.petgrid')`))
+  await sleep(300)
 }
-const tab = (name) => isl.eval(`[...document.querySelectorAll('.pettabs button')].find((b) => b.textContent === ${JSON.stringify(name)})?.click()`)
+const tab = (name) => sw.eval(`[...document.querySelectorAll('.pettabs button')].find((b) => b.textContent === ${JSON.stringify(name)})?.click()`)
+const nameInput = `document.querySelector('${IMP} .field input')`
 
 try {
   isl = await h.open('island')
-  await isl.send('Page.setInterceptFileChooserDialog', { enabled: true })
-  isl.on('Page.fileChooserOpened', async (e) => {
-    const c = chooser
-    chooser = null
-    if (c) await isl.send('DOM.setFileInputFiles', { files: c.files, backendNodeId: e.backendNodeId }), c.r()
-  })
   await until(() => isl.eval(`!!document.querySelector('.isl .pet')`), 8000)
 
   /* 1. 19 펫 · 4 스타일 */
@@ -75,16 +76,15 @@ try {
   for (const [k, l] of [['pixel', '픽셀'], ['flat', '플랫'], ['clay', '클레이'], ['line', '라인']]) {
     await tab(l)
     await sleep(120)
-    counts[k] = await isl.eval(`document.querySelectorAll('.petpick button[data-pet-set]').length`)
+    counts[k] = await sw.eval(`document.querySelectorAll('.petgrid [data-pet-set]').length`)
   }
   ok('19 built-in pets in 4 styles (5 pixel · 6 flat · 4 clay · 4 line)', JSON.stringify(counts) === '{"pixel":5,"flat":6,"clay":4,"line":4}', JSON.stringify(counts))
   const keys = ['pxcat', 'penguin', 'frog', 'slime', 'dragon', 'cat', 'dog', 'fox', 'rabbit', 'bird', 'ghost', 'duck', 'robot', 'blob', 'hamster', 'kitty', 'bear', 'bot', 'octo']
   await tab('픽셀')
   await sleep(100)
-  await isl.clickSel('.petpick button[data-pet-set=penguin]')
-  ok('picking a pet stores island.pet and the capsule changes', await until(() => h.store.get('island.pet') === 'penguin' && isl.eval(`document.querySelector('.isl .petbox .pet').dataset.pet === 'penguin'`)))
-  await isl.key('Escape')
-  await until(async () => !(await skinOpen()))
+  await sw.clickSel('.petgrid [data-pet-set=penguin]')
+  ok('picking a pet (settings window) stores island.pet and the capsule changes', await until(() => h.store.get('island.pet') === 'penguin' && isl.eval(`document.querySelector('.isl .petbox .pet').dataset.pet === 'penguin'`)))
+  ok('…the state strip shows all 8 poses of the chosen pet', await sw.eval(`document.querySelectorAll('.pstrip .pet').length === 8`))
 
   /* 2. 19 × 8 자세가 모두 그려지고 상태 소품이 보인다 */
   const ACC = { idle: null, sleep: '.acc.z', chat: '.acc.bubble', event: '.acc.bell', typing: '.acc.laptop', done: '.acc.stars', fail: '.acc.bang', shelf: '.acc.box' }
@@ -123,17 +123,17 @@ try {
   await settings()
   await tab('내 펫')
   await sleep(150)
-  await isl.clickSel('.petpick [data-cpet=add]')
-  ok('펫 추가 opens the import editor (440×640)', await until(() => isl.eval(`!!document.querySelector('.view[data-k=petimport]') && document.querySelector('.isl .skin').offsetWidth === 440`), 3000))
-  ok('save disabled until there is an image', await isl.eval(`document.querySelector('[data-imp=save]').disabled`))
+  await sw.clickSel('.petgrid [data-cpet=add]')
+  ok('펫 추가 opens the import editor in the settings window', await until(() => sw.eval(`!!document.querySelector('${IMP} .imp-prev')`), 3000))
+  ok('save disabled until there is an image', await sw.eval(`document.querySelector('[data-imp=save]').disabled`))
   let picked = pickNext([PIX])
-  await isl.clickSel('[data-imp=pick]')
+  await sw.clickSel('[data-imp=pick]')
   await picked
-  ok('one image → idle slot, name from the file, auto = 픽셀', await until(() => isl.eval(`!!document.querySelector('.slot[data-slot=idle] img') && document.querySelector('.view[data-k=petimport] .field input').value === 'mochi' && /자동 \\(픽셀\\)/.test(document.querySelector('.view[data-k=petimport] .seg').textContent)`)))
-  ok('live preview capsule shows the image', await isl.eval(`!!document.querySelector('.imp-prev .cimg.px img')`))
-  await isl.eval(`[...document.querySelectorAll('.imp-states button')].find((b) => b.textContent === '완료').click()`)
-  ok('empty states fall back to idle + overlay (done = sparkles)', await until(() => isl.eval(`(() => { const p = document.querySelector('.imp-prev .pet'); return p.dataset.s === 'done' && p.querySelector('.cimg').dataset.st === 'idle' && getComputedStyle(p.querySelector('.acc.stars')).opacity === '1' })()`)))
-  await isl.clickSel('[data-imp=save]')
+  ok('one image → idle slot, name from the file, auto = 픽셀', await until(() => sw.eval(`!!document.querySelector('.slot[data-slot=idle] img') && ${nameInput}.value === 'mochi' && /자동 \\(픽셀\\)/.test(document.querySelector('${IMP} .seg').textContent)`)))
+  ok('live preview capsule shows the image', await sw.eval(`!!document.querySelector('.imp-prev .cimg.px img')`))
+  await sw.eval(`[...document.querySelectorAll('.imp-states button')].find((b) => b.textContent === '완료').click()`)
+  ok('empty states fall back to idle + overlay (done = sparkles)', await until(() => sw.eval(`(() => { const p = document.querySelector('.imp-prev .pet'); return p.dataset.s === 'done' && p.querySelector('.cimg').dataset.st === 'idle' && getComputedStyle(p.querySelector('.acc.stars')).opacity === '1' })()`)))
+  await sw.clickSel('[data-imp=save]')
   ok('save → pet_save (raw bytes) → selected as custom:<id>', await until(() => String(h.store.get('island.pet')).startsWith('custom:') && h.pets.size === 1))
   const pid = String(h.store.get('island.pet')).slice(7)
   ok('capsule shows the custom pet, pixelated', await until(() => isl.eval(`(() => { const i = document.querySelector('.isl .petbox .cimg.px img'); return !!i && getComputedStyle(i).imageRendering === 'pixelated' })()`)))
@@ -144,54 +144,53 @@ try {
   await settings()
   await tab('내 펫')
   await sleep(150)
-  await isl.clickSel('.petpick [data-cpet=add]')
-  await until(() => isl.eval(`!!document.querySelector('.view[data-k=petimport]')`))
+  await sw.clickSel('.petgrid [data-cpet=add]')
+  await until(() => sw.eval(`!!document.querySelector('${IMP}')`))
   picked = pickNext(FOLDER)
-  await isl.clickSel('[data-imp=folder]')
+  await sw.clickSel('[data-imp=folder]')
   await picked
-  ok('folder: <state>.png fills its slot, pet.json pre-fills the name', await until(() => isl.eval(`!!document.querySelector('.slot[data-slot=idle] img') && !!document.querySelector('.slot[data-slot=done] img') && document.querySelector('.view[data-k=petimport] .field input').value === '말랑이'`)))
-  await isl.clickSel('[data-imp=save]')
+  ok('folder: <state>.png fills its slot, pet.json pre-fills the name', await until(() => sw.eval(`!!document.querySelector('.slot[data-slot=idle] img') && !!document.querySelector('.slot[data-slot=done] img') && ${nameInput}.value === '말랑이'`)))
+  await sw.clickSel('[data-imp=save]')
   ok('saved as a second pack', await until(() => h.pets.size === 2 && h.pets.get(String(h.store.get('island.pet')).slice(7))?.files?.done))
   await settings()
   await tab('내 펫')
-  await isl.clickSel('.petpick [data-cpet=add]')
-  await until(() => isl.eval(`!!document.querySelector('.view[data-k=petimport]')`))
+  await sw.clickSel('.petgrid [data-cpet=add]')
+  await until(() => sw.eval(`!!document.querySelector('${IMP}')`))
   picked = pickNext([SHEET])
-  await isl.clickSel('[data-imp=pick]')
+  await sw.clickSel('[data-imp=pick]')
   await picked
-  await until(() => isl.eval(`!!document.querySelector('.slot[data-slot=idle] img')`))
-  await isl.clickSel('.imp-sheet .sw')
-  ok('sprite sheet toggle → preview animates a strip (steps)', await until(() => isl.eval(`(() => { const i = document.querySelector('.imp-prev .strip img'); return !!i && /steps/.test(getComputedStyle(i).animationTimingFunction) })()`)))
-  await isl.clickSel('[data-imp=cancel]')
-  await until(() => isl.eval(`!!document.querySelector('.view[data-k=settings]')`))
+  await until(() => sw.eval(`!!document.querySelector('.slot[data-slot=idle] img')`))
+  await sw.clickSel('.imp-sheet .sw')
+  ok('sprite sheet toggle → preview animates a strip (steps)', await until(() => sw.eval(`(() => { const i = document.querySelector('.imp-prev .strip img'); return !!i && /steps/.test(getComputedStyle(i).animationTimingFunction) })()`)))
+  await sw.clickSel('[data-imp=cancel]')
+  await until(() => sw.eval(`!!document.querySelector('.petgrid')`))
 
   /* 7. 이름 바꾸기 · 삭제 · zip */
   await tab('내 펫')
   await sleep(200)
-  await isl.eval(`document.querySelector('.ctile button[data-pet-set="custom:${pid}"]').parentElement.querySelector('[aria-label$="편집·이름 바꾸기"]').click()`)
-  await until(() => isl.eval(`document.querySelector('.view[data-k=petimport] .field input')?.value === 'mochi'`))
-  await isl.eval(`(() => { const i = document.querySelector('.view[data-k=petimport] .field input'); i.select() })()`)
-  await isl.clickSel('.view[data-k=petimport] .field input')
-  await isl.eval(`(() => { const i = document.querySelector('.view[data-k=petimport] .field input'); i.setSelectionRange(0, i.value.length) })()`)
-  await isl.type('모찌')
-  await isl.clickSel('[data-imp=save]')
+  await sw.eval(`document.querySelector('.ctile [data-pet-set="custom:${pid}"]').parentElement.querySelector('[aria-label$="편집·이름 바꾸기"]').click()`)
+  await until(() => sw.eval(`${nameInput}?.value === 'mochi'`))
+  await sw.clickSel(`${IMP} .field input`)
+  await sw.eval(`(() => { const i = ${nameInput}; i.setSelectionRange(0, i.value.length) })()`)
+  await sw.type('모찌')
+  await sw.clickSel('[data-imp=save]')
   ok('rename (edit) keeps the id', await until(() => h.pets.get(pid)?.name === '모찌' && h.pets.size === 2))
   await settings()
   await tab('내 펫')
   await sleep(200)
   h.handlers.pet_export = (p, a) => `C:\\Users\\me\\Downloads\\${h.pets.get(a.id).name}.herapet.zip`
-  await isl.eval(`document.querySelector('.ctile button[data-pet-set="custom:${pid}"]').parentElement.querySelector('[aria-label$="내보내기"]').click()`)
-  ok('export → pet_export + toast with the path', await until(() => h.calls.some((c) => c[1] === 'pet_export' && c[2].id === pid) && isl.eval(`/모찌\\.herapet\\.zip/.test(document.querySelector('.vtoast')?.textContent ?? '')`)))
+  await sw.eval(`document.querySelector('.ctile [data-pet-set="custom:${pid}"]').parentElement.querySelector('[aria-label$="내보내기"]').click()`)
+  ok('export → pet_export + toast with the path', await until(() => h.calls.some((c) => c[1] === 'pet_export' && c[2].id === pid) && sw.eval(`/모찌\\.herapet\\.zip/.test(document.querySelector('.swin .toast')?.textContent ?? '')`)))
   h.handlers.pet_import = (p, a, raw) => ((h.pets.set('zipid1', { ...h.pets.get(pid), id: 'zipid1', name: '펭펭' })), raw ? 'zipid1' : (() => { throw new Error('no bytes') })())
   picked = pickNext([ZIP])
-  await isl.eval(`[...document.querySelectorAll('.petpick .cadd')].find((b) => /zip/.test(b.textContent)).click()`)
+  await sw.eval(`[...document.querySelectorAll('.petgrid .ptile.add')].find((b) => /zip/.test(b.textContent)).click()`)
   await picked
   ok('.herapet.zip import → pet_import (raw bytes) → selected', await until(() => h.store.get('island.pet') === 'custom:zipid1'))
   await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.pet', value: 'custom:${pid}' })`)
   await sleep(300)
-  await isl.eval(`document.querySelector('[data-cpet-del="${pid}"]').click()`)
+  await sw.eval(`document.querySelector('[data-cpet-del="${pid}"]').click()`)
   ok('delete removes the pack; deleting the selected pet falls back to the default', await until(() => !h.pets.has(pid) && h.store.get('island.pet') === 'cat'))
-  ok('no page errors', isl.errors.length === 0, isl.errors.slice(0, 2).join(' | '))
+  ok('no page errors', isl.errors.length === 0 && sw.errors.length === 0, [...isl.errors, ...sw.errors].slice(0, 2).join(' | '))
 } catch (e) {
   ok('suite ran to the end', false, String(e?.stack ?? e))
 } finally {
