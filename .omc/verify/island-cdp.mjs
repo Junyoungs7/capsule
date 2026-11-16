@@ -121,17 +121,18 @@ try {
     if (!['team', 'settings'].includes(k)) ok(`…${k}: no scrollbar for normal content`, f.scroll <= 1, JSON.stringify(f))
   }
 
-  /* 5. 메모 (버그 1): 목록 · 새 메모 · '데스크톱에 붙이기' */
+  /* 5. 메모 (버그 1 · a4 보드): 목록 · 새 메모 · '보드에 붙이기' */
   await isl.clickSel('[data-back]')
   await until(() => isl.eval(`!!document.querySelector('.hub .app[data-go=notes]')`))
   await sleep(200)
   await isl.clickSel('.hub .app[data-go=notes]')
   await until(() => isl.eval(`!!document.querySelector('.view[data-k=notes] textarea')`))
-  ok('메모 view has a new-note button and 데스크톱에 붙이기', await isl.eval(`!!document.querySelector('.view[data-k=notes] .vhead [aria-label="새 메모"]') && /데스크톱에 붙이기/.test(document.querySelector('.view[data-k=notes] [data-attach]')?.textContent ?? '')`))
+  ok('메모 view has a new-note button and 보드에 붙이기', await isl.eval(`!!document.querySelector('.view[data-k=notes] .vhead [aria-label="새 메모"]') && /보드에 붙이기/.test(document.querySelector('.view[data-k=notes] [data-attach]')?.textContent ?? '')`))
   await isl.clickSel('.view[data-k=notes] textarea')
   await isl.type('배너 QA 3시')
   await isl.clickSel('.view[data-k=notes] [data-attach]')
-  ok('데스크톱에 붙이기 → a desktop note + notes shown', await until(() => [...h.store].some(([k, v]) => k.startsWith('note:') && v?.text === '배너 QA 3시') && h.store.get('notes.shown') === true))
+  ok('보드에 붙이기 → a note on the memo board + the board window opens', await until(() => [...h.store].some(([k, v]) => k.startsWith('note:') && v?.text === '배너 QA 3시') && h.pages.has('float-notes'), 10000))
+  await h.closePage('float-notes')
   ok('…and the Island answers (collapses)', await until(async () => !(await hubOpen())))
   await sleep(450)
   await openView('notes')

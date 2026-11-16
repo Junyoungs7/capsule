@@ -1,30 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Todo } from '../data/types'
 import { dayKey } from '../data/holidays'
+import { chip, fmtWhen, moveStart, parseWhen, segmentAt, setEnd, stepWhen, weekday, type When } from '../data/when'
 
-/* 할 일 기간 고르기 (a4): 페이지 안에 펼쳐지는 작은 달력 — 네이티브 날짜 팝업을 쓰지 않는다.
-   네이티브 datetime 팝업은 웹뷰 밖의 별도 창이라, 그 안을 누르면 아일랜드 히트 rect 밖 클릭으로 잡혀(island-outside) 허브가 접혔다.
-   첫 클릭 = 시작, 두 번째 = 끝 (앞이면 바꿈). 시각 = 종일 · 09 · 12 · 18 시. 저장: start = 시작일 00:00, due = 끝 (종일이면 23:59). */
+/* 할 일 기간 (a4): 시작 → 끝, 둘 다 직접 쓰거나(느슨하게: '11/20', '내일 3시', '1430'…) 바로 고르기 칩 · 작은 달력.
+   기본 = 지금(다음 5분) ~ +1시간 — '할 일 + Enter' 만으로 저장된다. Tab 으로 칸 이동, ↑/↓ 는 커서가 있는 칸(월·일·시·분) 한 칸.
+   네이티브 날짜 팝업은 쓰지 않는다: 웹뷰 밖 별도 창이라 그 안을 누르면 아일랜드 밖 클릭으로 잡혀 허브가 접혔다. */
 
-export type Range = { start: string; end: string; time: string | null } // YYYY-MM-DD, YYYY-MM-DD, 'HH:MM' | null(종일)
-const DOW = ['일', '월', '화', '수', '목', '금', '토']
-const TIMES = ['09:00', '12:00', '18:00']
 const md = (k: string) => `${+k.slice(5, 7)}/${+k.slice(8, 10)}`
-
-export const rangeLabel = (r: Range | null) => (!r ? '기한 없음' : `${md(r.start)}${r.end !== r.start ? ` – ${md(r.end)}` : ''}${r.time ? ` · ${r.time}` : ''}`)
-
-/** 기간 → 할 일 필드 (start · due) */
-export function toTodo(r: Range | null): Pick<Todo, 'start' | 'due'> {
-  if (!r) return { start: undefined, due: undefined }
-  return { start: new Date(`${r.start}T00:00`).toISOString(), due: new Date(`${r.end}T${r.time ?? '23:59'}`).toISOString() }
-}
+const hm = (d: Date) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 
 /** 목록 표시: 하루면 '오늘 18:00', 여러 날이면 '11/16 – 11/18 18:00' */
 export function todoWhen(t: Pick<Todo, 'start' | 'due'>, fmt: (iso?: string) => string) {
   if (!t.due) return fmt(undefined)
   if (!t.start || dayKey(new Date(t.start)) === dayKey(new Date(t.due))) return fmt(t.due)
   const d = new Date(t.due)
-  return `${md(dayKey(new Date(t.start)))} – ${md(dayKey(d))} ${d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+  return `${md(dayKey(new Date(t.start)))} – ${md(dayKey(d))} ${hm(d)}`
 }
 
 /** 할 일이 걸친 날들 (달력 점·목록) */
@@ -36,51 +27,111 @@ export function todoDays(t: Pick<Todo, 'start' | 'due'>): string[] {
   return out.length ? out : [dayKey(e)]
 }
 
-export function DateRange({ value, onChange, onDone }: { value: Range | null; onChange: (r: Range | null) => void; onDone: () => void }) {
-  const [month, setMonth] = useState(() => {
-    const d = value ? new Date(`${value.start}T00:00`) : new Date()
-    return new Date(d.getFullYear(), d.getMonth(), 1)
+/** 날짜·시각 한 칸: 직접 쓰기(Enter·포커스 잃을 때 해석) · ↑/↓ 한 칸 */
+function TimeField({ label, date, allDay, onCommit }: { label: string; date: Date; allDay: boolean; onCommit: (d: Date) => void }) {
+  const shown = fmtWhen(date, allDay)
+  const [draft, setDraft] = useState(shown)
+  const [bad, setBad] = useState(false)
+  const el = useRef<HTMLInputElement>(null)
+  const editing = useRef(false)
+  const caretAt = useRef<number | null>(null) // ↑↓ 뒤 커서 자리 (값이 바뀌면 브라우저가 끝으로 옮긴다 → 바로 되돌림, 다음 키가 오기 전에)
+  useEffect(() => void (!editing.current && setDraft(shown)), [shown])
+  useLayoutEffect(() => {
+    const c = caretAt.current
+    if (c != null && el.current && document.activeElement === el.current) el.current.setSelectionRange(c, c)
   })
+  const commit = () => {
+    editing.current = false
+    if (draft.trim() === shown) return setDraft(shown)
+    const d = parseWhen(draft, date)
+    if (!d) return void (setBad(true), setDraft(shown), setTimeout(() => setBad(false), 900))
+    onCommit(d)
+    setDraft(fmtWhen(d, allDay))
+  }
+  const key = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') return void (e.preventDefault(), commit()) // 날짜 칸의 Enter 는 저장이 아니라 해석
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return void (caretAt.current = null) // ←/→ 등으로 커서를 옮기면 그 자리로
+    e.preventDefault()
+    const caret = caretAt.current ?? el.current?.selectionStart ?? 0
+    const seg = Math.min(segmentAt(shown, caret), allDay ? 1 : 3)
+    const d = stepWhen(parseWhen(draft, date) ?? date, seg, e.key === 'ArrowUp' ? 1 : -1)
+    editing.current = false
+    onCommit(d)
+    const t = fmtWhen(d, allDay)
+    caretAt.current = Math.min(caret, t.length)
+    setDraft(t)
+  }
+  return (
+    <label className="when-f" data-bad={bad}>
+      <small>{label}</small>
+      <input ref={el} value={draft} aria-label={`${label} 날짜·시각`} spellCheck={false} autoComplete="off"
+        onChange={(e) => ((editing.current = true), (caretAt.current = null), setDraft(e.target.value))} onBlur={() => ((caretAt.current = null), commit())} onMouseDown={() => (caretAt.current = null)} onKeyDown={key} onFocus={(e) => e.currentTarget.select()} />
+      <i>{weekday(date)}</i>
+    </label>
+  )
+}
+
+/** 작은 달력: 첫 클릭 = 시작 날, 두 번째 = 끝 날 (시각은 그대로) */
+function MiniCal({ value, onChange }: { value: When; onChange: (w: When) => void }) {
+  const [month, setMonth] = useState(() => new Date(value.start.getFullYear(), value.start.getMonth(), 1))
   const [picking, setPicking] = useState<'start' | 'end'>('start')
   const today = dayKey(new Date())
   const first = new Date(month.getFullYear(), month.getMonth(), 1 - month.getDay())
   const days = Array.from({ length: 42 }, (_, i) => new Date(first.getFullYear(), first.getMonth(), first.getDate() + i))
-  const pick = (k: string) => {
-    if (picking === 'start' || !value) return onChange({ start: k, end: k, time: value?.time ?? null }), setPicking('end')
-    onChange(k < value.start ? { ...value, start: k, end: value.start } : { ...value, end: k })
+  const [s, e] = [dayKey(value.start), dayKey(value.end)]
+  const on = (d: Date, t: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), t.getHours(), t.getMinutes())
+  const pick = (d: Date) => {
+    if (picking === 'start') return onChange(moveStart(value, on(d, value.start))), setPicking('end')
+    onChange(setEnd(value, on(d, value.end)))
     setPicking('start')
   }
   return (
-    <div className="dr" role="dialog" aria-label="기간 고르기">
+    <div className="dr" aria-label="달력에서 고르기">
       <div className="dr-head">
         <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="이전 달">‹</button>
         <b>{month.getFullYear()}년 {month.getMonth() + 1}월</b>
         <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="다음 달">›</button>
       </div>
       <div className="dr-grid">
-        {DOW.map((d, i) => <span key={d} className="dr-dow" data-w={i}>{d}</span>)}
+        {'일월화수목금토'.split('').map((d, i) => <span key={d} className="dr-dow" data-w={i}>{d}</span>)}
         {days.map((d) => {
           const k = dayKey(d)
-          const inR = !!value && k >= value.start && k <= value.end
           return (
             <button type="button" key={k} className="dr-d" data-k={k} data-out={d.getMonth() !== month.getMonth()} data-today={k === today} data-w={d.getDay()}
-              data-in={inR} data-edge={!!value && (k === value.start || k === value.end)} onClick={() => pick(k)}>
+              data-in={k >= s && k <= e} data-edge={k === s || k === e} onClick={() => pick(d)}>
               {d.getDate()}
             </button>
           )
         })}
       </div>
-      <div className="dr-foot">
-        <span className="dr-hint">{picking === 'end' ? '끝 날짜를 고르세요 (같은 날 = 하루)' : rangeLabel(value)}</span>
-        {[null, ...TIMES].map((t) => (
-          <button type="button" key={t ?? 'all'} className="dr-chip" aria-pressed={!!value && value.time === t} disabled={!value} onClick={() => value && onChange({ ...value, time: t })}>{t ?? '종일'}</button>
+      <span className="dr-hint">{picking === 'end' ? '끝 날짜를 고르세요 (같은 날 = 하루)' : '시작 날짜를 고르세요'}</span>
+    </div>
+  )
+}
+
+export function WhenFields({ value, onChange }: { value: When; onChange: (w: When) => void }) {
+  const [cal, setCal] = useState(false)
+  const [s, e] = [dayKey(value.start), dayKey(value.end)]
+  const is = (k: 'today' | 'tomorrow' | 'weekend') => {
+    const c = chip(value, k)
+    return dayKey(c.start) === s && dayKey(c.end) === e && (k !== 'weekend' || value.allDay)
+  }
+  return (
+    <div className="when" role="group" aria-label="기간">
+      <div className="when-row">
+        <TimeField label="시작" date={value.start} allDay={value.allDay} onCommit={(d) => onChange(moveStart(value, d))} />
+        <span className="when-to" aria-hidden>→</span>
+        <TimeField label="끝" date={value.end} allDay={value.allDay} onCommit={(d) => onChange(setEnd(value, d))} />
+      </div>
+      <div className="when-chips">
+        {([['today', '오늘'], ['tomorrow', '내일'], ['weekend', '이번 주말']] as const).map(([k, l]) => (
+          <button type="button" key={k} className="dr-chip" aria-pressed={is(k)} onClick={() => onChange(chip(value, k))}>{l}</button>
         ))}
-      </div>
-      <div className="dr-foot">
-        <button type="button" className="dr-chip" onClick={() => (onChange(null), setPicking('start'))}>기한 없음</button>
+        <button type="button" className="dr-chip" aria-pressed={value.allDay} data-allday onClick={() => onChange({ ...value, allDay: !value.allDay })}>종일</button>
         <span className="dr-hint" />
-        <button type="button" className="dr-chip dr-ok" onClick={onDone}>확인</button>
+        <button type="button" className="dr-chip" aria-expanded={cal} data-cal onClick={() => setCal((c) => !c)}>달력</button>
       </div>
+      {cal && <MiniCal value={value} onChange={onChange} />}
     </div>
   )
 }

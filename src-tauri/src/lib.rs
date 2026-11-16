@@ -33,6 +33,7 @@ mod float;
 mod term;
 mod island;
 mod pets; // 내 펫 (사용자 이미지 팩)
+mod notes; // 메모 보드 · 메모장으로 열기
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -348,79 +349,6 @@ pub(crate) fn listen_store(app: &AppHandle, f: impl Fn(&str, Option<serde_json::
     });
 }
 
-/* ── v3 메모 창: 모니터마다 투명 오버레이 1개, 보일 메모가 있을 때만 (없으면 600ms 뒤 파괴 — 접힘 애니메이션 시간) ── */
-const NOTE_WINS: [&str; 4] = ["notes0", "notes1", "notes2", "notes3"];
-static NOTES_GEN: AtomicU32 = AtomicU32::new(0);
-
-/// 메모 창이 필요한가: (메모 펼침 && 바탕화면 메모 있음) || 지금 앞 앱에 붙은 메모 있음.
-/// store: `notes.shown`(기본 true), `note:<id>` {appId?: 레코드 id}, 레코드 `record:<id>` {target, exe?}, 앞 앱 키 = watch 실행 키(소문자 exe / shell:appsfolder\aumid)
-pub(crate) fn notes_needed(entries: &[(String, serde_json::Value)], shown: bool, fg_keys: &[String]) -> bool {
-    let rec_key = |id: &str| {
-        entries.iter().find(|(k, _)| k == &format!("record:{id}")).map(|(_, v)| v["exe"].as_str().or(v["target"].as_str()).unwrap_or("").to_lowercase())
-    };
-    entries.iter().filter(|(k, _)| k.starts_with("note:")).any(|(_, v)| match v["appId"].as_str() {
-        None | Some("") => shown,
-        Some(id) => rec_key(id).is_some_and(|k| !k.is_empty() && fg_keys.contains(&k)),
-    })
-}
-
-fn fg_keys() -> Vec<String> {
-    let st = watch::STATE.lock().unwrap();
-    st.0.as_ref().map(|f| serde_json::to_value(f).unwrap_or_default()).map_or(vec![], |f| {
-        let mut k = vec![f["exePath"].as_str().unwrap_or("").to_lowercase()];
-        if let Some(a) = f["aumid"].as_str().filter(|a| !a.is_empty()) {
-            k.push(format!(r"shell:appsfolder\{a}").to_lowercase());
-        }
-        k
-    })
-}
-
-/// 메모 창 맞추기 (메모·펼침 변경, 앞 앱 변경 때)
-pub(crate) fn notes_sync(app: &AppHandle) {
-    let Ok(s) = app.store("hera.json") else { return };
-    let need = notes_needed(&s.entries(), s.get("notes.shown").and_then(|v| v.as_bool()).unwrap_or(true), &fg_keys());
-    let gen = NOTES_GEN.fetch_add(1, Ordering::Relaxed) + 1;
-    if need {
-        let mons = app.available_monitors().unwrap_or_default();
-        for (i, m) in mons.iter().take(NOTE_WINS.len()).enumerate() {
-            let label = NOTE_WINS[i];
-            if app.get_webview_window(label).is_some() {
-                continue;
-            }
-            let (pos, size, sc) = (*m.position(), *m.size(), m.scale_factor());
-            // 높이 -1px: 모니터를 꽉 채운 최상위 창은 셸이 전체화면 앱으로 본다 (효과 창과 같은 이유)
-            let size = PhysicalSize::new(size.width, size.height.saturating_sub(1));
-            let q = format!("&mon={i}&x={}&y={}&s={sc}", pos.x, pos.y);
-            match overlay(app, label, &q, (size.width as f64 / sc, size.height as f64 / sc)) {
-                Ok(win) => {
-                    win.on_window_event(move |e| {
-                        if let WindowEvent::Destroyed = e {
-                            watch::remove_overlay(label);
-                        }
-                    });
-                    let _ = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
-                    if let Some(w) = app.get_webview_window("island") {
-                        ui::raise(&w); // 메모는 아일랜드 아래
-                    }
-                }
-                Err(e) => eprintln!("notes window: {e}"),
-            }
-        }
-    } else {
-        let h = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(600));
-            if NOTES_GEN.load(Ordering::Relaxed) == gen {
-                for l in NOTE_WINS {
-                    if let Some(w) = h.get_webview_window(l) {
-                        let _ = w.destroy();
-                    }
-                }
-            }
-        });
-    }
-}
-
 /* ── v3 화면 글자 복사 (OCR) ── */
 const OCR_HOTKEY: &str = "Ctrl+Alt+T";
 
@@ -579,12 +507,7 @@ async fn link_send(app: AppHandle, path: String) -> Result<(), String> {
 async fn hub_action(app: AppHandle, kind: String) -> Result<(), String> {
     let e = |e: tauri::Error| e.to_string();
     match kind.as_str() {
-        "notes" => {
-            let s = app.store("hera.json").map_err(|e| e.to_string())?;
-            let shown = s.get("notes.shown").and_then(|v| v.as_bool()).unwrap_or(true);
-            s.set("notes.shown", !shown);
-            Ok(())
-        }
+        "notes" => float::open(&app, "notes").map_err(e), // (a4) 메모 보드
         "ocr" => tauri::async_runtime::spawn_blocking(move || ocr_open(&app)).await.map_err(|e| e.to_string())?,
         "snippets" => show_palette(&app, Some(";".into())).map_err(e),
         "team" => open_panel(&app, "settings&sec=team").map_err(e),
@@ -805,7 +728,7 @@ pub fn run() {
             toggle_panel, close_panel, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, panel_open, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
             float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
-            pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
+            notes::note_notepad, pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
         .setup(|app| {
@@ -901,14 +824,10 @@ pub fn run() {
                     let _ = TERM_KEY.set(k);
                 }
             }
-            // v3 메모 창: 메모·펼침이 바뀌거나 앞 앱이 바뀌면 다시 판단
+            notes::migrate(h); // (a4) 바탕화면 메모 → 메모 보드
             {
-                use tauri::Listener;
                 let a = h.clone();
                 listen_store(h, move |k, v| {
-                    if k.starts_with("note:") || k == "notes.shown" || k.starts_with("record:") {
-                        notes_sync(&a);
-                    }
                     if k == "island.place" {
                         island::place(&a); // 오른쪽 아래 ↔ 왼쪽 아래
                     }
@@ -916,9 +835,6 @@ pub fn run() {
                         appbar::set(&a, v.and_then(|v| v.as_bool()).unwrap_or(false));
                     }
                 });
-                let a = h.clone();
-                h.listen_any("foreground", move |_| notes_sync(&a));
-                notes_sync(h);
             }
 
             // 트레이: skipTaskbar 라 종료 경로가 필요. 자동 시작은 기본 꺼짐(사용자가 켤 때만).
@@ -999,19 +915,4 @@ mod tests {
         assert!(migrate_todo(&json!({ "start": "2026-11-16T00:00:00.000Z", "due": "2026-11-18T09:00:00.000Z" })).is_none()); // 이미 기간
     }
 
-    #[test]
-    fn notes_window_rule() {
-        let e = |v: Vec<(&str, serde_json::Value)>| v.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<Vec<_>>();
-        let rec = ("record:code", json!({ "id": "code", "target": "C:\\Apps\\Code.exe" }));
-        let fg = vec![r"c:\apps\code.exe".to_string()];
-        // 바탕화면 메모: 펼침일 때만
-        assert!(notes_needed(&e(vec![("note:a", json!({ "text": "x" }))]), true, &[]));
-        assert!(!notes_needed(&e(vec![("note:a", json!({ "text": "x" }))]), false, &[]));
-        // 앱 메모: 그 앱이 앞에 있을 때만 (접힘과 무관)
-        let app_note = ("note:b", json!({ "appId": "code" }));
-        assert!(notes_needed(&e(vec![app_note.clone(), rec.clone()]), false, &fg));
-        assert!(!notes_needed(&e(vec![app_note.clone(), rec.clone()]), true, &["c:\\other.exe".to_string()]));
-        // 메모 없음 → 창 없음
-        assert!(!notes_needed(&e(vec![rec]), true, &fg));
-    }
 }

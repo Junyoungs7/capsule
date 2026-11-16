@@ -412,8 +412,6 @@
 .hx .vbody .float-empty { color: var(--t3); font-size: 12.5px; }
 
 /* ── 할 일 기간 고르기 (페이지 안 달력 — 네이티브 날짜 팝업 없음) ── */
-.when-cap { flex: none; height: 36px; padding: 0 12px; border-radius: 10px; font: 600 12.5px/1 var(--font, inherit); color: var(--t2, inherit); background: var(--fill-1, rgba(127, 127, 127, 0.12)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); cursor: pointer; white-space: nowrap; }
-.when-cap[data-set='true'] { color: var(--t1, inherit); box-shadow: inset 0 0 0 1.5px var(--accent, #0a84ff); }
 .dr { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--fill-1, rgba(127, 127, 127, 0.1)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); font-family: var(--font, inherit); animation: dr-in 220ms cubic-bezier(.25, .1, .25, 1); }
 @keyframes dr-in { from { opacity: 0; transform: translateY(-4px); } }
 .dr button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
@@ -429,13 +427,10 @@
 .dr-d[data-today='true'] { box-shadow: inset 0 0 0 1px var(--hairline, rgba(127, 127, 127, 0.4)); }
 .dr-d[data-in='true'] { background: rgba(10, 132, 255, 0.18); border-radius: 0; }
 .dr-d[data-edge='true'] { background: var(--accent, #0a84ff) !important; color: #fff !important; border-radius: 8px; }
-.dr-foot { display: flex; align-items: center; gap: 4px; }
 .dr-hint { flex: 1; font-size: 11.5px; color: var(--t2, gray); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dr-chip { height: 26px; padding: 0 9px; border-radius: 13px; font-size: 11.5px; font-weight: 600; background: var(--fill-1, rgba(127, 127, 127, 0.12)); color: var(--t1, inherit); }
 .dr-chip[aria-pressed='true'] { background: var(--accent, #0a84ff); color: #fff; }
 .dr-chip:disabled { opacity: 0.4; cursor: default; }
-.dr-chip.dr-ok { background: var(--accent, #0a84ff); color: #fff; padding: 0 14px; }
-.hx .vbody .add .when-cap { flex: 0 1 auto; }
 
 /* (a4) 떼어내기 등장: 창 안에서만 (단색 · transform/opacity), 아일랜드 창은 크기를 바꾸지 않는다 */
 .hx.win[data-enter] { transform-origin: 100% 100%; transition: transform 320ms cubic-bezier(.2, 1.2, .35, 1), opacity 200ms ease-out; }
@@ -461,3 +456,29 @@
 .hx .tip b { font-size: 12px; font-weight: 600; word-break: break-all; }
 .hx .tip small { font-size: 11px; color: var(--t2); }
 .hx .shelf-list li:hover > .tip, .hx .shelf-list li:focus-within > .tip { opacity: 1; transform: none; transition-delay: 450ms; }
+
+/* (a4) 메모 보드 (float-notes): 포스트잇이 바탕화면 대신 여기에 붙는다 */
+.hx.win[data-kind='notes'] .vbody { padding: 0; overflow: auto; }
+.hx .board { position: relative; flex: 1; min-height: 100%; background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 16px 16px; }
+.hx .board .note-pos { position: absolute; left: 0; top: 0; }
+.hx .board .note { backdrop-filter: none; }
+.hx .board-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--t3); font-size: 12.5px; pointer-events: none; }
+.hx .board-add { position: fixed; right: 16px; bottom: 16px; z-index: 5; width: 40px; height: 40px; border-radius: 20px; font-size: 20px; line-height: 40px; color: #fff; background: var(--accent); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), var(--lift); }
+.hx .memo-wrap { position: relative; display: grid; }
+.hx .memo-np { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--t2); background: rgba(0, 0, 0, 0.25); opacity: 0; transition: opacity 140ms; }
+.hx .memo-np .ico { width: 14px; height: 14px; }
+.hx .memo-wrap:hover .memo-np, .hx .memo-np:focus-visible { opacity: 1; }
+
+/* (a4) 할 일 기간: 시작 → 끝 (직접 쓰기 · ↑↓) + 바로 고르기 칩 */
+.when { flex: none; display: flex; flex-direction: column; gap: 8px; font-family: var(--font, inherit); }
+.when-row { display: flex; align-items: center; gap: 6px; }
+.when-to { color: var(--t3, gray); font-size: 12px; }
+.when-f { flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 10px; background: var(--fill-1, rgba(127, 127, 127, 0.12)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); transition: box-shadow 140ms; }
+.when-f:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent, #0a84ff); }
+.when-f[data-bad='true'] { box-shadow: inset 0 0 0 1.5px var(--red, #ff453a); animation: when-no 280ms; }
+@keyframes when-no { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.when-f small { flex: none; font-size: 11px; font-weight: 600; color: var(--t3, gray); }
+.when-f input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--t1, inherit); font: 600 13px/1 var(--font, inherit); font-feature-settings: 'tnum' 1; }
+.hx .vbody .when-f input { background: none; box-shadow: none; padding: 0; height: 100%; border-radius: 0; }
+.when-f i { flex: none; font-style: normal; font-size: 11.5px; color: var(--t2, gray); }
+.when-chips { display: flex; align-items: center; gap: 4px; }

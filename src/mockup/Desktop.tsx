@@ -3,7 +3,7 @@ import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile 
 import {
   clipList, closePalette, closePanelWindow, closeSelf, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openFx, panelOpen, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, islandPaste, islandTall, storeSet, startApps, titleOf, togglePanel, useItems, useValue, watchState, type AlertMsg, type Fg, type FloatKind,
+  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, togglePanel, useItems, useValue, type AlertMsg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
@@ -25,17 +25,14 @@ import { MonthCalendar } from '../surfaces/MonthCalendar'
 import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
-import { newNote, setV3, useV3, V3Demo, V3Layer } from '../surfaces/Notes'
+import { freeSlot, NoteBoard, seedNotes, setV3, useV3, V3Demo, type Note } from '../surfaces/Notes'
 import { Ocr } from '../surfaces/Ocr'
-import { reportHitRects } from '../data/api'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
 // 포그라운드 앱 이름: 창 제목의 마지막 " - " 조각(대부분 앱 이름), 없으면 exe 이름
-const matches = (r: LpRecord, keys: Set<string>) => r.kind === 'single' && keys.has((r.exe ?? r.target).toLowerCase())
 const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 export const SHELF_MAX = 4 // ponytail: 칸 4개, 넘치면 가장 오래된 것부터 뺀다 — 더 필요하면 목록
-const fgKeys = (f: Fg) => new Set([f.exePath.toLowerCase(), f.aumid && `shell:appsfolder\\${f.aumid}`.toLowerCase()])
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
 // Island-only: 독 없음 — island(노치·알림·허브) · float(기능 창 1개, ?f=) · panel · palette · ascii · fx · notes* · ocr.
@@ -220,7 +217,7 @@ export function Desktop({ only }: { only?: string }) {
     return () => (clearTimeout(t), evs.forEach((e) => removeEventListener(e, mark)))
   }, [idleMs])
 
-  const [playing, setPlaying] = useState<RunningSession | null>(null)
+  const [, setPlaying] = useState<RunningSession | null>(null)
   // 알림 큐: 앞에서부터 1개씩 표시 (전체화면 뒤 밀린 알림·여러 건 동시 발화)
   const [alerts, setAlerts] = useState<Notification[]>([])
   const alert = alerts[0] ?? null
@@ -229,16 +226,10 @@ export function Desktop({ only }: { only?: string }) {
   const peekTimer = useRef(0)
   const showAlert = (a: AlertMsg) => (isTauri ? void sendAlert(a) : pushAlert(a))
 
-  // B3 (Tauri): 실행 집합(2s) · 포그라운드(30Hz 변화 시) — watch 루프 이벤트. 늦게 뜬 창은 watch_state 로 즉시 동기화.
-  const [fg, setFg] = useState<{ key: string; f: Fg; since: number } | null>(null)
+  // (a4) 앞 앱 추적(앱 메모용 'foreground' 구독)은 메모 보드로 바뀌며 지웠다 — 앱을 바꿀 때마다 모든 창이 다시 그리던 비용도 없어짐
   useEffect(() => {
     if (!isTauri) return
-    const onFg = (f: Fg) => setFg((cur) => (cur?.key === (f.aumid || f.exePath) ? cur : { key: f.aumid || f.exePath, f, since: Date.now() }))
-    void watchState().then(([f]) => f && onFg(f))
-    const offs = [
-      onEvent('foreground', onFg),
-      onEvent<AlertMsg>('hera-alert', pushAlert),
-    ]
+    const offs = [onEvent<AlertMsg>('hera-alert', pushAlert)]
     if (only === 'island')
       offs.push(
         onAlarm((a) => pushAlert({ key: a.key, title: a.title, body: `${a.key.startsWith('event:') ? '일정 시작' : '마감 시각이 되었어요'} · ${hm(a.at)}` })),
@@ -251,7 +242,6 @@ export function Desktop({ only }: { only?: string }) {
     return () => offs.forEach((off) => off())
   }, [])
   useEffect(() => void (STRESS && setGroupCount(12)), [])
-  const fgRec = fg ? records.find((r) => matches(r, fgKeys(fg.f))) : undefined
   const members = (r: LpRecord) => (r.kind === 'set' ? (r.targets ?? []).map((id) => records.find((x) => x.id === id)).filter((x): x is LpRecord => !!x) : [r])
 
   // LP 플레이어로 튼 화면 효과 → Island '재생 중' 알약 (효과 창 수명을 따른다)
@@ -446,7 +436,7 @@ export function Desktop({ only }: { only?: string }) {
   const [snippets] = useSnippets()
   const [dragNear, setDragNear] = useState(false)
   const [mockFloats, setMockFloats] = useState<FloatKind[]>([])
-  const { notes: notesShown } = useV3()
+  const v3 = useV3()
   // 캡슐 설정 (설정 화면): 펫 · 크기 · 위치 · 전체화면 숨김 · 알림
   const [petKey, setPetKey] = useValue('island.pet', 'cat')
   const [capSize, setCapSize] = useValue<CapSize>('island.size', 'm')
@@ -604,21 +594,19 @@ export function Desktop({ only }: { only?: string }) {
     setTimeout(() => !ghostRef.current && release(), 80)
   }
   const [mockRects, setMockRects] = useState<Record<string, DOMRect>>({})
-  // '데스크톱에 붙이기' · 새 메모: 실제 앱은 메모 창이 따로라 store 에 쓰고 note.edit 로 편집 상태를 알린다
-  const [deskNotes] = useItems<{ id: string; text: string; color?: number; appId?: string }>('note', [])
+  // (a4) 메모 = 메모 보드(떠 있는 창 float-notes)에 붙는다. '보드에 붙이기' · 새 메모 = 빈 칸에 쓰고 보드를 연다 (note.edit = 바로 편집)
+  const [boardNotes, setBoardNotes] = useItems<Note>('note', seedNotes)
   const addNote = (text = '') => {
     setHub(false)
-    if (!isTauri) return (setV3({ notes: true }), void setTimeout(() => newNote(undefined, text), 60))
     const id = crypto.randomUUID()
-    storeSet(`note:${id}`, { id, text, color: 0, x: Math.round(screen.width / 2 - 105), y: 160, w: 210, h: 140, pinned: false })
-    storeSet('notes.shown', true)
-    storeSet('note.edit', id)
-    setTimeout(() => storeSet('note.edit', null), 3000)
+    setBoardNotes((all) => [...all, { id, text, color: 0, ...freeSlot(all), w: 210, h: 140 }])
+    if (isTauri) storeSet('note.edit', id)
+    openFloat('notes')
   }
+  const notepad = (id: string) => (isTauri ? void noteNotepad(id).catch((e) => showAlert({ title: '메모장으로 열지 못했어요', body: String(e) })) : undefined)
   const openTodos = todos.filter((t) => !t.done).length
   const viewBody = (k: ViewKind, ghostOnly = false): ReactNode =>
-    k === 'notes' ? <NotesView shown={notesShown} notes={deskNotes} onToggle={() => (isTauri ? void hubAction('notes') : setV3({ notes: !notesShown }))}
-      onAttach={(text) => (addNote(text), say('데스크톱에 붙였어요', 'ok'))} onShow={() => (setHub(false), isTauri ? storeSet('notes.shown', true) : setV3({ notes: true }))} />
+    k === 'notes' ? <NotesView notes={boardNotes} onAttach={(text) => (addNote(text), say('보드에 붙였어요', 'ok'))} onBoard={() => (setHub(false), openFloat('notes'))} onNotepad={notepad} />
     : k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
     : k === 'snippets' ? (
       <>
@@ -667,7 +655,8 @@ export function Desktop({ only }: { only?: string }) {
     )
     : f === 'chat' ? <ChatWindow setEvents={setEvents} onTeam={only === 'island' ? () => setHubView('team') : undefined} />
     : f === 'term' ? <TermWindow />
-    : f === 'notes' || f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
+    : f === 'notes' ? <NoteBoard onNotepad={notepad} />
+    : f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
     : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
     : <p className="float-empty">준비 중이에요.</p>
   /* 캡슐 알림 = 펫 자세 + 짧은 글 (예전 알약들을 한 곳에) */
@@ -776,10 +765,10 @@ export function Desktop({ only }: { only?: string }) {
               onNews={fireNews}
               onAlarm={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}
             />
-            <V3Demo records={records} fgId={playing?.recordId} onApp={(r) => setPlaying({ recordId: r.id, title: r.title, startedAt: Date.now() - 4 * 60_000 })} onPanel={openPanel} onPalette={() => setPalette(true)} />
+            <V3Demo onPanel={openPanel} onPalette={() => setPalette(true)} />
           </aside>
           <Taskbar />
-          <V3Layer records={records} fgId={playing?.recordId} />
+          <Ocr open={v3.ocr} onClose={() => setV3({ ocr: false })} onToast={(msg) => showAlert({ title: msg, body: '' })} />
         </>
       )}
 
@@ -882,7 +871,6 @@ export function Desktop({ only }: { only?: string }) {
           cmds={filesPeer ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : []}
         />
       )}
-      {only?.startsWith('notes') && <NotesWindow records={records} fgId={fgRec?.id} />}
       {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}
       {show('ascii') && (
         <AsciiFull
@@ -926,41 +914,6 @@ function Taskbar() {
   )
 }
 
-/* v3 메모 창 (실제 앱): 모니터마다 창 1개 — URL ?x&y&s = 그 모니터의 원점(물리 px)과 배율.
-   메모 좌표는 가상 데스크톱(주 모니터 배율 기준 논리 px) → 이 창 원점만큼 옮겨 그린다 (CSS transform = fixed 요소의 기준).
-   앱 메모는 앞 앱 창(Rust 'fg-rect')이 있는 모니터의 창에서만. 클릭 통과: 메모 카드·팝오버 rect 만 히트로 보고. */
-function NotesWindow({ records, fgId }: { records: LpRecord[]; fgId?: string }) {
-  const q = new URLSearchParams(location.search)
-  const [ox, oy, sc] = [Number(q.get('x') ?? 0), Number(q.get('y') ?? 0), Number(q.get('s') ?? 1)]
-  const [fgRect, setFgRect] = useState<[number, number, number, number] | null>(null)
-  useEffect(() => onEvent<{ rect: [number, number, number, number] | null }>('fg-rect', (e) => setFgRect(e.rect)), [])
-  // 앞 앱 창이 이 모니터 안에 있나 (가운데 점 기준) → 이 창 기준 CSS rect
-  const mine = fgRect && fgRect[0] + fgRect[2] / 2 >= ox && fgRect[0] + fgRect[2] / 2 < ox + innerWidth * sc && fgRect[1] + fgRect[3] / 2 >= oy && fgRect[1] + fgRect[3] / 2 < oy + innerHeight * sc
-  const anchor = mine ? new DOMRect((fgRect[0] - ox) / sc, (fgRect[1] - oy) / sc, fgRect[2] / sc, fgRect[3] / sc) : undefined
-  const root = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = root.current!
-    let raf = 0
-    const send = () => {
-      raf = 0
-      const rects = [...el.querySelectorAll<HTMLElement>('.note, .note-pop, .app-note, .notes-toast')].map((n) => n.getBoundingClientRect()).filter((r) => r.width && r.height)
-      reportHitRects('notes', rects)
-    }
-    const kick = () => void (raf ||= requestAnimationFrame(send))
-    // 메모를 끌거나 크기를 바꾸면 style 이 바뀐다 → 다음 프레임에 1번 (폴링 없음)
-    const mo = new MutationObserver(kick)
-    mo.observe(el, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class', 'data-shown'] })
-    kick()
-    return () => (mo.disconnect(), cancelAnimationFrame(raf))
-  }, [])
-  // 주 모니터 기준 논리 좌표 → 이 창: (가상 원점 / 이 창 배율) 만큼 반대로
-  return (
-    <div ref={root} className="notes-window" style={{ position: 'fixed', inset: 0, transform: `translate(${-ox / sc}px, ${-oy / sc}px)` }}>
-      <V3Layer records={records} fgId={mine ? fgId : undefined} anchor={anchor && new DOMRect(anchor.x + ox / sc, anchor.y + oy / sc, anchor.width, anchor.height)} />
-    </div>
-  )
-}
-
 /** 효과 창: LP 플레이어에서 판을 내리면 'fx-close' → 바로 닫기 (Rust 가 3초 안전망으로 파괴) */
 function FxCloser() {
   useEffect(() => onEvent('fx-close', () => void closeSelf()), [])
@@ -968,34 +921,37 @@ function FxCloser() {
 }
 
 
-/** 아일랜드 안 '메모' (승인 시안): 빠른 메모 → '데스크톱에 붙이기' · 바탕화면 메모 카드 · 새 메모 */
-function NotesView({ shown, notes, onToggle, onAttach, onShow }: { shown: boolean; notes: { id: string; text: string; color?: number; appId?: string }[]; onToggle: () => void; onAttach: (text: string) => void; onShow: () => void }) {
+/** 아일랜드 안 '메모' (a4): 빠른 메모 → '보드에 붙이기' · 메모 카드(누르면 보드) · 메모장으로 열기 · '보드 열기' */
+function NotesView({ notes, onAttach, onBoard, onNotepad }: { notes: Note[]; onAttach: (text: string) => void; onBoard: () => void; onNotepad: (id: string) => void }) {
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
-  const desk = notes.filter((n) => !n.appId && (!q || n.text.toLowerCase().includes(q.toLowerCase())))
+  const list = notes.filter((n) => !q || n.text.toLowerCase().includes(q.toLowerCase()))
   const attach = () => (onAttach(text.trim()), setText(''))
   return (
     <>
       <div className="quick">
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Ctrl+Enter = 데스크톱에 붙이기)" rows={2} aria-label="빠른 메모"
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Ctrl+Enter = 보드에 붙이기)" rows={2} aria-label="빠른 메모"
           onKeyDown={(e) => e.key === 'Enter' && e.ctrlKey && (e.preventDefault(), attach())} />
       </div>
       {notes.length > 4 && <div className="field"><Ico k="search" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="메모 검색" /></div>}
       <div className="memos">
-        {desk.slice(0, 6).map((n) => {
+        {list.slice(0, 6).map((n) => {
           const [t, ...rest] = (n.text || '(빈 메모)').split('\n')
           return (
-            <button key={n.id} className="memo" style={{ '--c': NOTE_COLORS[n.color ?? 0] } as CSSProperties} onClick={onShow}>
-              <b>{t}</b><p>{rest.join('\n')}</p><small>바탕화면</small>
-            </button>
+            <div key={n.id} className="memo-wrap">
+              <button className="memo" style={{ '--c': NOTE_COLORS[n.color ?? 0] } as CSSProperties} onClick={onBoard}>
+                <b>{t}</b><p>{rest.join('\n')}</p><small>메모 보드</small>
+              </button>
+              <button className="memo-np" data-notepad={n.id} aria-label={`${t} 메모장으로 열기`} onClick={() => onNotepad(n.id)}><Ico k="notes" /></button>
+            </div>
           )
         })}
       </div>
-      {desk.length === 0 && <div className="empty">아직 메모가 없어요 — 위에 쓰고 붙여 보세요</div>}
+      {list.length === 0 && <div className="empty">아직 메모가 없어요 — 위에 쓰고 붙여 보세요</div>}
       <div className="foot">
-        <small>메모 {notes.length}개 · {shown ? '바탕화면에 펼침' : '접혀 있음'}</small>
-        <button className="btn ghost" onClick={onToggle}>{shown ? '접기' : '펼치기'}</button>
-        <button className="btn" data-attach onClick={attach}><Ico k="plus" />데스크톱에 붙이기</button>
+        <small>메모 {notes.length}개</small>
+        <button className="btn ghost" data-board onClick={onBoard}>보드 열기</button>
+        <button className="btn" data-attach onClick={attach}><Ico k="plus" />보드에 붙이기</button>
       </div>
     </>
   )

@@ -616,8 +616,7 @@ pub fn start(app: AppHandle) {
                     // B3: Now Playing. 제목 없는 창(작업표시줄 등 일시 포커스)은 곡으로 치지 않는다.
                     let i = info(fg);
                     if !i.title.is_empty() {
-                        STATE.lock().unwrap().0 = Some(i.clone());
-                        let _ = app.emit("foreground", i);
+                        STATE.lock().unwrap().0 = Some(i); // MCP 가 요청 때 읽는다 (a4: 웹뷰로 보내던 'foreground' 는 듣는 곳이 없어 지움)
                     }
                 }
             }

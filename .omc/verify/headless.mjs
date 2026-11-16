@@ -17,7 +17,7 @@ const dbg = (m) => process.env.HERA_DEBUG && console.log('[h]', m)
 export const WA = { w: 1920, h: 1032 } // 가짜 작업 영역 (작업 표시줄 48)
 export const ISL = { w: 680, h: 680 }
 // Rust float.rs FEATURES (화면 + 머리줄 40) · default_pos
-const FEAT = { notes: [380, 440], todo: [380, 460], calendar: [480, 460], chat: [400, 520], term: [640, 340], clips: [380, 440], shelf: [360, 380], snippets: [380, 440], team: [400, 480], link: [380, 400], ocr: [360, 340], lp: [340, 488] }
+const FEAT = { notes: [728, 520], todo: [380, 460], calendar: [480, 460], chat: [400, 520], term: [640, 340], clips: [380, 440], shelf: [360, 380], snippets: [380, 440], team: [400, 480], link: [380, 400], ocr: [360, 340], lp: [340, 488] }
 
 const MOCK = `(() => {
   const q = new URLSearchParams(location.search)
@@ -251,7 +251,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       if (e.name !== '__heraIPC') return
       const m = JSON.parse(e.payload)
       let ok = true, v
-      try { v = await handle(p, m) } catch (err) { ok = false; v = String(err) }
+      try { v = await handle(p, m) } catch (err) { ok = false; v = String(err); dbg(`handler ${m.cmd} failed: ${err?.stack ?? err}`) }
       await p.eval(`__heraResolve(${m.id}, ${ok}, ${JSON.stringify(v ?? null)})`).catch(() => {})
     })
     dbg('ws')
@@ -290,7 +290,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       return r
     }
     p.key = async (key, { ctrl = false, code } = {}) => {
-      const base = { key, code: code ?? key, modifiers: ctrl ? 2 : 0, windowsVirtualKeyCode: key === 'Escape' ? 27 : key === 'Enter' ? 13 : key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0 }
+      const base = { key, code: code ?? key, modifiers: ctrl ? 2 : 0, windowsVirtualKeyCode: { Escape: 27, Enter: 13, Tab: 9, ArrowUp: 38, ArrowDown: 40 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0) }
       await s.send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: key === 'Enter' ? String.fromCharCode(13) : key.length === 1 && !ctrl ? key : undefined })
       await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
     }

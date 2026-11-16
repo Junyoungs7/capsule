@@ -3,7 +3,8 @@ import type { AppGroup, CalendarEvent, LpRecord, Todo } from '../data/types'
 import { isTauri, startApps } from '../data/api'
 import { Tile } from './Tile'
 import { fmtWhen } from './Island'
-import { DateRange, rangeLabel, todoWhen, toTodo, type Range } from './DateRange'
+import { todoWhen, WhenFields } from './DateRange'
+import { defaults, toTodo, type When } from '../data/when'
 import type { Weather } from './Fx'
 import { useValue, type LinkCfg, type LinkStatus } from '../data/api'
 import { AmbientControls, KeyMapEditor, MonitorCanvas } from './LinkExtras'
@@ -113,26 +114,26 @@ const id = () => crypto.randomUUID()
 
 export function TodoTab({ todos, setTodos, onAdded }: Pick<Props, 'todos' | 'setTodos' | 'onAdded'>) {
   const [title, setTitle] = useState('')
-  const [range, setRange] = useState<Range | null>(null)
-  const [picker, setPicker] = useState(false)
+  // (a4) 기본 = 지금(다음 5분) ~ +1시간. 손대지 않았으면 저장하는 순간의 '지금'으로 (오래 열어 둔 화면에서도)
+  const [when, setWhen] = useState<When>(() => defaults())
+  const [touched, setTouched] = useState(false)
   const add = (e: FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
-    setTodos((t) => [...t, { id: id(), title: title.trim(), ...toTodo(range), done: false, source: 'local' }])
+    setTodos((t) => [...t, { id: id(), title: title.trim(), ...toTodo(touched ? when : defaults()), done: false, source: 'local' }])
     setTitle('')
-    setRange(null)
-    setPicker(false)
+    setWhen(defaults())
+    setTouched(false)
     onAdded()
   }
   const sorted = [...todos].sort((a, b) => Number(a.done) - Number(b.done) || (a.due ?? '9').localeCompare(b.due ?? '9'))
   return (
     <>
       <form className="add" onSubmit={add}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="할 일 추가" aria-label="할 일 제목" />
-        <button type="button" className="when-cap" aria-expanded={picker} data-set={!!range} onClick={() => setPicker((p) => !p)} aria-label="기간">{rangeLabel(range)}</button>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="할 일 추가 · Enter" aria-label="할 일 제목" onFocus={() => !touched && setWhen(defaults())} />
         <button className="primary" aria-label="추가">추가</button>
       </form>
-      {picker && <DateRange value={range} onChange={setRange} onDone={() => setPicker(false)} />}
+      <WhenFields value={when} onChange={(w) => (setWhen(w), setTouched(true))} />
       <ul className="list">
         {sorted.map((t) => (
           <li key={t.id} data-done={t.done}>

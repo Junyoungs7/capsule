@@ -24,7 +24,7 @@ export const VIEW_SIZE: Record<ViewKind, [number, number]> = {
   ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [380, 400], settings: [380, 640], petimport: [440, 640],
 }
 export const VIEWS = Object.keys(VIEW_SIZE) as ViewKind[]
-export const DETACHABLE = (k: ViewKind) => k !== 'settings' && k !== 'petimport'
+export const DETACHABLE = (k: ViewKind) => k !== 'settings' && k !== 'petimport' && k !== 'notes' // 메모 = '보드 열기' (보드 창이 떼어낸 모양)
 const ICON: Record<ViewKind, IcoKey> = { notes: 'notes', todo: 'todo', calendar: 'calendar', chat: 'chat', term: 'term', clips: 'clips', shelf: 'shelf', ocr: 'ocr', snippets: 'snippets', team: 'team', link: 'link', settings: 'settings', petimport: 'plus' }
 
 const ring = (p: number, c: string) => {

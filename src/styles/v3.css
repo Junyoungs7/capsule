@@ -8,8 +8,7 @@
 
 /* ── 포스트잇 ── */
 /* 레이어는 쌓임 맥락을 만들지 않는다 → 메모별 z-index 가 독(30)·패널(35)과 섞인다 */
-.note-pos { position: fixed; left: 0; top: 0; }
-.desk-notes[data-shown='false'] .note-pos { pointer-events: none; }
+.note-pos { position: absolute; left: 0; top: 0; } /* 메모 보드 안 */
 .note {
   --nc: #f5c542;
   position: relative;
@@ -84,8 +83,6 @@
 .note-bar button[aria-pressed='true'] { color: color-mix(in srgb, var(--nc) 55%, var(--text)); }
 .note-bar svg { width: 14px; height: 14px; }
 .note-swatch { width: 11px; height: 11px; border-radius: 50%; background: var(--nc); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
-.note-app { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11px; color: var(--text-2); }
-.note-app .tile { border-radius: 5px; }
 .note-body {
   flex: 1;
   min-height: 0;
@@ -157,79 +154,6 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 }
 .note-colors button:hover { transform: scale(1.12); }
 .note-colors button[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--glass-strong), 0 0 0 3.5px var(--nc); }
-.note-apps { display: flex; flex-direction: column; width: 200px; gap: 1px; }
-.note-apps small { padding: 2px 6px 6px; font-size: 10.5px; color: var(--text-2); }
-.note-apps button { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 0; border-radius: 7px; background: none; text-align: left; font-size: 12px; }
-.note-apps button:hover { background: var(--fill-2); }
-.note-apps button[aria-pressed='true'] { color: var(--accent-text); font-weight: 600; }
-
-/* ── 앱별 메모: 앱이 앞에 있을 때 화면 오른쪽 가장자리에 붙는다 ── */
-/* 앱 메모: 붙은 앱 창 옆 고정 자리 (placeAppNote). 붙은 쪽에서 밀려 나오며 등장 */
-.app-note {
-  position: fixed;
-  z-index: 38;
-  opacity: 0;
-  transform: translateX(-14px) scale(0.96);
-  transform-origin: 0 30%;
-  transition: opacity 160ms var(--ease-out), transform 220ms cubic-bezier(0.4, 0, 1, 1);
-}
-.app-note[data-side='left'] { transform: translateX(14px) scale(0.96); transform-origin: 100% 30%; }
-.app-note[data-side='inside'] { transform: translateY(-8px) scale(0.96); transform-origin: 100% 0; }
-.app-note[data-show='true'] {
-  opacity: 1;
-  transform: none;
-  transition: opacity 220ms var(--ease-out) 60ms, transform var(--dur-bouncy) var(--spring-bouncy) 60ms;
-}
-.app-note .note-pos { position: static; width: 100%; height: 100%; }
-.app-note .note-app small { font-weight: 600; color: var(--text); }
-
-/* 시안 전용 가짜 앱 창 (앱 메모가 어디에 붙는지 보여 주기) */
-.mock-win {
-  position: fixed;
-  z-index: 8; /* 바탕화면 메모(6·7) 위, 항상 위 메모(40) 아래 — 실제 창 순서와 같게 */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: 10px;
-  background: #fbfcfe;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12), 0 24px 60px -20px rgba(15, 23, 42, 0.45);
-  opacity: 0;
-  transform: scale(0.98);
-  transition: opacity 200ms var(--ease-out), transform 320ms var(--spring-smooth);
-}
-.mock-win[data-show='true'] { opacity: 1; transform: none; }
-[data-theme='dark'] .mock-win { background: #1b1e25; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 24px 60px -20px rgba(0, 0, 0, 0.7); }
-.mock-win header { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 0 0 12px; font-size: 12px; color: var(--text-2); background: rgba(15, 23, 42, 0.04); box-shadow: inset 0 -1px 0 var(--line); }
-.mock-win header b { flex: 1; font-weight: 500; }
-.mock-win header .tile { border-radius: 4px; }
-.mock-ctl { display: flex; height: 100%; }
-.mock-ctl i { width: 44px; height: 100%; background: linear-gradient(var(--text-3) 0 0) center / 10px 1px no-repeat; }
-.mock-ctl i:nth-child(2) { background: none; box-shadow: inset 0 0 0 1px transparent; background-image: linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)), linear-gradient(var(--text-3), var(--text-3)); background-size: 9px 1px, 9px 1px, 1px 9px, 1px 9px; background-position: center calc(50% - 4px), center calc(50% + 4px), calc(50% - 4px) center, calc(50% + 4px) center; background-repeat: no-repeat; }
-.mock-ctl i:nth-child(3) { background: linear-gradient(45deg, transparent 47%, var(--text-3) 47% 53%, transparent 53%) center / 10px 10px no-repeat, linear-gradient(-45deg, transparent 47%, var(--text-3) 47% 53%, transparent 53%) center / 10px 10px no-repeat; }
-.mock-body { flex: 1; display: flex; flex-direction: column; gap: 9px; padding: 18px 22px; }
-.mock-body span { height: 7px; border-radius: 4px; background: color-mix(in srgb, var(--text) 9%, transparent); }
-.mock-body span:nth-child(3n) { background: color-mix(in srgb, #3b82f6 30%, transparent); }
-.mock-body span:nth-child(5n) { background: color-mix(in srgb, #a855f7 26%, transparent); }
-
-/* ── 토스트 ── */
-.v3-toast {
-  position: fixed;
-  left: 50%;
-  bottom: 150px;
-  z-index: 85;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 16px 9px 12px;
-  border-radius: 999px;
-  font-weight: 600;
-  opacity: 0;
-  transform: translate(-50%, 10px) scale(0.96);
-  transition: opacity 160ms var(--ease-out), transform 200ms var(--ease-out);
-}
-.v3-toast[data-show='true'] { opacity: 1; transform: translate(-50%, 0); transition: opacity 200ms var(--ease-out), transform var(--dur-bouncy) var(--spring-bouncy); }
-.v3-ok { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); }
-.v3-ok::after { content: ''; display: block; width: 4px; height: 8px; margin: 3px 0 0 6.5px; border: solid var(--on-accent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
 /* ── 패널 탭 5개 ── */
 .tabs { grid-template-columns: repeat(5, 1fr); }
@@ -277,7 +201,6 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-day:hover { background: var(--fill-2); }
 .mc-day b { font: 600 13px/1.05 var(--font); font-variant-numeric: tabular-nums; }
 .mc-day small { max-width: 100%; font-size: 9px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mc-lunar { color: var(--text-3); }
 .mc-hol { color: var(--day, #e5484d); font-weight: 600; }
 .mc-day[data-out='true'] { opacity: 0.38; }
 .mc-day[data-today='true'] { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -440,8 +363,6 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 
 /* ── 이동 줄이기 ── */
 @media (prefers-reduced-motion: reduce) {
-  .app-note, .app-note[data-side], .app-note[data-show='true'], .mock-win { transform: none; }
-  .v3-toast, .v3-toast[data-show='true'] { transform: translate(-50%, 0); }
   .mc-sheet.in, .mc-sheet.out { animation-name: fade; animation-duration: 160ms; }
   .mc-sheet.out { animation-direction: reverse; }
   .ocr-ants::before { animation: none; }

@@ -305,3 +305,6 @@ export async function petSave(meta: { id?: string; name: string; style: 'pixel' 
 export const petDelete = (id: string) => invoke('pet_delete', { id })
 export const petImport = async (zip: Blob) => invoke<string>('pet_import', new Uint8Array(await zip.arrayBuffer()))
 export const petExport = (id: string) => invoke<string>('pet_export', { id })
+
+/** 메모장으로 열기 (Rust: %APPDATA%\Hera\notes\<id>.txt 에 쓰고 notepad.exe, 고치면 메모에 다시 읽어 넣음) — 누를 때만 */
+export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id })
