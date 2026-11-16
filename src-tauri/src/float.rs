@@ -28,10 +28,15 @@ pub const FEATURES: [(&str, &str, (f64, f64)); 12] = [
 ];
 const MIN: (f64, f64) = (300.0, 220.0);
 
+/// 떼어낸 창 크기 = 잰 내용 크기 (작게는 MIN, 크게는 기본 크기의 1.5배까지 — 내용이 그보다 길면 그때만 스크롤)
+pub fn fit_size(fit: (f64, f64), base: (f64, f64)) -> (f64, f64) {
+    (fit.0.clamp(MIN.0, base.0 * 1.5).round(), fit.1.clamp(MIN.1, base.1 * 1.5).round())
+}
+
 static SAVE_GEN: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
 /// 준비(첫 페인트) 끝난 창 · 보이기를 기다리는 창 (label → 물리 rect)
 static READY: Mutex<Vec<String>> = Mutex::new(Vec::new());
-static PENDING: Mutex<Vec<(String, [i32; 4])>> = Mutex::new(Vec::new());
+static PENDING: Mutex<Vec<(String, Option<[i32; 4]>)>> = Mutex::new(Vec::new());
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
 /// 저장된 rect 가 어느 모니터와도 64px 이상 겹치는가 (모니터를 뺐으면 버린다)
@@ -88,9 +93,11 @@ fn save_later(app: &AppHandle, w: &WebviewWindow, f: String) {
 }
 
 /// 숨긴 채 만들기 (있으면 그대로). 자리는 기억한 곳, 없으면 주 모니터 가운데 위쪽.
-fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
+/// fit = 떼어낸 화면의 잰 크기 (논리 px, 머리줄 포함) — 내용에 맞춘 창 (스크롤 없음). enter = 떼어내기 등장 (첫 그림은 들어오기 전 모양)
+fn create(app: &AppHandle, f: &str, fit: Option<(f64, f64)>, enter: bool) -> tauri::Result<Option<WebviewWindow>> {
     let _ = APP.set(app.clone());
     let Some(&(f, title, size)) = FEATURES.iter().find(|x| x.0 == f) else { return Ok(None) };
+    let size = fit.map_or(size, |z| fit_size(z, size));
     let label = format!("float-{f}");
     if let Some(w) = app.get_webview_window(&label) {
         return Ok(Some(w));
@@ -101,7 +108,7 @@ fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
     let pin = s.as_ref().and_then(|s| s.get(format!("float.{f}.pin"))).and_then(|v| v.as_bool()).unwrap_or(f == "lp");
     let mons: Vec<[i32; 4]> = app.available_monitors().unwrap_or_default().iter().map(|m| [m.position().x, m.position().y, m.size().width as i32, m.size().height as i32]).collect();
     let lp = f == "lp";
-    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?surface=float&f={f}").into()))
+    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("index.html?surface=float&f={f}{}", if enter { "&enter=1" } else { "" }).into()))
         .title(format!("Hera · {title}"))
         .inner_size(size.0, size.1)
         .min_inner_size(MIN.0, MIN.1)
@@ -121,7 +128,8 @@ fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
     let _ = crate::ui::low_memory(&win);
     match saved.filter(|r| visible_on(*r, &mons)) {
         Some([x, y, w, h]) => {
-            let sz = if lp { win.inner_size().map_or((w, h), |s| (s.width as i32, s.height as i32)) } else { (w, h) };
+            let sc = win.scale_factor().unwrap_or(1.0);
+            let sz = if lp { win.inner_size().map_or((w, h), |s| (s.width as i32, s.height as i32)) } else if fit.is_some() { ((size.0 * sc) as i32, (size.1 * sc) as i32) } else { (w, h) };
             crate::ui::set_client_bounds(&win, x, y, sz.0, sz.1);
         }
         None => {
@@ -153,17 +161,19 @@ fn create(app: &AppHandle, f: &str) -> tauri::Result<Option<WebviewWindow>> {
 
 /// 바로 열기 (LP 위젯 · 이미 떼어낸 창 앞으로)
 pub fn open(app: &AppHandle, f: &str) -> tauri::Result<()> {
-    let Some(win) = create(app, f)? else { return Ok(()) };
+    let Some(win) = create(app, f, None, false)? else { return Ok(()) };
     let _ = win.unminimize();
     win.show()?;
     let _ = app.emit("float-opened", f);
     win.set_focus()
 }
 
-fn show_at(app: &AppHandle, label: &str, r: [i32; 4]) {
+fn show_at(app: &AppHandle, label: &str, r: Option<[i32; 4]>) {
     let Some(win) = app.get_webview_window(label) else { return };
     let lp = label == "float-lp";
-    crate::ui::set_client_bounds(&win, r[0], r[1], if lp { win.outer_size().map_or(r[2], |s| s.width as i32) } else { r[2] }, if lp { win.outer_size().map_or(r[3], |s| s.height as i32) } else { r[3] });
+    if let Some(r) = r {
+        crate::ui::set_client_bounds(&win, r[0], r[1], if lp { win.outer_size().map_or(r[2], |s| s.width as i32) } else { r[2] }, if lp { win.outer_size().map_or(r[3], |s| s.height as i32) } else { r[3] });
+    }
     let _ = win.show();
     let _ = win.set_focus();
     let f = label.trim_start_matches("float-").to_string();
@@ -184,8 +194,8 @@ pub async fn float_open(app: AppHandle, f: String) -> Result<(), String> {
 
 /// 떼어내기 준비: 숨긴 채 만들기 → 그려질 클라이언트 rect (물리 px). 준비되면(첫 페인트) 'float-ready'
 #[tauri::command]
-pub async fn float_prepare(app: AppHandle, f: String) -> Result<[i32; 4], String> {
-    let win = create(&app, &f).map_err(|e| e.to_string())?.ok_or(format!("unknown view {f}"))?;
+pub async fn float_prepare(app: AppHandle, f: String, fit: Option<[f64; 2]>) -> Result<[i32; 4], String> {
+    let win = create(&app, &f, fit.map(|z| (z[0], z[1])), true).map_err(|e| e.to_string())?.ok_or(format!("unknown view {f}"))?;
     let label = win.label().to_string();
     if READY.lock().unwrap().contains(&label) {
         let _ = app.emit_to("island", "float-ready", &f);
@@ -194,14 +204,14 @@ pub async fn float_prepare(app: AppHandle, f: String) -> Result<[i32; 4], String
     Ok([p.x, p.y, z.width as i32, z.height as i32])
 }
 
-/// 떼어내기 끝: 유령 자리(아일랜드 CSS rect)에 보이기 — 아직 그려질 준비가 안 됐으면 준비되는 순간
+/// 떼어내기 끝: 보이기 (rect = 아일랜드 CSS rect 자리로, 없으면 준비한 자리 그대로) — 아직 그려질 준비가 안 됐으면 준비되는 순간
 #[tauri::command]
-pub async fn float_show(app: AppHandle, f: String, rect: [f64; 4]) -> Result<(), String> {
-    if create(&app, &f).map_err(|e| e.to_string())?.is_none() {
+pub async fn float_show(app: AppHandle, f: String, rect: Option<[f64; 4]>) -> Result<(), String> {
+    if create(&app, &f, None, false).map_err(|e| e.to_string())?.is_none() {
         return Err(format!("unknown view {f}"));
     }
     let label = format!("float-{f}");
-    let r = to_screen(&app, rect);
+    let r = rect.map(|r| to_screen(&app, r));
     if READY.lock().unwrap().contains(&label) {
         show_at(&app, &label, r);
     } else {
@@ -322,6 +332,14 @@ mod tests {
         assert!(!visible_on([5000, 100, 400, 500], &mons)); // 빠진 모니터 자리
         assert!(!visible_on([-380, 100, 400, 500], &mons)); // 20px 만 걸침
         assert!(visible_on([-336, 100, 400, 500], &mons)); // 64px 걸침
+    }
+
+    #[test]
+    fn detached_window_fits_its_content() {
+        let base = (380.0, 460.0); // 할 일 기본
+        assert_eq!(fit_size((380.0, 292.4), base), (380.0, 292.0)); // 짧은 목록 = 짧은 창 (빈 공간·스크롤 없음)
+        assert_eq!(fit_size((380.0, 120.0), base), (380.0, MIN.1)); // 너무 작지 않게
+        assert_eq!(fit_size((380.0, 2000.0), base), (380.0, 690.0)); // 아주 긴 내용만 스크롤
     }
 
     #[test]

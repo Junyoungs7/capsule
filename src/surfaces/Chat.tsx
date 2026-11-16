@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { CalendarEvent } from '../data/types'
-import { chatAttach, chatSendPaths, clipFiles, dragOut, fileSrc, hubAction, isTauri, launch, onEvent, setClip, shelfAdd, storeSet, teamState, useItems, usePrefix, useValue } from '../data/api'
+import { chatAttach, chatSendPaths, clipFiles, dragOut, fileSrc, isTauri, islandOpen, launch, onEvent, setClip, shelfAdd, storeSet, teamState, useItems, usePrefix, useValue } from '../data/api'
 import { CalendarSelect, refreshTeam, useTeam } from './Team'
 
 /* 팀 채팅 (떠 있는 창 · 허브 '채팅'): 공유 그룹마다 방 1개 — 달력·메모와 같은 그룹.
@@ -54,9 +54,10 @@ const SEED: Msg[] = isTauri ? [] : [
 type Props = {
   setEvents: (f: (all: CalendarEvent[]) => CalendarEvent[]) => void
   onToast?: (msg: string) => void
+  onTeam?: () => void // 그룹이 없을 때: 아일랜드 안 Team 화면으로
 }
 
-export function ChatWindow({ setEvents, onToast }: Props) {
+export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
   const { groups } = useTeam()
   const [msgs, setMsgs] = useItems<Msg>('chat', SEED)
   const [gid, setGid] = useValue<string>('chat.group', '')
@@ -161,7 +162,8 @@ export function ChatWindow({ setEvents, onToast }: Props) {
     return (
       <div className="chat-none">
         <p>채팅방은 Hera Team 공유 그룹마다 하나씩 생겨요.</p>
-        <button className="primary" onClick={() => (isTauri ? void hubAction('team') : undefined)}>Team 에서 그룹 만들기 · 들어오기</button>
+        {/* (a4) 예전엔 패널 창(설정 › Team)을 띄웠다 → 아일랜드 안 Team 화면으로 */}
+        <button className="primary" data-team onClick={() => (onTeam ? onTeam() : isTauri && void islandOpen('team'))}>Team 에서 그룹 만들기 · 들어오기</button>
       </div>
     )
   return (
@@ -171,7 +173,7 @@ export function ChatWindow({ setEvents, onToast }: Props) {
         <CalendarSelect groupsOnly value={group.id} onChange={setGid} />
       </div>
       <div className="chat-list" ref={list}>
-        {room.length === 0 && <p className="float-empty">첫 메시지를 보내 보세요. 파일·사진은 여기나 노치에 끌어 놓으면 돼요.</p>}
+        {room.length === 0 && <p className="float-empty">첫 메시지를 보내 보세요. 파일·사진은 여기나 캡슐에 끌어 놓으면 돼요.</p>}
         {room.map((m) => {
           const mine = m.byPk === me.pk
           const when = m.kind === 'text' && !mine ? parseWhen(m.text!) : null

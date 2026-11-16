@@ -17,10 +17,11 @@ export const HUB: [HubKind, string, string][] = [
 ]
 export const NAME = { ...Object.fromEntries(HUB.map(([k, l]) => [k, l])), petimport: '펫 추가' } as Record<ViewKind | 'lp', string>
 export const COLOR = { ...Object.fromEntries(HUB.map(([k, , c]) => [k, c])), petimport: '--pink' } as Record<ViewKind | 'lp', string>
-/** 안의 화면 크기 (논리 px) — 떼어내면 이 크기 + 머리줄 40 으로 창이 된다 */
+/** 안의 화면 [폭, 최대 높이] (논리 px). 높이는 내용에 맞춘다 — 터미널·채팅만 고정 (안을 채우는 화면). 떼어내면 잰 크기로 창이 된다 */
+export const FIXED_H = new Set<ViewKind>(['term', 'chat'])
 export const VIEW_SIZE: Record<ViewKind, [number, number]> = {
-  notes: [380, 400], todo: [380, 420], calendar: [480, 420], chat: [400, 480], term: [640, 300], clips: [380, 400], shelf: [360, 340],
-  ocr: [360, 300], snippets: [380, 400], team: [400, 440], link: [380, 360], settings: [380, 610], petimport: [440, 640],
+  notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480],
+  ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [380, 400], settings: [380, 640], petimport: [440, 640],
 }
 export const VIEWS = Object.keys(VIEW_SIZE) as ViewKind[]
 export const DETACHABLE = (k: ViewKind) => k !== 'settings' && k !== 'petimport'
@@ -97,7 +98,7 @@ export function HubHome({ next, events, todos, unread, weather, onGo, onPalette 
 export function ViewShell({ k, extra, title, onBack, onDetach, children }: { k: ViewKind; extra?: ReactNode; title?: ReactNode; onBack: () => void; onDetach?: () => void; children: ReactNode }) {
   const [w, h] = VIEW_SIZE[k]
   return (
-    <div className="view" data-k={k} style={{ width: w, height: h }}>
+    <div className="view" data-k={k} style={FIXED_H.has(k) ? { width: w, height: h } : { width: w, maxHeight: h }}>
       <div className="vhead">
         <button className="ib" data-back onClick={onBack} aria-label="뒤로"><Ico k="back" /></button>
         <span className="well sm" style={{ '--c': `var(${COLOR[k]})` } as CSSProperties}><Ico k={ICON[k]} /></span>
@@ -112,11 +113,12 @@ export function ViewShell({ k, extra, title, onBack, onDetach, children }: { k: 
 }
 
 /** 떼어낸 창 = 머리줄 40 (손잡이 · 이름 · 'Island로' · 핀 · 닫기 — 최소화 없음) + 몸. 머리줄 끌기는 onBarDown (OS 캡션 끌기 아님) */
-export function WinChrome({ k, pin, onPin, onAbsorb, onClose, onBarDown, children, moving }: {
+export function WinChrome({ k, pin, onPin, onAbsorb, onClose, onBarDown, children, moving, enter }: {
   k: ViewKind; pin?: boolean; onPin?: () => void; onAbsorb?: () => void; onClose?: () => void; onBarDown?: (e: React.PointerEvent<HTMLElement>) => void; children: ReactNode; moving?: boolean
+  enter?: 'pre' | 'in' // 떼어내기 등장: 첫 그림 = 'pre' (숨긴 채 그려 둔다) → 보이면 'in'
 }) {
   return (
-    <div className={`hx win ${moving ? 'moving' : ''}`} data-kind={k}>
+    <div className={`hx win ${moving ? 'moving' : ''}`} data-kind={k} data-enter={enter}>
       <div className="wbar" onPointerDown={onBarDown} onDoubleClick={(e) => e.preventDefault()} title="끌어서 옮기기 · 캡슐에 놓으면 Island로">
         <span className="grip" />
         <span className="wt"><span className="well sm" style={{ '--c': `var(${COLOR[k]})` } as CSSProperties}><Ico k={ICON[k]} /></span>{NAME[k]}</span>

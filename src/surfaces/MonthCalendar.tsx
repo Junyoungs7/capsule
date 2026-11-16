@@ -1,9 +1,10 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import type { CalendarEvent, Todo } from '../data/types'
-import { dayKey, isHoliday, lunarOf } from '../data/holidays'
+import { dayKey, isHoliday } from '../data/holidays'
+import { todoDays } from './DateRange'
 import { CalendarFilter, CalendarSelect, groupOf, useTeam } from './Team'
 
-/* v3 패널 달력: 주/월 전환. 일요일·공휴일 빨강, 토요일 파랑, 공휴일 이름, 작은 음력 날짜, 일정·할 일 점, 오늘 링.
+/* v3 패널 달력: 주/월 전환. 일요일·공휴일 빨강, 토요일 파랑, 공휴일 이름, 일정·할 일 점, 오늘 링.
    달(주) 넘기기 = 새 격자가 스프링으로 밀려 들어오고 이전 격자는 반대로 빠진다. */
 type Props = {
   events: CalendarEvent[]
@@ -19,10 +20,6 @@ const weekStart = (d: Date) => addDays(d, -d.getDay())
 const monthStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
 const anchorOf = (m: Mode, d: Date) => (m === 'month' ? monthStart(d) : weekStart(d))
 const hm = (t: string) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
-const lunarText = (d: Date) => {
-  const l = lunarOf(d)
-  return l ? (l[1] === 1 ? `${l[0]}.1` : String(l[1])) : ''
-}
 
 export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   const [mode, setMode] = useState<Mode>('month')
@@ -60,7 +57,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   }
   for (const list of evBy.values()) list.sort((a, b) => a.start.localeCompare(b.start))
   const todoBy = new Map<string, number>()
-  for (const t of todos) if (t.due && !t.done) todoBy.set(dayKey(new Date(t.due)), (todoBy.get(dayKey(new Date(t.due))) ?? 0) + 1)
+  for (const t of todos) if (!t.done) for (const k of todoDays(t)) todoBy.set(k, (todoBy.get(k) ?? 0) + 1)
   const DOTS = 3 // 월 보기: 숫자 아래 점 최대 3개, 나머지는 +N
   const CHIPS = 4 // 주 보기: 칸 안 일정 최대 4개, 나머지는 +N
 
@@ -81,11 +78,10 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           data-blue={d.getDay() === 6 && !hol}
           aria-selected={k === sel}
           aria-label={`${d.getMonth() + 1}월 ${d.getDate()}일${hol ? ' ' + hol : ''}`}
-          title={hol ?? (lunarOf(d) ? `음력 ${lunarOf(d)!.join('.')}` : undefined)}
           onClick={() => pick(d)}
         >
           <b>{d.getDate()}</b>
-          {m === 'month' ? <small className={hol ? 'mc-hol' : 'mc-lunar'}>{hol ? hol.replace(/^대체공휴일\((.+)\)$/, '대체($1)') : lunarText(d)}</small> : <small className="mc-lunar">음 {lunarOf(d)?.join('.') ?? ''}</small>}
+          {m === 'month' && hol && <small className="mc-hol">{hol.replace(/^대체공휴일\((.+)\)$/, '대체($1)')}</small>}
           {m === 'week' && hol && <small className="mc-hol">{hol}</small>}
           {m === 'week' && evs.slice(0, evs.length > CHIPS ? CHIPS - 1 : CHIPS).map((ev) => <span key={ev.id} className="mc-chip" data-group={!!ev.group} style={{ '--g': colorOf(ev) } as React.CSSProperties} title={`${hm(ev.start)} ${ev.title}`}><b>{hm(ev.start)}</b><i>{ev.title}</i></span>)}
           {m === 'week' && evs.length > CHIPS && <span className="mc-more">+{evs.length - CHIPS + 1}개</span>}
@@ -118,9 +114,8 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
   }
 
   const hol = isHoliday(selDate)
-  const lun = lunarOf(selDate)
   const dayEvents = (evBy.get(sel) ?? []).sort((a, b) => a.start.localeCompare(b.start))
-  const dayTodos = todos.filter((t) => t.due && dayKey(new Date(t.due)) === sel)
+  const dayTodos = todos.filter((t) => todoDays(t).includes(sel))
 
   return (
     <div className="mc">
@@ -143,7 +138,6 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
       </div>
       <div className="mc-daybar">
         <b>{selDate.getMonth() + 1}월 {selDate.getDate()}일 {DOW[selDate.getDay()]}요일</b>
-        {lun && <small>음력 {lun[0]}월 {lun[1]}일</small>}
         {hol && <small className="mc-hol">{hol}</small>}
         <CalendarFilter />
       </div>

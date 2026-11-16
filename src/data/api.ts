@@ -146,6 +146,8 @@ export const power = () => invoke<[number, boolean] | null>('power')
 /* ── 창 간 알림 (실행 오류 → Island alert) ── */
 export type AlertMsg = { title: string; body: string }
 export const sendAlert = (a: AlertMsg) => emit('hera-alert', a)
+/** 아일랜드 안 화면 열기 (어느 창에서든 — 예전 패널 창을 띄우지 않는다) */
+export const islandOpen = (view: string) => emit('island-open', view)
 
 /* ── 클릭 통과 히트 rect ──
    B0-3: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 시안에서는 no-op.
@@ -209,10 +211,10 @@ export type FloatKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips
 export const floatOpen = (f: FloatKind) => invoke('float_open', { f })
 // 떼어내기: 유령 자리(아일랜드 CSS rect)에 만들어 첫 페인트 뒤 보이기 / 흡수: 유령을 그린 뒤 창 파괴 / 떠 있는 창: 첫 페인트 끝
 /** 떼어내기 준비: 숨긴 채 만들기 → 그려질 자리 (물리 px [x, y, w, h]). 첫 페인트가 끝나면 'float-ready' */
-export const floatPrepare = (f: FloatKind) => invoke<[number, number, number, number]>('float_prepare', { f })
+export const floatPrepare = (f: FloatKind, fit?: [number, number]) => invoke<[number, number, number, number]>('float_prepare', { f, fit: fit ?? null })
 /** 머리줄 끌기 (start | move | end) · 'Island로' (absorb) */
 export const floatDrag = (phase: 'start' | 'move' | 'end' | 'absorb') => invoke('float_drag', { phase })
-export const floatShow = (f: FloatKind, r: DOMRect) => invoke('float_show', { f, rect: [r.x, r.y, r.width, r.height] })
+export const floatShow = (f: FloatKind, r: DOMRect | null) => invoke('float_show', { f, rect: r && [r.x, r.y, r.width, r.height] })
 export const floatAbsorbed = (f: FloatKind) => invoke('float_absorbed', { f })
 export const floatReady = () => invoke('float_ready')
 // 아일랜드 창: 애니메이션 동안 화면 높이로 · 글자 입력용 포커스 · 스니펫 붙여넣기(직전 앱으로)

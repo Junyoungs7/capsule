@@ -1,6 +1,6 @@
 import { useEffect, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react'
 import type { Clip, ShelfFile } from '../data/types'
-import { dragOut, floatClose, floatDrag, floatPin, floatReady, isTauri, storeGet, type FloatKind } from '../data/api'
+import { dragOut, floatClose, floatDrag, floatPin, floatReady, isTauri, onEvent, storeGet, type FloatKind } from '../data/api'
 import { WinChrome } from './Hub'
 
 /* 떠 있는 기능 창 (떼어낸 화면 · LP 플레이어). 실제 앱: Tauri 창 `float-<f>` (닫으면 파괴). 시안: 같은 컴포넌트를 페이지 안에 띄운다.
@@ -50,8 +50,14 @@ function useFloat(f: FloatKind, onClose?: () => void, mock?: boolean) {
 /** 떼어낸 화면 = 승인 시안의 창 (머리줄 40 · 'Island로' · 핀 · 닫기) */
 export function FloatWin({ f, children, mock, onClose, onAbsorb }: { f: Exclude<FloatKind, 'lp'>; children: ReactNode; mock?: boolean; onClose?: () => void; onAbsorb?: () => void }) {
   const { pin, togglePin, close } = useFloat(f, onClose, mock)
+  // 떼어내기로 만든 창(&enter=1): 숨긴 채 '들어오기 전' 모양으로 그려 두고, Rust 가 보이면('float-opened') 제자리에서 들어온다
+  const [enter, setEnter] = useState<'pre' | 'in' | undefined>(() => (new URLSearchParams(location.search).get('enter') ? 'pre' : undefined))
+  useEffect(() => {
+    if (enter !== 'pre') return
+    return onEvent<string>('float-opened', (x) => x === f && requestAnimationFrame(() => setEnter('in')))
+  }, [])
   return (
-    <WinChrome k={f} pin={pin} onPin={togglePin} onClose={close} onBarDown={mock ? undefined : barDrag} onAbsorb={onAbsorb ?? (() => void floatDrag('absorb'))}>
+    <WinChrome k={f} pin={pin} enter={enter} onPin={togglePin} onClose={close} onBarDown={mock ? undefined : barDrag} onAbsorb={onAbsorb ?? (() => void floatDrag('absorb'))}>
       {children}
     </WinChrome>
   )
@@ -117,12 +123,14 @@ export function ShelfList({ files, onOpen, onRemove, onSend, peer }: { files: Sh
             }}
             onClick={() => (down?.dragged ? setDown(null) : onOpen(f))}
             onContextMenu={(e) => (e.preventDefault(), onRemove(f))}
-            title={`${f.path}\n클릭: 열기 · 끌기: 밖으로 복사 · 우클릭: 빼기`}
+            aria-describedby={`tip-${f.id}`}
           >
             <i className="ext">{/\.([a-z0-9]{1,4})$/i.exec(f.path)?.[1] ?? '폴더'}</i>
             <span><b>{fname(f.path)}</b><small>{f.path}</small></span>
           </button>
-          {onSend && <button className="mini" onClick={() => onSend(f)} title={`${peer ?? 'Mac'}으로 보내기`}>{peer ?? 'Mac'}</button>}
+          {/* (a4) 네이티브 title 말풍선 대신 시안 토큰 말풍선 */}
+          <span className="tip" id={`tip-${f.id}`} role="tooltip"><b>{f.path}</b><small>클릭: 열기 · 끌기: 밖으로 복사 · 우클릭: 빼기</small></span>
+          {onSend && <button className="mini" onClick={() => onSend(f)} aria-label={`${peer ?? 'Mac'}으로 보내기`}>{peer ?? 'Mac'}</button>}
           <button className="mini" onClick={() => onRemove(f)} aria-label="선반에서 빼기">×</button>
         </li>
       ))}

@@ -72,6 +72,15 @@ fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) 
     Ok(win)
 }
 
+/// (a4) 할 일 = 기간 (start ~ due). 예전 하루짜리 할 일은 start = due 로
+pub(crate) fn migrate_todo(v: &serde_json::Value) -> Option<serde_json::Value> {
+    (v.get("due").is_some_and(|d| d.is_string()) && v.get("start").is_none()).then(|| {
+        let mut n = v.clone();
+        n["start"] = v["due"].clone();
+        n
+    })
+}
+
 /// 배치: 아일랜드 = 주 모니터 작업 영역 오른쪽(왼쪽) 아래 모서리. DPI/작업 영역 변경 시 재호출.
 pub(crate) fn place(app: &AppHandle) {
     let Ok(Some(m)) = app.primary_monitor() else { return };
@@ -820,6 +829,12 @@ pub fn run() {
                 s.set("dock.pinned", serde_json::json!(["calc", "notepad", "github"]));
                 s.set("seeded", true);
             }
+            // (a4) 할 일 기간: 예전 하루짜리(due 만) → start = due (한 번, 이미 start 가 있으면 그대로)
+            for (k, v) in s.entries() {
+                if let Some(n) = k.starts_with("todo:").then(|| migrate_todo(&v)).flatten() {
+                    s.set(k, n);
+                }
+            }
             let h = app.handle();
             // 상단 공간 확보(AppBar): 지난 실행이 못 돌려준 예약부터 정리 → 설정이 켜져 있으면 다시 등록
             appbar::cleanup_stale(h);
@@ -972,6 +987,17 @@ pub fn run() {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn todo_range_migration() {
+        let old = json!({ "id": "a", "title": "보고서", "due": "2026-11-18T09:00:00.000Z", "done": false });
+        let n = migrate_todo(&old).unwrap();
+        assert_eq!(n["start"], n["due"]);
+        assert_eq!(n["title"], "보고서");
+        assert!(migrate_todo(&n).is_none()); // 두 번 하지 않는다
+        assert!(migrate_todo(&json!({ "id": "b", "title": "기한 없음" })).is_none());
+        assert!(migrate_todo(&json!({ "start": "2026-11-16T00:00:00.000Z", "due": "2026-11-18T09:00:00.000Z" })).is_none()); // 이미 기간
+    }
 
     #[test]
     fn notes_window_rule() {

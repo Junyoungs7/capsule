@@ -3,6 +3,7 @@ import type { AppGroup, CalendarEvent, LpRecord, Todo } from '../data/types'
 import { isTauri, startApps } from '../data/api'
 import { Tile } from './Tile'
 import { fmtWhen } from './Island'
+import { DateRange, rangeLabel, todoWhen, toTodo, type Range } from './DateRange'
 import type { Weather } from './Fx'
 import { useValue, type LinkCfg, type LinkStatus } from '../data/api'
 import { AmbientControls, KeyMapEditor, MonitorCanvas } from './LinkExtras'
@@ -112,13 +113,15 @@ const id = () => crypto.randomUUID()
 
 export function TodoTab({ todos, setTodos, onAdded }: Pick<Props, 'todos' | 'setTodos' | 'onAdded'>) {
   const [title, setTitle] = useState('')
-  const [due, setDue] = useState('')
+  const [range, setRange] = useState<Range | null>(null)
+  const [picker, setPicker] = useState(false)
   const add = (e: FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
-    setTodos((t) => [...t, { id: id(), title: title.trim(), due: due ? new Date(due).toISOString() : undefined, done: false, source: 'local' }])
+    setTodos((t) => [...t, { id: id(), title: title.trim(), ...toTodo(range), done: false, source: 'local' }])
     setTitle('')
-    setDue('')
+    setRange(null)
+    setPicker(false)
     onAdded()
   }
   const sorted = [...todos].sort((a, b) => Number(a.done) - Number(b.done) || (a.due ?? '9').localeCompare(b.due ?? '9'))
@@ -126,9 +129,10 @@ export function TodoTab({ todos, setTodos, onAdded }: Pick<Props, 'todos' | 'set
     <>
       <form className="add" onSubmit={add}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="할 일 추가" aria-label="할 일 제목" />
-        <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} aria-label="마감 시각" />
+        <button type="button" className="when-cap" aria-expanded={picker} data-set={!!range} onClick={() => setPicker((p) => !p)} aria-label="기간">{rangeLabel(range)}</button>
         <button className="primary" aria-label="추가">추가</button>
       </form>
+      {picker && <DateRange value={range} onChange={setRange} onDone={() => setPicker(false)} />}
       <ul className="list">
         {sorted.map((t) => (
           <li key={t.id} data-done={t.done}>
@@ -138,7 +142,7 @@ export function TodoTab({ todos, setTodos, onAdded }: Pick<Props, 'todos' | 'set
             </label>
             <span className="grow">
               <b>{t.title}</b>
-              <small>{fmtWhen(t.due)}</small>
+              <small>{todoWhen(t, fmtWhen)}</small>
             </span>
             <button className="icon-btn del" onClick={() => setTodos((all) => all.filter((x) => x.id !== t.id))} aria-label={`${t.title} 삭제`}>×</button>
           </li>

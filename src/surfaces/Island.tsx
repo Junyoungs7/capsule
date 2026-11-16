@@ -50,11 +50,11 @@ type Props = {
   size: CapSize
   pet: string
   custom: CustomPet | null
-  ambient: { unread: number; running: boolean; shelf: number }
+  ambient: { unread: number; running: boolean } // 계속되는 자세 (선반은 놓을 때 잠깐만 — 알림으로)
   alert: Alert | null
   open: string | null // 'hub' | 화면 키
   render: (k: string) => ReactNode
-  viewSize: (k: string) => [number, number] | null // null = 허브 (높이를 잰다)
+  viewSize: (k: string) => [number, number | null] // [폭, 높이] — 높이 null = 내용을 잰다 (허브 · 대부분의 화면)
   onTap: () => void
   magnet?: 'near' | 'hot' | null
   gulp?: number
@@ -132,7 +132,7 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
   const pill = open ? null : shownAlert
 
   /* 잠: 2분 동안 아무 일 없으면. 잠든 지 8초 · 계속되는 자세로 2분 · 창이 가려지면 멈춘 자세 */
-  const persistent = ambient.unread > 0 || ambient.running || ambient.shelf > 0
+  const persistent = ambient.unread > 0 || ambient.running
   const [quiet, setQuiet] = useState(false)
   const [still, setStill] = useState(false)
   const [hidden, setHidden] = useState(document.hidden)
@@ -141,7 +141,7 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
     document.addEventListener('visibilitychange', f)
     return () => document.removeEventListener('visibilitychange', f)
   }, [])
-  const wakeKey = `${open}|${pill?.key}|${pill?.b}|${hover}|${ambient.unread}|${ambient.running}|${ambient.shelf}|${pet}|${size}`
+  const wakeKey = `${open}|${pill?.key}|${pill?.b}|${hover}|${ambient.unread}|${ambient.running}|${pet}|${size}`
   useEffect(() => {
     setQuiet(false)
     setStill(false)
@@ -155,7 +155,7 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
     const t = setTimeout(() => setStill(true), persistent ? 0 : 8000)
     return () => clearTimeout(t)
   }, [quiet, persistent])
-  const pose: PetState = pill ? pill.pet : ambient.unread ? 'chat' : ambient.running ? 'typing' : ambient.shelf ? 'shelf' : asleep ? 'sleep' : 'idle'
+  const pose: PetState = pill ? pill.pet : ambient.unread ? 'chat' : ambient.running ? 'typing' : asleep ? 'sleep' : 'idle'
 
   /* 열린 내용: 바뀌면 90ms 흐려졌다가 바꿔 끼운다 (닫힐 때는 그대로 두고 흐려진다) */
   const [shown, setShown] = useState<string | null>(open)
@@ -174,15 +174,18 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
 
   /* 크기 */
   const content = useRef<HTMLDivElement>(null)
-  const [hubH, setHubH] = useState(520)
+  // (a4) 허브·화면 높이 = 잰 내용 (화면마다 최대 높이는 ViewShell 이 max-height 로). 내용이 바뀌면(할 일 추가·기간 달력) 따라간다
+  const [measured, setMeasured] = useState<Record<string, number>>({})
   useLayoutEffect(() => {
     const el = content.current?.firstElementChild as HTMLElement | null
-    if (shown !== 'hub' || !el) return
-    setHubH(el.offsetHeight)
-    const ro = new ResizeObserver(() => setHubH(el.offsetHeight))
+    if (!shown || !el) return
+    const f = () => setMeasured((m) => (m[shown] === el.offsetHeight ? m : { ...m, [shown]: el.offsetHeight }))
+    f()
+    const ro = new ResizeObserver(f)
     ro.observe(el)
     return () => ro.disconnect()
   }, [shown])
+  const lastH = useRef(520)
   const measure = useRef<HTMLDivElement>(null)
   const [tw, setTw] = useState(0)
   useLayoutEffect(() => {
@@ -190,8 +193,11 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
     setTw(Math.min(Math.ceil(measure.current.getBoundingClientRect().width) + 2, Math.round(300 * K)))
   }, [pill?.b, pill?.s, pill?.acts?.length, K])
   const vs = open ? viewSize(open) : null
-  const [w, h, r] = open ? (vs ? [vs[0], vs[1], 20] : [432, hubH, 24]) : pill ? [CAP[0] + tw, CAP[1], CAP[2]] : CAP
-  const mode = open ? (vs ? 'view' : 'hub') : pill ? 'alert' : 'idle'
+  // 처음 여는 화면은 재기 전까지 지금 높이 그대로 (최대 높이로 갔다가 줄어드는 출렁임 없음)
+  const openH = vs ? vs[1] ?? measured[open!] ?? lastH.current : 0
+  if (open) lastH.current = openH
+  const [w, h, r] = open ? [vs![0], openH, open === 'hub' ? 24 : 20] : pill ? [CAP[0] + tw, CAP[1], CAP[2]] : CAP
+  const mode = open ? (open === 'hub' ? 'hub' : 'view') : pill ? 'alert' : 'idle'
 
   /* 히트 rect = 모서리 기준 목표 크기 (+ 머묾 여유) — 창 크기가 바뀌면 다시 */
   const [vw, setVw] = useState(0)

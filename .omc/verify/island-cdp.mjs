@@ -9,7 +9,12 @@ import { start, sleep, suite, WA, ISL } from './headless.mjs'
 const { ok, until, done } = suite('island')
 const h = await start()
 let isl
-const VIEW = { notes: [380, 400], todo: [380, 420], calendar: [480, 420], chat: [400, 480], term: [640, 300], clips: [380, 400], shelf: [360, 340], ocr: [360, 300], snippets: [380, 400], team: [400, 440], link: [380, 360], settings: [380, 610] }
+// [폭, 최대 높이] — (a4) 높이는 내용에 맞춘다, 터미널·채팅만 고정
+const VIEW = { notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480], ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [380, 400], settings: [380, 640] }
+const FIXED = ['term', 'chat']
+// 화면 = 잰 내용 높이 · 보통 내용엔 스크롤 없음
+const fits = (k) => isl.eval(`(() => { const v = document.querySelector('.isl .view[data-k=${k}]'), b = v.querySelector('.vbody'), s = document.querySelector('.isl .skin').getBoundingClientRect(); return { skinH: Math.round(s.height), viewH: v.offsetHeight, scroll: b.scrollHeight - b.clientHeight } })()`)
+
 const skin = () => isl.eval(`(() => { const r = document.querySelector('.isl .skin').getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round) })()`)
 const mode = () => isl.eval(`document.querySelector('.isl').dataset.mode`)
 const hubOpen = () => isl.eval(`document.querySelector('.isl').dataset.open === 'true'`)
@@ -111,7 +116,9 @@ try {
     const shown = await until(() => isl.eval(`(() => { const v = document.querySelector('.isl .view[data-k=${k}]'); return !!v && v.offsetWidth > 0 && document.querySelector('.isl .vhead b')?.textContent?.length > 0 })()`), 2000)
     await sleep(650)
     const s = await skin()
-    ok(`icon ${k} → its view opens in the Island (${VIEW[k]})`, shown && s[2] === VIEW[k][0] && s[3] === VIEW[k][1], JSON.stringify(s))
+    const f = await fits(k)
+    ok(`icon ${k} → its view opens in the Island, sized to its content (w ${VIEW[k][0]}, h ≤ ${VIEW[k][1]})`, shown && s[2] === VIEW[k][0] && (FIXED.includes(k) ? s[3] === VIEW[k][1] : s[3] === f.viewH && s[3] <= VIEW[k][1]), JSON.stringify({ s, f }))
+    if (!['team', 'settings'].includes(k)) ok(`…${k}: no scrollbar for normal content`, f.scroll <= 1, JSON.stringify(f))
   }
 
   /* 5. 메모 (버그 1): 목록 · 새 메모 · '데스크톱에 붙이기' */
@@ -199,12 +206,22 @@ try {
   const n0 = h.calls.length
   await isl.clickSel('.view[data-k=todo] [data-detach]')
   ok('detach: the real window is created hidden first (float_prepare)', await until(() => h.calls.slice(n0).some((c) => c[1] === 'float_prepare' && c[2]?.f === 'todo')))
-  ok('…the Island pre-sizes to the work area before anything moves', await until(() => isl.eval(`innerWidth === ${WA.w}`)))
-  ok('…ghost (solid, no backdrop-filter) moves only after the window painted', await until(() => isl.eval(`(() => { const g = document.querySelector('.ghost-win'); return !!g && getComputedStyle(g).backdropFilter === 'none' })()`)) && h.pages.get('float-todo')?.ready === true)
-  ok('…window shown in place, ghost removed', await until(() => h.pages.get('float-todo')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 4000))
+  const fit = h.calls.slice(n0).find((c) => c[1] === 'float_prepare')?.[2]?.fit
+  ok('…sized to the measured view (no scroll in the window)', !!fit && fit[0] === 380 && fit[1] > 100 && fit[1] < 600, JSON.stringify(fit))
+  ok('…window shown only after it painted', await until(() => h.pages.get('float-todo')?.shown) && h.pages.get('float-todo')?.ready === true)
+  let wide = false
+  for (let t = 0; t < 1200; t += 40) (wide ||= (await isl.eval('innerWidth')) !== ISL.w), await sleep(40)
+  ok('…the Island window never resizes for a detach (no work-area surface)', !wide && !h.calls.slice(n0).some((c) => c[1] === 'island_tall'))
+  const ft = h.pages.get('float-todo')
+  ok('…window enters in place (transform/opacity, solid while entering)', await until(() => ft.eval(`document.querySelector('.win').dataset.enter === 'in'`), 2000))
   const fd = await frames()
-  allFrames.push(['detach', fd])
-  ok('detach frames ≥95% ≤17ms', fd.within17 >= 0.95, JSON.stringify(fd))
+  allFrames.push(['detach · island collapse', fd])
+  ok('detach: island frames ≥95% ≤17ms', fd.within17 >= 0.95, JSON.stringify(fd))
+  await sleep(500)
+  const fe = await ft.eval(`(() => { const f = (window.__heraFrames || []).slice(2); return { n: f.length, within17: +(f.filter((x) => x <= 17).length / Math.max(1, f.length)).toFixed(3), max: +Math.max(0, ...f).toFixed(1) } })()`)
+  allFrames.push(['detach · window entrance', fe])
+  ok('detach: window entrance frames ≥95% ≤17ms', fe.n > 10 && fe.within17 >= 0.95, JSON.stringify(fe))
+  ok('detached window content fits (no scrollbar)', await ft.eval(`(() => { const b = document.querySelector('.win .vbody'); return b.scrollHeight - b.clientHeight <= 1 })()`))
   const calls = h.calls.slice(n0).map((c) => c[1])
   ok('window creation never overlaps the motion (prepare → ready → move → show)', calls.indexOf('float_prepare') < calls.indexOf('float_show'))
   await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
@@ -241,8 +258,8 @@ try {
   // 머리줄 끌기 → 캡슐 위에 놓으면 흡수 (자석)
   await openView('calendar')
   await isl.clickSel('.view[data-k=calendar] [data-detach]')
-  await until(() => h.pages.get('float-calendar')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 5000)
-  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  await until(() => h.pages.get('float-calendar')?.shown, 5000)
+  await sleep(500)
   const fc = h.pages.get('float-calendar')
   await until(() => fc.eval(`!!document.querySelector('.wbar')`), 5000)
   const g0 = { ...fc.geo }
@@ -269,9 +286,9 @@ try {
   await openView('chat')
   await isl.eval(`window.__heraFrames = []`)
   await isl.clickSel('.view[data-k=chat] [data-detach]')
-  await until(() => h.pages.get('float-chat')?.shown && isl.eval(`!document.querySelector('.ghost-win')`), 5000)
-  allFrames.push(['detach chat', await frames()])
-  await until(() => isl.eval(`innerWidth === ${ISL.w}`), 3000)
+  await until(() => h.pages.get('float-chat')?.shown, 5000)
+  await sleep(700)
+  allFrames.push(['detach chat · island', await frames()])
   await h.pages.get('float-chat').clickSel('[data-wclose]')
   ok('✕ destroys the window', await until(() => !h.pages.has('float-chat'), 3000))
   await sleep(400)

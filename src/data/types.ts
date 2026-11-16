@@ -16,7 +16,8 @@ export type LpRecord = {
 export type Source = 'local' | 'google' | 'ms'
 
 // snooze = '10분 뒤 다시' 로 미룬 알림 시각 (있으면 due/start 대신 이 시각에 알림, Rust watch 루프가 판정)
-export type Todo = { id: string; title: string; due?: string; done: boolean; source: Source; externalId?: string; snooze?: string }
+// start = 기간 시작(없으면 하루짜리 = due 날), due = 끝(마감·알림 시각)
+export type Todo = { id: string; title: string; start?: string; due?: string; done: boolean; source: Source; externalId?: string; snooze?: string }
 
 // group = Hera Team 공유 그룹 id (없으면 내 일정), by = 마지막으로 추가·수정한 그룹원 이름
 export type CalendarEvent = { id: string; title: string; start: string; end: string; source: Source; externalId?: string; snooze?: string; group?: string; by?: string }

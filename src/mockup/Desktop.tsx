@@ -10,7 +10,7 @@ import { AMBIENT } from '../surfaces/LinkExtras'
 import { fmtWhen, Island, type Alert, type NextItem } from '../surfaces/Island'
 import { CalendarFilter, groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
 import { Panel, TodoTab, type Tab } from '../surfaces/Panel'
-import { DETACHABLE, GhostLayer, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
+import { DETACHABLE, FIXED_H, GhostLayer, recordFrames, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
 import { customOf, draftOf, newDraft, PetImportView, SettingsView, useCustomPets, type Draft, type IslandPrefs } from '../surfaces/PetSettings'
 import { NOTE_COLORS } from '../surfaces/Notes'
 import { Ico } from '../surfaces/Icons'
@@ -65,14 +65,22 @@ export function Desktop({ only }: { only?: string }) {
 
   // C4 파일 선반 (shelf:<id>)
   const [shelf, setShelf] = useItems<ShelfFile>('shelf', seedShelf)
-  const shelve = (paths: string[]) =>
-    setShelf((fs) => [...fs.filter((f) => !paths.includes(f.path)), ...paths.map((path, i) => ({ id: crypto.randomUUID(), path, at: Date.now() + i }))].sort((a, b) => a.at - b.at).slice(-SHELF_MAX))
+  const shelve = (paths: string[]) => (
+    setShelfPing((x) => ({ n: (x?.n ?? 0) + 1, count: paths.length })),
+    setShelf((fs) => [...fs.filter((f) => !paths.includes(f.path)), ...paths.map((path, i) => ({ id: crypto.randomUUID(), path, at: Date.now() + i }))].sort((a, b) => a.at - b.at).slice(-SHELF_MAX)))
   const dropFiles = (paths: string[], toShelf: boolean) => {
     const apps = toShelf ? [] : paths.filter((p) => /\.(exe|lnk)$/i.test(p))
     apps.forEach((p) => addRecord(p))
     const rest = paths.filter((p) => !apps.includes(p))
     if (rest.length) shelve(rest)
   }
+  // (a4) 선반에 놓으면 펫이 상자를 잠깐 들었다가(알림 6초) 평소로 — 예전엔 선반에 파일이 있는 동안 내내 상자 자세였다
+  const [shelfPing, setShelfPing] = useState<{ n: number; count: number } | null>(null)
+  useEffect(() => {
+    if (!shelfPing) return
+    const t = setTimeout(() => setShelfPing(null), 6500)
+    return () => clearTimeout(t)
+  }, [shelfPing?.n])
 
   // v2 앱 묶음 (group:<id>) — 독에는 레코드 뒤에 모두 표시
   const [groups, setGroups] = useItems<AppGroup>('group', seedGroups)
@@ -81,7 +89,8 @@ export function Desktop({ only }: { only?: string }) {
   // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 팔레트 창 'clips' (폴링 없음)
   const [clips, setClips] = useState<Clip[]>(isTauri ? [] : seedClips)
   useEffect(() => {
-    if (!isTauri || (only !== 'palette' && only !== 'float')) return // 팔레트 + 떠 있는 '최근 복사' 창
+    // (a4) 최근 복사 화면은 이제 아일랜드 안 — 예전엔 팔레트·떠 있는 창만 받아서 아일랜드에서는 늘 비어 있었다
+    if (!isTauri || (only !== 'palette' && only !== 'float' && only !== 'island')) return
     void clipList().then(setClips)
     return onEvent<Clip[]>('clips', setClips)
   }, [])
@@ -553,14 +562,16 @@ export function Desktop({ only }: { only?: string }) {
         const off = onEvent<string>('float-ready', (f) => f === k && (off(), res()))
         setTimeout(() => (off(), res()), 3000)
       })
-      const [x, y, w, h] = await floatPrepare(k as FloatKind)
-      await goTall()
+      // (a4) 창 = 지금 화면이 잰 크기 (머리줄 48 → 창 머리줄 40) — 내용에 맞아 스크롤이 생기지 않는다
+      const sk = skinRect()
+      await floatPrepare(k as FloatKind, [Math.round(sk.width), Math.round(sk.height) - 8])
       await ready
-      const dpr = devicePixelRatio
-      setGhost({ kind: k, mode: 'detach', rect: new DOMRect(x / dpr - screenX, y / dpr - screenY, w / dpr, h / dpr), capsule: skinRect() })
+      // 아일랜드 창 크기는 그대로 (작업 영역 크기로 키우는 비싼 합성 없음): 화면은 캡슐로 접히고, 창은 제자리에서 들어온다(창 안 transform/opacity)
+      const stop = recordFrames()
       setHub(false)
+      await floatShow(k as FloatKind, null)
+      setTimeout(stop, 600)
     } catch (e) {
-      release()
       showAlert({ title: '떼어내지 못했어요', body: String(e) })
     }
   }
@@ -654,7 +665,7 @@ export function Desktop({ only }: { only?: string }) {
           onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesPeer ? (x) => sendToPeer([x.path]) : undefined} peer={filesPeer ?? undefined} />
       </>
     )
-    : f === 'chat' ? <ChatWindow setEvents={setEvents} />
+    : f === 'chat' ? <ChatWindow setEvents={setEvents} onTeam={only === 'island' ? () => setHubView('team') : undefined} />
     : f === 'term' ? <TermWindow />
     : f === 'notes' || f === 'snippets' || f === 'ocr' || f === 'team' || f === 'link' ? viewBody(f)
     : f === 'lp' ? <Player onPlay={isTauri ? undefined : mockPlay} onStop={isTauri ? undefined : mockStop} />
@@ -676,6 +687,7 @@ export function Desktop({ only }: { only?: string }) {
       : asciiLabel ? { key: 'ascii', pet: 'idle', b: 'LP 재생 중', s: asciiLabel, acts: [{ label: '정지', run: stopPlaying }] }
       : linkView?.swap ? { key: `swap${linkView.swap.n}`, pet: 'idle', b: linkView.swap.onPeer ? `→ ${linkView.peer}` : '← Windows', s: 'Hera Link' }
       : news ? { key: `news${news.n}`, pet: 'event', b: `${news.who}님이 ${groupOf(news.group)?.name ?? ''} ${news.what}`, s: news.detail }
+      : shelfPing ? { key: `shelf${shelfPing.n}`, pet: 'shelf', b: '선반', s: `파일 ${shelfPing.count}개를 담아 뒀어요`, onOpen: () => (setShelfPing(null), openHub('shelf')) }
       : peek && next ? { key: 'peek', pet: 'event', b: next.title, s: `${next.kind === 'event' ? '일정' : '할 일'} · ${fmtWhen(next.at)}`, onOpen: () => openHub(next.kind === 'event' ? 'calendar' : 'todo') }
       : null
   const renderOpen = (k: string): ReactNode =>
@@ -778,11 +790,11 @@ export function Desktop({ only }: { only?: string }) {
             size={capSize}
             pet={customOf(petKey, customs) ? petKey : petKey.startsWith('custom:') ? 'cat' : petKey}
             custom={customOf(petKey, customs)}
-            ambient={{ unread: chatUnread, running: !!termRun, shelf: shelf.length }}
+            ambient={{ unread: chatUnread, running: !!termRun }}
             alert={islandAlert}
             open={hub ? hubView ?? 'hub' : null}
             render={renderOpen}
-            viewSize={(k) => (k === 'hub' ? null : VIEW_SIZE[k as ViewKind])}
+            viewSize={(k) => (k === 'hub' ? [432, null] : FIXED_H.has(k as ViewKind) ? VIEW_SIZE[k as ViewKind] : [VIEW_SIZE[k as ViewKind][0], null])}
             onTap={() => openHub()}
             magnet={magnet}
             gulp={gulp}

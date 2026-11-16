@@ -410,3 +410,54 @@
 .hx .vbody .icon-btn:hover { background: var(--fill-2); color: var(--t1); }
 .hx .vbody .float-list .ext { color: #fff; background: color-mix(in srgb, var(--indigo) 60%, #222); }
 .hx .vbody .float-empty { color: var(--t3); font-size: 12.5px; }
+
+/* ── 할 일 기간 고르기 (페이지 안 달력 — 네이티브 날짜 팝업 없음) ── */
+.when-cap { flex: none; height: 36px; padding: 0 12px; border-radius: 10px; font: 600 12.5px/1 var(--font, inherit); color: var(--t2, inherit); background: var(--fill-1, rgba(127, 127, 127, 0.12)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); cursor: pointer; white-space: nowrap; }
+.when-cap[data-set='true'] { color: var(--t1, inherit); box-shadow: inset 0 0 0 1.5px var(--accent, #0a84ff); }
+.dr { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--fill-1, rgba(127, 127, 127, 0.1)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); font-family: var(--font, inherit); animation: dr-in 220ms cubic-bezier(.25, .1, .25, 1); }
+@keyframes dr-in { from { opacity: 0; transform: translateY(-4px); } }
+.dr button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
+.dr-head { display: flex; align-items: center; gap: 8px; }
+.dr-head b { flex: 1; text-align: center; font-size: 13px; font-weight: 650; }
+.dr-head button { width: 28px; height: 28px; border-radius: 8px; font-size: 16px; color: var(--t2, inherit); }
+.dr-head button:hover, .dr-d:hover, .dr-chip:hover { background: var(--fill-2, rgba(127, 127, 127, 0.18)); }
+.dr-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; text-align: center; }
+.dr-dow { font-size: 11px; font-weight: 600; color: var(--t3, gray); padding-bottom: 2px; }
+.dr-dow[data-w='0'], .dr-d[data-w='0'] { color: #ff7b72; } .dr-dow[data-w='6'], .dr-d[data-w='6'] { color: #6cb6ff; }
+.dr-d { height: 30px; border-radius: 8px; font-size: 12.5px; font-weight: 550; font-feature-settings: 'tnum' 1; transition: background 120ms; }
+.dr-d[data-out='true'] { opacity: 0.4; }
+.dr-d[data-today='true'] { box-shadow: inset 0 0 0 1px var(--hairline, rgba(127, 127, 127, 0.4)); }
+.dr-d[data-in='true'] { background: rgba(10, 132, 255, 0.18); border-radius: 0; }
+.dr-d[data-edge='true'] { background: var(--accent, #0a84ff) !important; color: #fff !important; border-radius: 8px; }
+.dr-foot { display: flex; align-items: center; gap: 4px; }
+.dr-hint { flex: 1; font-size: 11.5px; color: var(--t2, gray); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr-chip { height: 26px; padding: 0 9px; border-radius: 13px; font-size: 11.5px; font-weight: 600; background: var(--fill-1, rgba(127, 127, 127, 0.12)); color: var(--t1, inherit); }
+.dr-chip[aria-pressed='true'] { background: var(--accent, #0a84ff); color: #fff; }
+.dr-chip:disabled { opacity: 0.4; cursor: default; }
+.dr-chip.dr-ok { background: var(--accent, #0a84ff); color: #fff; padding: 0 14px; }
+.hx .vbody .add .when-cap { flex: 0 1 auto; }
+
+/* (a4) 떼어내기 등장: 창 안에서만 (단색 · transform/opacity), 아일랜드 창은 크기를 바꾸지 않는다 */
+.hx.win[data-enter] { transform-origin: 100% 100%; transition: transform 320ms cubic-bezier(.2, 1.2, .35, 1), opacity 200ms ease-out; }
+.hx.win[data-enter='pre'] { opacity: 0.5; transform: scale(0.96); backdrop-filter: none; background: #17171b; }
+@media (prefers-reduced-motion: reduce) { .hx.win[data-enter] { transition: none; transform: none; opacity: 1; } }
+/* 긴 목록일 때만 얇은 스크롤 */
+.hx * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent; }
+
+/* (a4) 말풍선 (선반 파일 경로 등) — 네이티브 title 대신 */
+.hx .shelf-list li { position: relative; }
+.hx .tip { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 4px); z-index: 10; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(30, 30, 36, 0.98); box-shadow: var(--rim), var(--lift); color: var(--t1); pointer-events: none; opacity: 0; transform: translateY(4px);
+  transition: opacity 140ms ease-out, transform 220ms var(--ease-calm); transition-delay: 0s; }
+.hx .tip b { font-size: 12px; font-weight: 600; word-break: break-all; }
+.hx .tip small { font-size: 11px; color: var(--t2); }
+.hx .shelf-list li:hover > .tip, .hx .shelf-list li:focus-within > .tip { opacity: 1; transform: none; transition-delay: 450ms; }
+
+/* (a4) 말풍선 (선반 파일 경로 등) — 네이티브 title 대신 */
+.hx .shelf-list li { position: relative; }
+.hx .tip { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 4px); z-index: 10; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(30, 30, 36, 0.98); box-shadow: var(--rim), var(--lift); color: var(--t1); pointer-events: none; opacity: 0; transform: translateY(4px);
+  transition: opacity 140ms ease-out, transform 220ms var(--ease-calm); }
+.hx .tip b { font-size: 12px; font-weight: 600; word-break: break-all; }
+.hx .tip small { font-size: 11px; color: var(--t2); }
+.hx .shelf-list li:hover > .tip, .hx .shelf-list li:focus-within > .tip { opacity: 1; transform: none; transition-delay: 450ms; }

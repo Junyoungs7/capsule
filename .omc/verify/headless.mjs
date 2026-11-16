@@ -111,13 +111,14 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     await p.send('Emulation.setDeviceMetricsOverride', { width: g.w, height: g.h, deviceScaleFactor: 1, mobile: false })
     await p.eval(`window.__heraGeo = ${JSON.stringify({ x: g.x, y: g.y })}`)
   }
-  async function floatPage(f, show) {
+  async function floatPage(f, show, fit = null) {
     const label = `float-${f}`
     if (pages.has(label)) return pages.get(label)
-    const [w, hh] = FEAT[f]
+    // Rust float::fit_size: 떼어낸 화면의 잰 크기 (MIN 300×220, 기본의 1.5배까지)
+    const [w, hh] = fit ? [Math.round(Math.min(Math.max(fit[0], 300), FEAT[f][0] * 1.5)), Math.round(Math.min(Math.max(fit[1], 220), FEAT[f][1] * 1.5))] : FEAT[f]
     const left = store.get('island.place') === 'bl'
     const g = { x: left ? 464 : WA.w - 464 - w, y: WA.h - 72 - hh, w, h: hh }
-    const p = await open(`float&f=${f}`, { label, geo: g })
+    const p = await open(`float&f=${f}${fit ? '&enter=1' : ''}`, { label, geo: g })
     p.shown = show
     return p
   }
@@ -159,12 +160,17 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
         await setGeo(isl, g)
         return null
       }
-      case 'float_prepare': { const fp = await floatPage(a.f, false); if (fp.ready) await emitTo('island', 'float-ready', a.f); return rect(fp) }
+      case 'float_prepare': { const fp = await floatPage(a.f, false, a.fit); if (fp.ready) await emitTo('island', 'float-ready', a.f); return rect(fp) }
       case 'float_ready': p.ready = true; await emitTo('island', 'float-ready', p.label.slice(6)); return null
       case 'float_show': {
         const fp = pages.get(`float-${a.f}`)
         const o = islandOrigin()
-        if (fp) (fp.shown = true), await setGeo(fp, { x: Math.round(o.x + a.rect[0]), y: Math.round(o.y + a.rect[1]), w: Math.round(a.rect[2]), h: Math.round(a.rect[3]) })
+        if (fp && a.rect) await setGeo(fp, { x: Math.round(o.x + a.rect[0]), y: Math.round(o.y + a.rect[1]), w: Math.round(a.rect[2]), h: Math.round(a.rect[3]) })
+        if (fp) {
+          fp.shown = true
+          // 보이는 순간부터 창 안 프레임 기록 (등장 애니메이션)
+          await fp.eval(`(() => { const f = (window.__heraFrames = []); let last = performance.now(), on = true; const t = (x) => { if (!on) return; f.push(x - last); last = x; requestAnimationFrame(t) }; requestAnimationFrame((x) => ((last = x), requestAnimationFrame(t))); setTimeout(() => (on = false), 600) })()`).catch(() => {})
+        }
         await emit('float-opened', a.f)
         await emitTo('island', 'float-shown', a.f)
         return null
