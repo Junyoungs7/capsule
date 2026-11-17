@@ -37,6 +37,16 @@ try {
   ok('효과·아스키 LP crate = 5 effects + 5 ASCII only (no apps) — the crates never mix', JSON.stringify(f0) === JSON.stringify(FX), JSON.stringify(f0))
   ok('crate choice is remembered (lp.crate)', h.store.get('lp.crate') === 'fx')
   ok('no + (add) on the effects crate — fixed set', await isl.eval(`!document.querySelector('.lpv .filters [data-sheet=add]')`))
+  {
+    const [rx, ry] = await isl.eval(`(() => { const r = document.querySelector('.lpv .crate [data-rec] .disc').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+    await isl.mouse('mousePressed', rx, ry)
+    await isl.mouse('mouseMoved', rx + 30, ry + 20, { buttons: 1 })
+    await isl.mouse('mouseMoved', rx + 50, ry + 40, { buttons: 1 })
+    const gc = await isl.eval(`(() => { const g = document.querySelector('.dragghost'); if (!g) return null; const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+    await isl.mouse('mouseReleased', rx + 50, ry + 40)
+    ok('Island LP: dragged record sits under the cursor (±6px)', !!gc && Math.abs(gc[0] - (rx + 50)) <= 6 && Math.abs(gc[1] - (ry + 40)) <= 6, JSON.stringify({ gc, at: [rx + 50, ry + 40] }))
+    await sleep(300)
+  }
 
   /* 효과: 누르기 = 판 · 재생 · 새 판이 앞 판을 바꾼다 */
   let n = h.calls.length
@@ -113,6 +123,15 @@ try {
   ok('detach → LP window with the same launcher (both crates)', await until(() => h.pages.has('float-lp') && h.pages.get('float-lp').eval(`!!document.querySelector('.lpv .deck') && document.querySelectorAll('.lpv .filters [data-crate]').length === 2`), 8000))
   const lp = h.pages.get('float-lp')
   ok('LP window keeps its own drag (no OS caption region)', await lp.eval(`!document.querySelector('[data-tauri-drag-region]')`))
+  // 끌기: 고스트 판이 커서 바로 밑에 (조상 transform 이 있어도) — 사용자 보고: 오른쪽에서 잡힘
+  await sleep(600)
+  const [rx, ry] = await lp.eval(`(() => { const r = document.querySelector('.lpv .crate [data-rec] .disc').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+  await lp.mouse('mousePressed', rx, ry)
+  await lp.mouse('mouseMoved', rx + 30, ry + 20, { buttons: 1 })
+  await lp.mouse('mouseMoved', rx + 50, ry + 40, { buttons: 1 })
+  const gc = await lp.eval(`(() => { const g = document.querySelector('.dragghost'); if (!g) return null; const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+  await lp.mouse('mouseReleased', rx + 50, ry + 40)
+  ok('dragged record sits under the cursor (±6px)', !!gc && Math.abs(gc[0] - (rx + 50)) <= 6 && Math.abs(gc[1] - (ry + 40)) <= 6, JSON.stringify({ gc, at: [rx + 50, ry + 40] }))
   void lp.clickSel('.float-btn[aria-label="닫기"]')
   ok('closing the LP window destroys it', await until(() => !h.pages.has('float-lp')))
   ok('no page errors', isl.errors.length + lp.errors.length === 0, [...isl.errors, ...lp.errors].slice(0, 2).join(' | '))
