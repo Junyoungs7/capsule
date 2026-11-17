@@ -175,6 +175,12 @@
 .hx .memo small { margin-top: auto; font-size: 11px; color: var(--t3); }
 .hx .quick { border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); padding: 10px 12px; flex: none; }
 .hx .quick textarea { width: 100%; resize: none; font-size: 13px; line-height: 1.45; color: var(--t1); }
+/* (a7) 빠른 메모 색 줄 (보드와 같은 팔레트) — 왼쪽 띠 = 고른 색 */
+.hx .quick { box-shadow: inset 3px 0 0 var(--nc, transparent), inset 0 0 0 0.5px var(--hairline); }
+.hx .qcolors { display: flex; gap: 8px; margin-top: 8px; }
+.hx .qcolors button { width: 18px; height: 18px; padding: 0; border-radius: 50%; background: var(--nc); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18); transition: transform 160ms var(--ease-out), box-shadow 160ms; }
+.hx .qcolors button:hover { transform: scale(1.12); }
+.hx .qcolors button[aria-checked='true'] { box-shadow: 0 0 0 2px var(--glass-dense, #1c1c20), 0 0 0 3.5px var(--nc); }
 
 /* 할 일 · 달력 · 일정 줄 */
 .hx .ev { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 10px; border-radius: 10px; background: var(--fill-1); flex: none; }
@@ -431,6 +437,16 @@
 .dr-chip { height: 26px; padding: 0 9px; border-radius: 13px; font-size: 11.5px; font-weight: 600; background: var(--fill-1, rgba(127, 127, 127, 0.12)); color: var(--t1, inherit); }
 .dr-chip[aria-pressed='true'] { background: var(--accent, #0a84ff); color: #fff; }
 .dr-chip:disabled { opacity: 0.4; cursor: default; }
+/* (a7) 칩이 맨 글자로 보이던 원인: '.hx button { background: none; padding: 0 }' (0,1,1) 이 '.dr-chip' (0,1,0) 을 이겼고
+   눌린 칩만 [aria-pressed] 로 이겨 글자 크기의 파란 원이 됐다 → 칩 규칙을 .when-chips 아래로 (0,2,0) */
+.when-chips, .when-pick { display: flex; align-items: center; gap: 6px; }
+.when-chips .grow { flex: 1; }
+.when-chips .dr-chip { flex: none; height: 26px; padding: 0 10px; border-radius: 13px; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  color: var(--t2, inherit); background: var(--fill-2, rgba(127, 127, 127, 0.16)); box-shadow: inset 0 0 0 0.5px var(--hairline, rgba(127, 127, 127, 0.25)); transition: background 140ms, color 140ms; }
+.when-chips .dr-chip:hover { color: var(--t1, inherit); background: var(--fill-3, rgba(127, 127, 127, 0.22)); }
+.when-chips .dr-chip[aria-pressed='true'] { color: #fff; background: var(--accent, #0a84ff); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.3); }
+.when-chips .dr-chip[aria-expanded='true'] { color: var(--accent, #0a84ff); box-shadow: inset 0 0 0 1px var(--accent, #0a84ff); }
+.when-chips .dr-chip .ico { width: 13px; height: 13px; stroke-width: 2; }
 
 /* (a4) 떼어내기 등장: 창 안에서만 (단색 · transform/opacity), 아일랜드 창은 크기를 바꾸지 않는다 */
 .hx.win[data-enter] { transform-origin: 100% 100%; transition: transform 320ms cubic-bezier(.2, 1.2, .35, 1), opacity 200ms ease-out; }
@@ -463,7 +479,13 @@
 .hx .board .note-pos { position: absolute; left: 0; top: 0; }
 .hx .board .note { backdrop-filter: none; }
 .hx .board-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--t3); font-size: 12.5px; pointer-events: none; }
-.hx .board-add { position: fixed; right: 16px; bottom: 16px; z-index: 5; width: 40px; height: 40px; border-radius: 20px; font-size: 20px; line-height: 40px; color: #fff; background: var(--accent); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), var(--lift); }
+.hx .board-add.fab { position: fixed; right: 16px; bottom: 16px; z-index: 5; width: 44px; height: 44px; min-height: 0; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--accent); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), var(--lift); transition: transform 160ms var(--ease-out); }
+.hx .board-add.fab svg { width: 20px; height: 20px; }
+.hx .board-add.fab:hover { background: var(--accent); filter: brightness(1.08); }
+/* (a7) 누르면 움츠렸다 pop 스프링으로 튀어 돌아옴 */
+.hx .board-add.fab:active { transform: scale(0.88); transition-duration: 80ms; }
+html.mx .hx .board-add.fab { transition: transform var(--sp-pop-ms, 420ms) var(--sp-pop, ease); }
+html.mx .hx .board-add.fab:active { transition: transform 80ms ease-out; }
 .hx .memo-wrap { position: relative; display: grid; }
 .hx .memo-np { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--t2); background: rgba(0, 0, 0, 0.25); opacity: 0; transition: opacity 140ms; }
 .hx .memo-np .ico { width: 14px; height: 14px; }
@@ -481,4 +503,29 @@
 .when-f input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; color: var(--t1, inherit); font: 600 13px/1 var(--font, inherit); font-feature-settings: 'tnum' 1; }
 .hx .vbody .when-f input { background: none; box-shadow: none; padding: 0; height: 100%; border-radius: 0; }
 .when-f i { flex: none; font-style: normal; font-size: 11.5px; color: var(--t2, gray); }
-.when-chips { display: flex; align-items: center; gap: 4px; }
+
+/* ═══ (a7) 달력: 날짜 숫자 가운데 · 캘린더 고르기 = 토큰 알약 + 토큰 팝오버 ═══
+   원인: '.hx button { padding: 0; background: none }' 이 .mc-day(위 4px 여백)·.gp-cap(배경·여백)을 지웠고, .gp-pop 은 .hx 에 없는 예전 토큰
+   (--glass-dense · --spec · --shadow)을 써서 배경이 투명했다 → 여기서 .hx 토큰으로 다시. */
+.hx .mc-sheet[data-mode='month'] .mc-day { justify-content: center; padding: 0 2px; }
+.hx .mc-sheet[data-mode='month'] .mc-dots { position: absolute; left: 0; right: 0; bottom: 3px; margin: 0; }
+.hx .mc-head .gp-wrap { margin-left: 2px; }
+.hx .gp-cap { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px 0 8px; border-radius: 13px; font-size: 12px; font-weight: 600; color: var(--t1);
+  background: var(--fill-2); box-shadow: inset 0 0 0 0.5px var(--hairline); transition: background 140ms; }
+.hx .gp-cap:hover, .hx .gp-cap[aria-expanded='true'] { background: var(--fill-3); }
+.hx .gp-cap svg { width: 12px; height: 12px; color: var(--t2); }
+.hx .gp-dots i, .hx .gp-one { box-shadow: 0 0 0 1.5px #1c1c21; }
+.hx .gp-dots em { color: var(--t2); }
+.hx .gp-select { max-width: 132px; background: color-mix(in srgb, var(--g) 16%, var(--fill-1)); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--g) 40%, transparent); }
+.hx .gp-pop { width: 248px; padding: 6px; gap: 4px; border-radius: 14px; color: var(--t1); background: var(--sheen), rgba(28, 28, 33, 0.98); backdrop-filter: none; box-shadow: var(--rim), var(--lift); overflow: hidden; }
+.hx .gp-actions button { height: 26px; border-radius: 13px; font-size: 11.5px; font-weight: 600; color: var(--t2); background: var(--fill-1); }
+.hx .gp-actions button:hover { color: var(--t1); background: var(--fill-2); }
+.hx .gp-item { min-height: 32px; padding: 0 10px; border-radius: 9px; gap: 9px; font-size: 12.5px; text-align: left; }
+.hx .gp-item:hover { background: var(--fill-2); }
+.hx .gp-item small, .hx .gp-empty { color: var(--t3); }
+.hx .gp-item[aria-checked='true'] .gp-check { box-shadow: inset 0 0 0 1.5px var(--g), inset 0 0 0 4px #1c1c21; }
+.hx .gp-search { height: 30px; padding: 0 10px; border-radius: 9px; color: var(--t1); background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+html.mx .hx .gp-pop { animation: gp-in var(--sp-pop-ms, 420ms) var(--sp-pop, ease) both; }
+html.mx .hx .gp-pop[data-up='true'] { animation-name: gp-in-up; }
+.hx .gp-pop[data-end='false'] { left: 0; right: auto; }
+.hx .gp-pop[data-end='true'] { left: auto; right: 0; }

@@ -30,7 +30,7 @@ export const rise = (els: Element[], { dy = 8, scale = 1, delay = 0, step = STAG
   els.forEach((el, i) => anim(el, [{ opacity: 0, transform: `translateY(${dy}px) scale(${scale})` }, { opacity: 1, transform: 'none' }], { duration: s.ms, easing: s.ease, delay: delay + Math.floor(i / perRow) * step }))
 
 /* 늘어나는 선택 알약: 예전 .on 자리에서 새 .on 자리로 날아가며 가는 방향으로 늘어났다 돌아온다 (≤1.6배) */
-export const SEGS = '.seg, .pettabs, .navlist, .tabs2, .filters, .sizes'
+export const SEGS = '.seg, .pettabs, .navlist, .tabs2, .filters, .sizes, .when-pick'
 function flyPill(c: HTMLElement, to: HTMLElement, from: DOMRect) {
   const cr = c.getBoundingClientRect(), tr = to.getBoundingClientRect(), sc = cr.width / c.offsetWidth || 1
   const pill = document.createElement('i')

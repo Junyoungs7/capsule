@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { reducedMotion, usePresence } from './Tile'
+import { Fx, FX_LABEL, type FxKind } from './Fx'
 
 /* ── v2 아스키 아트: 글자로 짠 3D ──
    물체 표면을 여러 나라 말 문구로 덮는다. 카메라는 수평이라 화면의 한 줄 = 물체의 한 높이 →
@@ -744,7 +745,7 @@ function AsciiCanvas({ id, live }: { id: SceneId; live: boolean }) {
 
 /** 전체화면: from(위젯 rect) 이 있으면 그 자리에서 확대/그 자리로 축소, 없으면(화면보호기) 부드러운 페이드+약간 축소. */
 /** onClosed = 닫힘 애니메이션이 끝남 (실제 앱: 아스키 창 파괴) */
-export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }: { open: boolean; id: SceneId; from: DOMRect | null; saver: boolean; caption: string; onClose: () => void; onClosed?: () => void }) {
+export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }: { open: boolean; id: SceneId | FxKind; from: DOMRect | null; saver: boolean; caption: string; onClose: () => void; onClosed?: () => void }) {
   const p = usePresence<HTMLDivElement>(open)
   const close = useRef(onClose)
   close.current = onClose
@@ -763,6 +764,9 @@ export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }:
     return () => (removeEventListener('keydown', key), removeEventListener('pointermove', move))
   }, [open, saver])
   if (!p.mounted) return null
+  // (a7) 화면 덮개는 효과 장면도 고른다 — 어두운 배경 위에 끝없이 도는 효과
+  const fx = !(id in SCENES) ? (id as FxKind) : null
+  const name = fx ? FX_LABEL[fx] : SCENES[id as SceneId].name
   const vw = innerWidth, vh = innerHeight
   const z = from && { '--fx': `${from.left}px`, '--fy': `${from.top}px`, '--sx': from.width / vw, '--sy': from.height / vh, '--r': `${12 / (from.width / vw)}px` }
   return (
@@ -770,15 +774,16 @@ export function AsciiFull({ open, id, from, saver, caption, onClose, onClosed }:
       ref={p.ref}
       className="ascii-full"
       data-zoom={!!z}
-      style={{ ...z, '--bg': SCENES[id].bg } as CSSProperties}
+      style={{ ...z, '--bg': fx ? '#05070d' : SCENES[id as SceneId].bg } as CSSProperties}
+      data-cover={fx ? 'fx' : 'ascii'}
       onTransitionEnd={(e) => (p.onTransitionEnd(e), e.target === e.currentTarget && e.propertyName === 'opacity' && !open && onClosed?.())}
       onClick={onClose}
       role="dialog"
-      aria-label={`아스키 아트 전체화면 · ${SCENES[id].name}`}
+      aria-label={`아스키 아트 전체화면 · ${name}`}
     >
-      <AsciiCanvas id={id} live={open} />
+      {fx ? <Fx kind={fx} loop onDone={() => {}} /> : <AsciiCanvas id={id as SceneId} live={open} />}
       <footer>
-        <b>{SCENES[id].name}</b> · {caption}
+        <b>{name}</b> · {caption}
         <small>{saver ? '마우스를 움직이거나 아무 키나 누르면 돌아가요' : 'Esc 또는 클릭으로 닫기'}</small>
       </footer>
     </div>

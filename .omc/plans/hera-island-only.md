@@ -156,3 +156,29 @@
 - 할 일: '날짜 없이 저장한 할 일 알림' (설정 → 일반 → 할 일, store `todo.quickAlarm`, 기본 켬) — 끄면 날짜를 손대지 않고 저장한 할 일은 날짜·알림 없음 (Todo.tsx add 한 곳).
 - 시험 (헤드리스): island 93 · pets 24 · lp 26 · chat 8 · term 11 · a4 49 · settings 41 · connect 14 · motion 20 · when 41 — 모두 통과. cargo test ×3 (lib 72 + 5 + 3), clippy · tsc 깨끗.
 - 프레임 (헤드리스): 허브 열기 p95 16.8 · 최대 33 (첫 프레임) · ≥95% ≤17ms, 화면 열기 100% ≤17ms, 떼어내기·흡수 100% ≤17ms. 벽 띠 그리기 2160×48 = 4.75ms/프레임 (debug).
+
+## (a7) 사용자 시험(a6 설치본) 요청 (2026-11-17)
+1. **화면 덮개(자리 비움 10분)**: 무작위 = 아스키 4(xmas·city·autumn·calm) + 효과 6(눈·비·단풍·새벽·노을·달·별), 직전 장면은 빼고 (`lib.rs pick_cover`, getrandom).
+   **모든 모니터**: 모니터마다 창 하나(`ascii`, `ascii-1` …) = 그 모니터의 물리 rect, 위치 → 크기 순서(다른 DPI 로 옮겨진 뒤 물리 크기로 덮어씀). 시작할 때 만들고 닫으면 파괴.
+   모든 모니터에 **같은 장면** — 다른 장면과 무게가 같고(창 = 웹뷰 하나씩) 고르기·직전 피하기가 한 번이면 된다.
+   닫기: watch 루프가 어떤 입력이든 → 모든 덮개에 `ascii-close` (`ascii_close_all`) + 한 창에서 클릭/키로 닫으면 JS 가 `ascii-close` 방송.
+   **한쪽만 가려진 원인**: `open_ascii_scene` 이 `app.primary_monitor()` 하나에만, 라벨 `ascii` 창 하나만 만들었다 (`get_webview_window("ascii")` 로 '이미 열림' 판정).
+   효과 장면 = 어두운 바탕 위 `Fx loop`(25초 끝·페이드아웃 없음). LP·AI 의 아스키 재생은 그대로 주 모니터 하나.
+2. **메모 입력**: Enter = 저장(빠른 메모 = 보드에 붙이기 · 보드 제자리 편집 = 편집 끝), Shift+Enter = 줄 바꿈, 한글 조합 중(isComposing · keyCode 229) Enter 무시 (`Notes.tsx enterCommits`).
+3. **빠른 메모 색**: 보드와 같은 6색 줄. 고른 색 기억(store `note.color`), 고른 적 없으면 마지막 메모 다음 색 (`nextColor` — 보드의 새 메모도 같음).
+4. **메모 보드**: 메모 왼쪽 위 '+'(카드마다 새 메모) 삭제. 새 메모 = 오른쪽 아래 둥근 FAB(액센트, 누르면 움츠렸다 pop 스프링). 빈 곳 두 번 누르기는 그대로.
+5. **할 일 날짜 칩**: 맨 글자 + '내일' 뒤 파란 원 원인 = `.hx button { background: none; padding: 0 }`(0,1,1) 이 `.dr-chip`(0,1,0) 을 이기고 눌린 칩만 `[aria-pressed]` 로 이겨 글자 크기 원.
+   → `.when-chips .dr-chip` 토큰 칩(26px · 13px 둥근 · fill-2 · 선택 = 액센트), 날짜 셋 = `.when-pick`(모션 팩 SEGS → 늘어나는 알약), 종일 = 토글 칩, 달력 = 달력 아이콘 칩.
+6. **달력**: '캘린더' 고르기 둘(떼어낸 창 머리 `float-tools` + 날짜 줄) → **달 머리줄에 하나** (보이는 캘린더는 격자 전체에 걸리고, 아래로 열려 격자 위에 뜬다 — 날짜 줄은 추가 폼·목록에 자리를 남김).
+   안 보이던 원인: `.gp-pop` 이 `.hx` 에 없는 예전 토큰(--glass-dense · --spec · --shadow)이라 배경 투명 + 늘 위로(`up`) 열려 머리줄 아래로 잘림. → `.hx` 토큰 팝오버,
+   열 때 보이는 틀(.vbody · 창)에서 위·아래 넓은 쪽으로 + 그 높이로 줄임 (GroupMenu `place`). 페이지 안 팝오버(네이티브 없음) = 아일랜드 히트 rect 안. '내 일정' 고르기도 같은 팝오버.
+   날짜 숫자: 같은 `.hx button { padding: 0 }` 으로 위에 붙어 있었다 → 월 보기 칸 가운데 정렬, 점 줄은 칸 아래에 절대 위치 (오늘 링·선택 채움은 칸 전체 그대로).
+7. **작업 표시줄 시계를 누르면 Hera 도 눌림**: 원인 = watch 루프의 '바깥에서 끌어오는 파일' 판정. 아일랜드 창 밖에서 왼쪽 단추가 눌리면 `drag_out` 이 되고, 커서가 캡슐 140 논리 px 안이면
+   바로 `drag-near` → 캡슐이 드롭존(상자 자세 · '선반에 놓기')으로 바뀌었다. 시계·알림 영역은 오른쪽 아래 캡슐 바로 아래라 **제자리 클릭 한 번**에 걸렸다 (창 자체는 작업 영역 안이라 클릭을 가로채지는 않음 —
+   이 PC 작업 표시줄 = 아래 48px, 자동 숨김 꺼짐). 더해 머묾 히트 rect(여유 16 > 아래 여백 8)가 창 아래 작업 표시줄 쪽으로 8px 넘쳤다.
+   → 드래그 = 작업 영역 안에서 누르고 8 논리 px 넘게 끌었을 때만(`dragged`), 작업 영역 밖(작업 표시줄·트레이·다른 모니터) 점은 캡슐이 받지 않음(`in_work_area` · `capsule_takes` — 클릭 통과·바깥 클릭 판정 모두),
+   JS 히트 rect 는 창 아래로 넘치지 않게 자름. cargo `taskbar_clock_is_never_a_capsule_press` (48px 띠 · 100/125/150% · 음수 원점 · 보조 모니터 작업 표시줄).
+- 시험: `.omc/verify/a7-cdp.mjs` 46 (덮개 두 종류·두 모니터·한 곳 닫기 = 모두 · cargo cover 2 · Enter/Shift+Enter/조합 · 색 줄 기억 · FAB · 칩 · 캘린더 하나·안 잘림·히트 rect · 숫자 가운데).
+  cargo `cover_picks_both_kinds_without_repeat` · `cover_one_window_per_monitor`(왼쪽 음수 원점 · 100/150/125% 섞임). cargo test ×3 (lib 75 + 5 + 3, 9 ignored 그대로), clippy --all-targets · tsc 깨끗.
+  island · pets · lp · chat · term · settings · connect · motion · when 통과. a4 는 '…end shifts with it' 1개 실패 — 깨끗한 6f5167d 에서도 똑같이 실패(이번 변경과 무관, 따로 볼 것).
+  설치 파일 `src-tauri/target/release/bundle/nsis/Hera_0.1.0_x64-setup.exe` (15.49 MiB, 실행 안 함).

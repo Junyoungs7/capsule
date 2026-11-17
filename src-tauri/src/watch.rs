@@ -241,6 +241,22 @@ fn drag_near(x: f64, y: f64, cap: Option<[f64; 4]>, s: f64) -> bool {
     cap.is_some_and(|c| rect_dist(x, y, c) < 140.0 * s)
 }
 
+/// (a7) 작업 영역(l, t, r, b — 아일랜드가 사는 주 모니터) 안인가. 밖 = 작업 표시줄·트레이 띠 또는 다른 모니터 → 캡슐은 절대 받지 않는다.
+fn in_work_area(x: i32, y: i32, wa: [i32; 4]) -> bool {
+    x >= wa[0] && x < wa[2] && y >= wa[1] && y < wa[3]
+}
+
+/// (a7) 누른 채 실제로 끌었나 (Windows 끌기 문턱 4px × 배율 2배 = 8 논리 px). 제자리 클릭은 드래그가 아니다.
+fn dragged(from: (i32, i32), to: (i32, i32), s: f64) -> bool {
+    (((to.0 - from.0) as f64).hypot((to.1 - from.1) as f64)) >= 8.0 * s
+}
+
+/// (a7) 이 화면 점을 캡슐(히트 rect)이 받는가: 작업 영역 안 + 창 원점 기준 히트 rect 안 (m = 여유).
+/// 히트 rect 가 창 아래로 넘쳐도(머묾 여유 16 > 아래 여백 8) 작업 표시줄 띠는 받지 않는다.
+fn capsule_takes(pt: (i32, i32), wa: [i32; 4], origin: (i32, i32), rects: &[[f64; 4]], m: f64) -> bool {
+    in_work_area(pt.0, pt.1, wa) && hit((pt.0 - origin.0) as f64, (pt.1 - origin.1) as f64, rects, m)
+}
+
 fn ex_style(cur: isize, pass: bool) -> isize {
     let through = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
     let base = (cur | (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) as isize) & !(WS_EX_APPWINDOW.0 as isize);
@@ -526,6 +542,7 @@ pub fn start(app: AppHandle) {
         let me = GetCurrentProcessId();
         let mut prev_lb = false;
         let mut drag_out = false; // 창 밖에서 누른 채 들어오는 드래그(탐색기 파일 등)
+        let mut press_at = (0, 0); // 누른 자리 — 실제로 끌어야 드래그 (a7: 작업 표시줄 시계 클릭이 드롭존을 켜던 원인)
         let mut drag_shown = false;
         let mut last_fg = HWND::default();
         let mut prev_fg = HWND::default(); // 마지막 외부(비 Hera) 포그라운드
@@ -571,7 +588,9 @@ pub fn start(app: AppHandle) {
             let inside = |r: &RECT| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom;
             let pressed = lb && !prev_lb;
             if pressed {
-                drag_out = !rects.iter().any(inside);
+                press_at = (pt.x, pt.y);
+                // 작업 표시줄·트레이에서 누른 것은 파일 드래그가 아니다 (시계·알림 영역은 캡슐 바로 아래)
+                drag_out = !rects.iter().any(inside) && in_work_area(pt.x, pt.y, wa);
             } else if !lb {
                 drag_out = false;
             }
@@ -582,7 +601,8 @@ pub fn start(app: AppHandle) {
             if let Some(i) = overlays.iter().position(|&(l, _)| l == "island") {
                 let s = windows::Win32::UI::HiDpi::GetDpiForWindow(HWND(overlays[i].1 as _)) as f64 / 96.0;
                 let cap = hit_rects("island").first().copied();
-                let near = drag_out && drag_near((pt.x - rects[i].left) as f64, (pt.y - rects[i].top) as f64, cap, if s > 0.0 { s } else { 1.0 });
+                let s = if s > 0.0 { s } else { 1.0 };
+                let near = drag_out && dragged(press_at, (pt.x, pt.y), s) && in_work_area(pt.x, pt.y, wa) && drag_near((pt.x - rects[i].left) as f64, (pt.y - rects[i].top) as f64, cap, s);
                 if near != drag_shown {
                     drag_shown = near;
                     let _ = app.emit_to("island", "drag-near", near);
@@ -594,7 +614,7 @@ pub fn start(app: AppHandle) {
             if pressed {
                 if let (Some(i), Some((_, hr))) = (overlays.iter().position(|&(l, _)| l == "island"), hits.iter().find(|(l, _)| l == "island")) {
                     let r = &rects[i];
-                    if !hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, hr, 0.0) {
+                    if !capsule_takes((pt.x, pt.y), wa, (r.left, r.top), hr, 0.0) {
                         let _ = app.emit_to("island", "island-outside", ());
                     }
                 }
@@ -602,8 +622,10 @@ pub fn start(app: AppHandle) {
             for (i, &(label, h)) in overlays.iter().enumerate() {
                 let r = &rects[i];
                 let shape = hits.iter().find(|(l, _)| l == label).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
-                let (x, y) = ((pt.x - r.left) as f64, (pt.y - r.top) as f64);
-                let p = !(hit(x, y, shape, 0.0) || (drag_out && hit(x, y, shape, DRAG_MARGIN)));
+                let o = (r.left, r.top);
+                // 아일랜드는 작업 영역 밖(작업 표시줄)에서 절대 입력을 받지 않는다 — 다른 오버레이(효과 등)는 모양이 없어 늘 통과
+                let wa_ok = label != "island" || in_work_area(pt.x, pt.y, wa);
+                let p = !(wa_ok && (hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, 0.0) || (drag_out && hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, DRAG_MARGIN))));
                 let hwnd = HWND(h as _);
                 let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 let mut want = ex_style(cur, p);
@@ -643,7 +665,7 @@ pub fn start(app: AppHandle) {
                 if last_input() != at {
                     saver = None;
                     saver_closing = Some(Instant::now());
-                    let _ = app.emit_to("ascii", "ascii-close", ());
+                    crate::ascii_close_all(&app); // 어느 모니터의 입력이든 모든 덮개를 닫는다
                 }
             }
 
@@ -657,9 +679,10 @@ pub fn start(app: AppHandle) {
                 let away = qs == Some(QUNS_NOT_PRESENT); // 잠금·화면보호기·사용자 전환
                 FULLSCREEN.store(full, Ordering::Relaxed);
                 // 화면보호기 열기/정리. 잠기면 바로 파괴(메모리 0), 닫기 요청 후 3초 지나도 남아 있으면 파괴.
-                if let Some(w) = app.get_webview_window("ascii") {
+                let covers = crate::ascii_windows(&app);
+                if !covers.is_empty() {
                     if (away && saver.is_some()) || saver_closing.is_some_and(|t| t.elapsed() > Duration::from_secs(3)) {
-                        let _ = w.destroy();
+                        covers.iter().for_each(|w| drop(w.destroy()));
                         saver = None;
                         saver_closing = None;
                     }
@@ -749,6 +772,44 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (a7) 작업 표시줄 시계를 누르면 Hera 도 눌리던 버그: 시계 자리는 캡슐 판정에서 빠지고, 캡슐 rect 는 작업 표시줄 띠와 겹치지 않는다
+    #[test]
+    fn taskbar_clock_is_never_a_capsule_press() {
+        // (모니터 l,t,r,b · 배율) — 아래 작업 표시줄 48 논리 px. 마지막 = 왼쪽(음수 원점) 보조 모니터에 아일랜드가 있을 때
+        for (mon, s) in [([0, 0, 1920, 1080], 1.0), ([0, 0, 2560, 1440], 1.25), ([0, 0, 3840, 2160], 1.5), ([-1920, 4, 0, 1084], 1.0)] {
+            let bar = (48.0 * s) as i32;
+            let wa = [mon[0], mon[1], mon[2], mon[3] - bar];
+            let [wx, wy, ww, wh] = crate::island::bounds([wa[0], wa[1], wa[2] - wa[0], wa[3] - wa[1]], s, false, false);
+            assert!(wy + wh <= wa[3], "아일랜드 창은 작업 영역 안 {mon:?}");
+            // JS 히트 rect: 캡슐 80×60 · 오른쪽 16 · 아래 8 · 머묾 여유 16 (= 창 아래로 8 넘침) — 물리 px
+            let (cw, ch, m) = (80.0 * s, 60.0 * s, 16.0 * s);
+            let cap = [ww as f64 - 16.0 * s - cw - m, wh as f64 - 8.0 * s - ch - m, cw + 2.0 * m, ch + 2.0 * m];
+            let o = (wx, wy);
+            // 시계·날짜 = 작업 표시줄 오른쪽 끝 (오른쪽에서 40, 띠 가운데) · 알림 영역 = 그 왼쪽
+            for clock in [(mon[2] - (40.0 * s) as i32, mon[3] - bar / 2), (mon[2] - (90.0 * s) as i32, mon[3] - 4), (mon[2] - 1, wa[3])] {
+                assert!(!capsule_takes(clock, wa, o, &[cap], 0.0), "시계 {clock:?} 는 캡슐이 아님 {mon:?}");
+                assert!(!in_work_area(clock.0, clock.1, wa));
+            }
+            // 넘친 rect 의 띠 쪽 부분도 받지 않는다 → 캡슐이 받는 영역은 작업 표시줄과 겹치지 않음
+            let bottom = (cap[1] + cap[3]) as i32 + o.1;
+            assert!(bottom > wa[3], "시험 전제: 머묾 rect 가 창 아래로 넘친다");
+            let x = o.0 + (cap[0] + cap[2] / 2.0) as i32;
+            for y in wa[3]..mon[3] {
+                assert!(!capsule_takes((x, y), wa, o, &[cap], DRAG_MARGIN));
+            }
+            // 캡슐 가운데는 여전히 받는다
+            assert!(capsule_takes((x, o.1 + (cap[1] + cap[3] / 2.0) as i32), wa, o, &[cap], 0.0));
+            // 시계를 제자리 클릭(끌지 않음)은 드래그가 아니다 → 드롭존으로 바뀌지 않음
+            assert!(!dragged((mon[2] - 40, mon[3] - 20), (mon[2] - 41, mon[3] - 19), s));
+            assert!(dragged((mon[2] - 600, wa[3] - 300), (mon[2] - 560, wa[3] - 300), s));
+        }
+        // 아일랜드 = 주 모니터, 보조 모니터(왼쪽)의 작업 표시줄 시계 → 받지 않음 (주 모니터 작업 영역 밖)
+        let wa = [0, 0, 1920, 1032];
+        let cap = [1824.0 - 1240.0, 620.0, 112.0, 92.0];
+        assert!(!capsule_takes((-40, 1060), wa, (1240, 352), &[cap], DRAG_MARGIN));
+        assert!(!in_work_area(-40, 1060, wa));
+    }
 
     #[test]
     fn drag_near_capsule() {

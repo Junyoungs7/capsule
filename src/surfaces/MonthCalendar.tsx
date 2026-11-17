@@ -131,6 +131,8 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
           <button className="mc-today" onClick={() => (setSel(today), go(anchorOf(mode, new Date())))}>오늘</button>
           <button className="icon-btn" onClick={() => shift(1)} aria-label={mode === 'month' ? '다음 달' : '다음 주'}>›</button>
         </span>
+        {/* (a7) 보이는 캘린더 고르기는 하나만 — 격자 전체에 걸리니 달 머리줄에 (아래로 열려 격자 위에 뜬다) */}
+        <CalendarFilter />
       </div>
       <div className="mc-stage" role="grid">
         {out && sheet(out.anchor, out.mode, 'out', out.dir)}
@@ -139,7 +141,6 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
       <div className="mc-daybar">
         <b>{selDate.getMonth() + 1}월 {selDate.getDate()}일 {DOW[selDate.getDay()]}요일</b>
         {hol && <small className="mc-hol">{hol}</small>}
-        <CalendarFilter />
       </div>
       <form className="add mc-add" onSubmit={add}>
         <CalendarSelect value={scope} onChange={setScope} />

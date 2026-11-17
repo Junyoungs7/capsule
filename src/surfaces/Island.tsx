@@ -209,7 +209,9 @@ export function Island({ place, size, pet, custom, ambient, alert: given, open, 
   useEffect(() => {
     const m = open ? 0 : hover ? 16 : 6
     const x = place === 'br' ? innerWidth - MARGIN.right - w : MARGIN.right
-    reportHitRects('island', [new DOMRect(x - m, innerHeight - MARGIN.bottom - h - m, w + 2 * m, h + 2 * m)])
+    // (a7) 창 아래(= 작업 표시줄)로 넘치지 않게 자른다 — 머묾 여유 16 > 아래 여백 8 (Rust 도 작업 영역 밖은 받지 않음)
+    const top = innerHeight - MARGIN.bottom - h - m
+    reportHitRects('island', [new DOMRect(x - m, top, w + 2 * m, Math.min(h + 2 * m, innerHeight - top))])
   }, [w, h, hover, open, place, vw])
 
   /* 흡수 '꿀꺽' */

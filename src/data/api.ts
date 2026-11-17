@@ -206,6 +206,8 @@ export const openAscii = (from: [number, number, number, number] | null, scene?:
 export const openFx = (kind: string) => invoke('fx', { kind })
 // 호출한 창 파괴 (설정·아스키·효과 공용 — Rust close_self 는 호출 창을 닫는다)
 export const closeSelf = () => invoke('close_self')
+/** (a7) 화면 덮개: 모든 모니터의 덮개 창에 닫기 */
+export const coverCloseAll = () => emit('ascii-close')
 
 /* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
 export type FloatKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'

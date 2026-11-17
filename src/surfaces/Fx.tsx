@@ -263,7 +263,8 @@ export function drawMoon(g: CanvasRenderingContext2D, x: number, y: number, r: n
   g.restore()
 }
 
-export function Fx({ kind, onDone }: { kind: FxKind; onDone: () => void }) {
+/** loop = 화면 덮개(a7): 끝나지 않고 계속 (페이드아웃·onDone 없음) */
+export function Fx({ kind, onDone, loop: forever = false }: { kind: FxKind; onDone: () => void; loop?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const done = useRef(onDone)
   done.current = onDone
@@ -283,14 +284,14 @@ export function Fx({ kind, onDone }: { kind: FxKind; onDone: () => void }) {
       raf = requestAnimationFrame(loop)
       if (now - last < 33) return // 30fps
       const t = now - t0
-      frame(t, Math.min(0.05, (now - (last || now)) / 1000), Math.max(0, Math.min(1, t / 4000, (DUR - t) / 6000)))
+      frame(t, Math.min(0.05, (now - (last || now)) / 1000), Math.max(0, Math.min(1, t / 4000, forever ? 1 : (DUR - t) / 6000)))
       last = now
     }
     if (kind === 'dawn' || kind === 'sunset') frame(0, 0, 1) // 정적 하늘: 1회 그리고 루프 없음 (페이드는 CSS)
     else if (reducedMotion()) for (let i = 0; i < 120; i++) frame(8000 + i * 50, 0.05, 1) // 움직임 없이: 6초 진행시킨 한 장면만
     else raf = requestAnimationFrame(loop)
-    const out = setTimeout(() => (c.dataset.show = 'false'), DUR - FADE_OUT)
+    const out = forever ? 0 : setTimeout(() => (c.dataset.show = 'false'), DUR - FADE_OUT)
     return () => (cancelAnimationFrame(raf), clearTimeout(out))
-  }, [kind])
+  }, [kind, forever])
   return <canvas ref={ref} className="fx" data-sky={SKY.has(kind)} aria-hidden onTransitionEnd={(e) => e.propertyName === 'opacity' && ref.current?.dataset.show === 'false' && done.current()} />
 }

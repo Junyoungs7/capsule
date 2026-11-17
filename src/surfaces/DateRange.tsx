@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Todo } from '../data/types'
 import { dayKey } from '../data/holidays'
+import { Ico } from './Icons'
 import { chip, fmtWhen, moveStart, parseWhen, segmentAt, setEnd, stepWhen, weekday, type When } from '../data/when'
 
 /* 할 일 기간 (a4): 시작 → 끝, 둘 다 직접 쓰거나(느슨하게: '11/20', '내일 3시', '1430'…) 바로 고르기 칩 · 작은 달력.
@@ -123,13 +124,16 @@ export function WhenFields({ value, onChange }: { value: When; onChange: (w: Whe
         <span className="when-to" aria-hidden>→</span>
         <TimeField label="끝" date={value.end} allDay={value.allDay} onCommit={(d) => onChange(setEnd(value, d))} />
       </div>
+      {/* (a7) 토큰 칩: 날짜 셋 = 하나만(늘어나는 알약이 옮겨 감) · 종일 = 토글 · 달력 = 아이콘 칩 */}
       <div className="when-chips">
-        {([['today', '오늘'], ['tomorrow', '내일'], ['weekend', '이번 주말']] as const).map(([k, l]) => (
-          <button type="button" key={k} className="dr-chip" aria-pressed={is(k)} onClick={() => onChange(chip(value, k))}>{l}</button>
-        ))}
+        <div className="when-pick">
+          {([['today', '오늘'], ['tomorrow', '내일'], ['weekend', '이번 주말']] as const).map(([k, l]) => (
+            <button type="button" key={k} className="dr-chip" aria-pressed={is(k)} onClick={() => onChange(chip(value, k))}>{l}</button>
+          ))}
+        </div>
         <button type="button" className="dr-chip" aria-pressed={value.allDay} data-allday onClick={() => onChange({ ...value, allDay: !value.allDay })}>종일</button>
-        <span className="dr-hint" />
-        <button type="button" className="dr-chip" aria-expanded={cal} data-cal onClick={() => setCal((c) => !c)}>달력</button>
+        <span className="grow" />
+        <button type="button" className="dr-chip" aria-expanded={cal} data-cal onClick={() => setCal((c) => !c)}><Ico k="calendar" />달력</button>
       </div>
       {cal && <MiniCal value={value} onChange={onChange} />}
     </div>

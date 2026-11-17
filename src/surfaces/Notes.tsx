@@ -16,7 +16,12 @@ export const useV3 = () => useSyncExternalStore((f) => (subs.add(f), () => void 
 // 메모: 키 note:<id>, x·y·w·h = 보드 안 자리 (논리 px). group = Hera Team 공유 메모판 id, by = 마지막 편집자
 export type Note = { id: string; text: string; color: number; x: number; y: number; w: number; h: number; group?: string; by?: string }
 export const NOTE_COLORS = ['#f5c542', '#f47fb0', '#5bb8f5', '#42c9a0', '#a78bfa', '#f59e6b']
-const COLOR_NAMES = ['노랑', '분홍', '하늘', '민트', '라벤더', '살구']
+export const NOTE_COLOR_NAMES = ['노랑', '분홍', '하늘', '민트', '라벤더', '살구']
+/** (a7) 새 메모 기본 색 = 마지막 메모의 다음 색 */
+export const nextColor = (notes: Pick<Note, 'color'>[]) => (notes.length ? ((notes[notes.length - 1].color ?? 0) + 1) % NOTE_COLORS.length : 0)
+/** (a7) 메모 입력: Enter = 저장, Shift+Enter = 줄 바꿈. 한글 조합 중(isComposing · 229)의 Enter 는 글자 확정이라 저장하지 않는다 */
+export const enterCommits = (e: { key: string; shiftKey: boolean; nativeEvent: KeyboardEvent }) =>
+  e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229
 
 export const seedNotes: Note[] = EMPTY ? [] : [
   { id: 'n1', text: '오늘 3시 배너 QA\n디자인팀 피드백 반영본으로 확인', color: 0, x: 16, y: 16, w: 210, h: 140 },
@@ -40,9 +45,9 @@ export function NoteBoard({ onNotepad }: { onNotepad: (id: string) => void }) {
   const [front, setFront] = useState<string | null>(null)
   const [fresh, setFresh] = useState<string | null>(null)
   const patch = (id: string, p: Partial<Note>) => setNotes((all) => all.map((n) => (n.id === id ? { ...n, ...p } : n)))
-  const add = (from?: Note) => {
+  const add = () => {
     const id = crypto.randomUUID()
-    setNotes((all) => [...all, { id, text: '', color: from ? (from.color + 1) % 6 : 0, ...freeSlot(all), w: 210, h: 140 }])
+    setNotes((all) => [...all, { id, text: '', color: nextColor(all), ...freeSlot(all), w: 210, h: 140 }])
     setFront(id)
     setFresh(id)
   }
@@ -56,24 +61,23 @@ export function NoteBoard({ onNotepad }: { onNotepad: (id: string) => void }) {
   const [bw, bh] = [Math.max(0, ...notes.map((n) => n.x + n.w)) + 16, Math.max(0, ...notes.map((n) => n.y + n.h)) + 16]
   return (
     <div className="board" style={{ minWidth: bw, minHeight: bh }} onDoubleClick={(e) => e.target === e.currentTarget && add()}>
-      {notes.length === 0 && <p className="board-empty">빈 보드예요 — 두 번 누르거나 + 로 메모를 붙이세요</p>}
+      {notes.length === 0 && <p className="board-empty">빈 보드예요 — 빈 곳을 두 번 누르거나 + 로 메모를 붙이세요</p>}
       {notes.map((n) => (
         <NoteCard key={n.id} n={n} z={front === n.id ? 3 : 1} edit={fresh === n.id} onFront={() => setFront(n.id)} onPatch={(p) => patch(n.id, p)}
-          onNew={() => add(n)} onNotepad={() => onNotepad(n.id)} onDelete={() => setNotes((all) => all.filter((x) => x.id !== n.id))} />
+          onNotepad={() => onNotepad(n.id)} onDelete={() => setNotes((all) => all.filter((x) => x.id !== n.id))} />
       ))}
-      <button className="board-add" aria-label="새 메모" onClick={() => add()}>＋</button>
+      <button className="board-add fab" aria-label="새 메모" onClick={() => add()}><Ico d="M12 5v14M5 12h14" /></button>
     </div>
   )
 }
 
 /* 메모 카드 (보드 안). 바를 끌어 이동, 오른쪽 아래 모서리로 크기. 이동·크기 중엔 style 직접 쓰고 놓을 때 저장. */
-function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNew, onNotepad, onDelete }: {
+function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNotepad, onDelete }: {
   n: Note
   z?: number
   edit?: boolean
   onFront?: () => void
   onPatch: (p: Partial<Note>) => void
-  onNew?: () => void
   onNotepad: () => void
   onDelete: () => void
 }) {
@@ -129,7 +133,6 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNew, onNotepad, onDel
         {g && <i className="note-gbar" aria-hidden />}
         <header className="note-bar" onPointerDown={(e) => grab(e, 'move')}>
           {g && <span className="note-group" title={`${g.name} 공유 메모 · ${n.by} 마지막 편집`}><Avatar m={editor ?? { name: n.by ?? '?', online: false }} color={g.color} size={16} /><small>{g.name}</small></span>}
-          <button onClick={onNew} aria-label="새 메모"><Ico d="M12 6v12M6 12h12" /></button>
           <span className="grow" />
           <button onClick={() => setPop(pop === 'color' ? null : 'color')} aria-label="색 바꾸기"><i className="note-swatch" /></button>
           <button onClick={onNotepad} aria-label="메모장으로 열기" data-notepad><Ico d="M7 3.5h7.5L19 8v11a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z M14.5 3.5V8H19 M8.5 12.5h7 M8.5 16h4.5" /></button>
@@ -138,12 +141,12 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNew, onNotepad, onDel
         {pop === 'color' && (
           <div className="note-pop note-colors" role="group" aria-label="메모 색">
             {NOTE_COLORS.map((c, i) => (
-              <button key={c} style={{ '--nc': c } as CSSProperties} aria-pressed={n.color === i} aria-label={COLOR_NAMES[i]} onClick={() => (onPatch({ color: i }), setPop(null))} />
+              <button key={c} style={{ '--nc': c } as CSSProperties} aria-pressed={n.color === i} aria-label={NOTE_COLOR_NAMES[i]} onClick={() => (onPatch({ color: i }), setPop(null))} />
             ))}
           </div>
         )}
         {edit ? (
-          <textarea className="note-body" autoFocus value={n.text} onChange={(e) => onPatch({ text: e.target.value })} onBlur={() => setEdit(false)} placeholder="메모 · '- [ ] ' 로 시작하면 체크리스트" aria-label="메모 내용" />
+          <textarea className="note-body" autoFocus value={n.text} onChange={(e) => onPatch({ text: e.target.value })} onBlur={() => setEdit(false)} onKeyDown={(e) => enterCommits(e) && (e.preventDefault(), setEdit(false))} placeholder="메모 · Enter = 저장 · Shift+Enter = 줄 바꿈" aria-label="메모 내용" />
         ) : (
           <div className="note-body" onClick={(e) => (e.target as Element).closest('label') || setEdit(true)}>
             {!n.text && <p className="note-ph">메모를 입력하세요</p>}

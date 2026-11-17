@@ -1,5 +1,5 @@
 import { isTauri, onEvent, setClip, useItems, teamCreate, teamFlags, type TeamGroupRaw, teamInvite, teamJoin, teamState } from '../data/api'
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
 
 /* Hera Team 시안 (계획: .omc/plans/hera-team.md) — 동료 PC 와 달력·메모만 공유하는 '공유 그룹'.
    시안 전용 모듈 저장소: 그룹·숨긴 그룹(달력 필터)·열린 시트. 실제 통신(P2P·암호화·동기화)은 Hera Link 위에서 나중에. */
@@ -252,12 +252,10 @@ const calsOf = (groups: TeamGroup[]): Cal[] => [ME, ...groups.map((g) => ({ id: 
 const SEARCH_FROM = 8 // 이보다 많으면 검색 칸
 
 /** 그룹 목록 팝오버 (글라스). multi = 체크리스트(보이기/숨기기), 아니면 하나 고르기. 바깥 클릭·Esc 로 닫힘. */
-function GroupMenu({ cals, checked, multi, up, end, onPick, onAll, onClose }: {
+function GroupMenu({ cals, checked, multi, onPick, onAll, onClose }: {
   cals: Cal[]
   checked: (id: string) => boolean
   multi?: boolean
-  up?: boolean
-  end?: boolean // 오른쪽 정렬 (알약이 오른쪽 끝에 있을 때)
   onPick: (id: string) => void
   onAll?: (show: boolean) => void
   onClose: () => void
@@ -274,9 +272,23 @@ function GroupMenu({ cals, checked, multi, up, end, onPick, onAll, onClose }: {
     addEventListener('keydown', key, true)
     return () => (clearTimeout(t), removeEventListener('pointerdown', down), removeEventListener('keydown', key, true))
   }, [])
+  // (a7) 자리가 있는 쪽으로 연다: 위·아래 중 넓은 쪽, 그 높이로 줄임 — 보이는 틀(.vbody · 창) 안에서 잘리지 않게.
+  // 네이티브 팝업 없음 = 아일랜드 히트 rect(화면 안) 밖으로 나가지 않는다 (a4 날짜 고르기 교훈)
+  const [place, setPlace] = useState<{ up: boolean; end: boolean; max: number } | null>(null)
+  useLayoutEffect(() => {
+    const wrap = box.current?.parentElement
+    if (!wrap) return
+    const frame = wrap.closest('.vbody, .wbody, .swin') ?? document.documentElement
+    const f = frame === document.documentElement ? new DOMRect(0, 0, innerWidth, innerHeight) : frame.getBoundingClientRect()
+    const w = wrap.getBoundingClientRect(), GAP = 6, PAD = 8
+    const below = f.bottom - w.bottom - GAP - PAD, above = w.top - f.top - GAP - PAD
+    const need = Math.min(320, box.current!.scrollHeight)
+    const up = below < need && above > below
+    setPlace({ up, end: w.left + 248 > f.right - PAD, max: Math.max(96, Math.min(320, up ? above : below)) })
+  }, [])
   const list = q ? cals.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : cals
   return (
-    <div ref={box} className="gp-pop" data-up={!!up} data-end={!!end} role={multi ? 'group' : 'listbox'} aria-label={multi ? '보이는 캘린더' : '캘린더 고르기'}>
+    <div ref={box} className="gp-pop" data-up={!!place?.up} data-end={!!place?.end} style={{ maxHeight: place?.max, visibility: place ? undefined : 'hidden' }} role={multi ? 'group' : 'listbox'} aria-label={multi ? '보이는 캘린더' : '캘린더 고르기'}>
       {cals.length > SEARCH_FROM && <input className="gp-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`캘린더 검색 (${cals.length}개)`} aria-label="캘린더 검색" autoFocus />}
       {multi && onAll && (
         <div className="gp-actions">
@@ -319,8 +331,6 @@ export function CalendarFilter() {
       {open && (
         <GroupMenu
           multi
-          up
-          end
           cals={cals}
           checked={(id) => !hidden.includes(id)}
           onPick={toggle}
@@ -345,7 +355,7 @@ export function CalendarSelect({ value, onChange, groupsOnly }: { value: string;
         <span className="gp-name">{cur.name}</span>
         <svg viewBox="0 0 12 12" aria-hidden><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
-      {open && <GroupMenu up cals={cals} checked={(id) => id === cur.id} onPick={(id) => (onChange(id === 'me' ? '' : id), setOpen(false))} onClose={() => setOpen(false)} />}
+      {open && <GroupMenu cals={cals} checked={(id) => id === cur.id} onPick={(id) => (onChange(id === 'me' ? '' : id), setOpen(false))} onClose={() => setOpen(false)} />}
     </div>
   )
 }

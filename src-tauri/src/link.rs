@@ -630,7 +630,7 @@ fn on_ambient(app: &AppHandle, m: &Value) {
             ("ascii", true) => crate::open_ascii(&h, false, None),
             ("saver", true) => crate::open_ascii(&h, true, None),
             ("fx", true) => crate::open_fx(&h, &fx),
-            ("ascii" | "saver", false) => h.get_webview_window("ascii").map_or(Ok(()), |w| w.destroy()),
+            ("ascii" | "saver", false) => crate::ascii_windows(&h).into_iter().try_for_each(|w| w.destroy()),
             ("fx", false) => h.get_webview_window("fx").map_or(Ok(()), |w| w.destroy()),
             _ => Ok(()),
         };

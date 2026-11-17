@@ -42,7 +42,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
-use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 
 // 아일랜드 창 = 주 모니터 폭 × 600 (island.rs). 모양은 CSS (노치 120×6 · 알약 · 허브 · 안의 화면) — 클릭 통과는 watch 루프의 히트 rect.
 /// 터미널 드롭다운 단축키 기본값 (store `term.hotkey` 로 바꿈)
@@ -213,35 +213,93 @@ pub(crate) fn open_ascii(app: &AppHandle, saver: bool, from: Option<[f64; 4]>) -
     open_ascii_scene(app, saver, from, None)
 }
 
-/// scene = xmas|city|autumn|calm (없으면 계절·시간대 자동) — 아스키 창이 ?scene= 으로 받는다
+/// 아스키 장면 4 + 화면 효과 6 = 자리 비움 화면 덮개(a7)가 고르는 그림. 아스키 창이 ?scene= 으로 받는다.
+pub(crate) const COVER_SCENES: [&str; 10] = ["xmas", "city", "autumn", "calm", "snow", "rain", "leaves", "dawn", "sunset", "moon"];
+static COVER_LAST: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+/// 무작위 장면 (직전 것은 빼고). r = 난수.
+pub(crate) fn pick_cover(prev: usize, r: u32) -> usize {
+    let n = COVER_SCENES.len();
+    if prev >= n {
+        return r as usize % n;
+    }
+    (prev + 1 + r as usize % (n - 1)) % n
+}
+
+/// 모니터 = (물리 위치, 물리 크기, 배율)
+type Mon = ((i32, i32), (u32, u32), f64);
+/// 덮개 창 = (라벨, 물리 위치, 물리 크기, 논리 크기)
+type Cover = (String, (i32, i32), (u32, u32), (f64, f64));
+
+/// 모니터마다 덮개 창 하나. 첫 창 = "ascii" (기존 이름), 나머지 "ascii-1" …
+pub(crate) fn cover_rects(mons: &[Mon]) -> Vec<Cover> {
+    mons.iter()
+        .enumerate()
+        .map(|(i, &(pos, size, s))| (if i == 0 { "ascii".into() } else { format!("ascii-{i}") }, pos, size, (size.0 as f64 / s, size.1 as f64 / s)))
+        .collect()
+}
+
+/// 열려 있는 아스키/덮개 창 전부
+pub(crate) fn ascii_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows().into_iter().filter(|(l, _)| l == "ascii" || l.starts_with("ascii-")).map(|(_, w)| w).collect()
+}
+
+/// 아스키 창 전부 닫기 요청 (JS 가 닫힘 애니메이션 후 스스로 파괴)
+pub(crate) fn ascii_close_all(app: &AppHandle) {
+    for w in ascii_windows(app) {
+        let _ = w.emit_to(w.label(), "ascii-close", ());
+    }
+}
+
+/// scene = 장면 (없으면: 화면보호기 = 무작위 덮개, 그 밖 = 계절·시간대 자동).
+/// 화면보호기는 모든 모니터를 덮는다 (a7: 예전엔 primary_monitor 하나만 → 듀얼 모니터의 한쪽만 가려졌다).
 pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 4]>, scene: Option<&str>) -> tauri::Result<()> {
-    if app.get_webview_window("ascii").is_some() {
+    if !ascii_windows(app).is_empty() {
         return Ok(());
     }
-    let Some(m) = app.primary_monitor()? else { return Ok(()) };
-    let (pos, size, s) = (*m.position(), *m.size(), m.scale_factor());
-    let q = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default() + &scene.map(|s| format!("&scene={s}")).unwrap_or_default();
-    let win = builder(app, "ascii", format!("index.html?surface=ascii&saver={}{q}", saver as u8), (size.width as f64 / s, size.height as f64 / s))
-        .shadow(false)
-        .focusable(!saver)
-        .disable_drag_drop_handler()
-        .build()?;
-    // Island 의 '아스키 재생 중 · <장면>' 은 실제 창 수명을 따른다 (다른 창이 열어도 · 입력으로 닫혀도)
-    let h = app.clone();
-    win.on_window_event(move |e| {
-        if let WindowEvent::Destroyed = e {
-            let _ = h.emit("ascii-closed", ());
+    let mons: Vec<_> = if saver {
+        app.available_monitors()?
+    } else {
+        app.primary_monitor()?.into_iter().collect()
+    };
+    let mons: Vec<_> = mons.iter().map(|m| ((m.position().x, m.position().y), (m.size().width, m.size().height), m.scale_factor())).collect();
+    // ponytail: 모든 모니터에 같은 장면 — 무게는 다른 장면과 같고(창 = 웹뷰 하나씩), 고르기·직전 피하기가 한 번이면 된다
+    let picked = match scene {
+        None if saver => {
+            let mut b = [0u8; 4];
+            let _ = getrandom::fill(&mut b);
+            let i = pick_cover(COVER_LAST.load(Ordering::Relaxed), u32::from_le_bytes(b));
+            COVER_LAST.store(i, Ordering::Relaxed);
+            Some(COVER_SCENES[i])
         }
-    });
-    let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
-    if r.is_err() {
-        let _ = win.destroy();
-        return r;
+        s => s,
+    };
+    let q = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default() + &picked.map(|s| format!("&scene={s}")).unwrap_or_default();
+    for (label, pos, size, logical) in cover_rects(&mons) {
+        let win = builder(app, &label, format!("index.html?surface=ascii&saver={}{q}", saver as u8), logical)
+            .shadow(false)
+            .focusable(!saver)
+            .disable_drag_drop_handler()
+            .build()?;
+        // Island 의 '아스키 재생 중 · <장면>' 은 실제 창 수명을 따른다 (다른 창이 열어도 · 입력으로 닫혀도)
+        let h = app.clone();
+        win.on_window_event(move |e| {
+            if let WindowEvent::Destroyed = e {
+                let _ = h.emit("ascii-closed", ());
+            }
+        });
+        // 위치 먼저(그 모니터로 옮겨 DPI 가 바뀜) → 그 다음 물리 크기 (DPI 변경이 크기를 바꿔도 덮어씀)
+        let (pos, size) = (PhysicalPosition::new(pos.0, pos.1), PhysicalSize::new(size.0, size.1));
+        let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
+        if r.is_err() {
+            let _ = win.destroy();
+            return r;
+        }
+        if !saver {
+            let _ = win.set_focus(); // 클릭 직후라 전면 전환 허용 → Esc 가 먹는다
+        }
     }
-    let _ = app.emit("ascii-open", serde_json::json!({ "scene": scene, "saver": saver }));
-    if !saver {
-        let _ = win.set_focus(); // 클릭 직후라 전면 전환 허용 → Esc 가 먹는다
-    }
+    let _ = app.emit("ascii-open", serde_json::json!({ "scene": picked, "saver": saver }));
     Ok(())
 }
 
@@ -254,11 +312,11 @@ async fn ascii(app: AppHandle, from: Option<[f64; 4]>, scene: Option<String>) ->
 /// Island '아스키 재생 중' 정지 버튼: 아스키 창이 닫힘 애니메이션 후 스스로 파괴 (3초 안에 안 닫히면 강제)
 #[tauri::command]
 fn ascii_stop(app: AppHandle) {
-    let _ = app.emit_to("ascii", "ascii-close", ());
+    ascii_close_all(&app);
     let h = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(3));
-        if let Some(w) = h.get_webview_window("ascii") {
+        for w in ascii_windows(&h) {
             let _ = w.destroy();
         }
     });
@@ -904,4 +962,43 @@ mod tests {
         assert!(migrate_todo(&json!({ "start": "2026-11-16T00:00:00.000Z", "due": "2026-11-18T09:00:00.000Z" })).is_none()); // 이미 기간
     }
 
+    #[test]
+    fn cover_picks_both_kinds_without_repeat() {
+        let mut prev = usize::MAX;
+        let mut seen = [false; COVER_SCENES.len()];
+        let mut x = 12345u32;
+        for _ in 0..500 {
+            x = x.wrapping_mul(1103515245).wrapping_add(12345);
+            let i = pick_cover(prev, x >> 8);
+            assert!(i < COVER_SCENES.len());
+            assert_ne!(i, prev, "직전 장면이 바로 다시 나오면 안 된다");
+            seen[i] = true;
+            prev = i;
+        }
+        assert!(seen.iter().all(|&s| s), "아스키·효과 모든 장면이 나온다");
+        // 직전 것을 뺀 나머지 9개에 고르게 (r 의 모든 나머지)
+        for p in 0..COVER_SCENES.len() {
+            let got: std::collections::HashSet<_> = (0..9).map(|r| pick_cover(p, r)).collect();
+            assert_eq!(got.len(), 9);
+            assert!(!got.contains(&p));
+        }
+    }
+
+    #[test]
+    fn cover_one_window_per_monitor() {
+        // 왼쪽(음수 원점) 1080p 100% · 가운데 주 모니터 4K 150% · 위쪽 1440p 125%
+        let mons = [((-1920, 0), (1920, 1080), 1.0), ((0, 0), (3840, 2160), 1.5), ((3840, -300), (2560, 1440), 1.25)];
+        let r = cover_rects(&mons);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r.iter().map(|x| x.0.as_str()).collect::<Vec<_>>(), ["ascii", "ascii-1", "ascii-2"]);
+        assert_eq!((r[0].1, r[0].2, r[0].3), ((-1920, 0), (1920, 1080), (1920.0, 1080.0)));
+        assert_eq!((r[1].1, r[1].2, r[1].3), ((0, 0), (3840, 2160), (2560.0, 1440.0)));
+        assert_eq!((r[2].1, r[2].2, r[2].3), ((3840, -300), (2560, 1440), (2048.0, 1152.0)));
+        // 덮개끼리 겹치지 않고 각 모니터를 정확히 덮는다
+        for (a, m) in r.iter().zip(&mons) {
+            assert_eq!((a.1, a.2), (m.0, m.1));
+        }
+        assert_eq!(cover_rects(&mons[..1]).len(), 1);
+        assert!(cover_rects(&[]).is_empty());
+    }
 }

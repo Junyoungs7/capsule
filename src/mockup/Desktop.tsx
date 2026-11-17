@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  clipList, closePalette, closeSelf, isTauri, islandOpen, launch, openAscii, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
+  clipList, closePalette, closeSelf, coverCloseAll, isTauri, islandOpen, launch, openAscii, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
   chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
 import { fmtWhen, Island, type Alert, type NextItem } from '../surfaces/Island'
-import { CalendarFilter, groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
+import { groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
 import { TodoTab } from '../surfaces/Todo'
 import { SettingsWin } from '../surfaces/Settings'
 import { ConnectHead, ConnectView, linkLook, useShare, type LinkBundle } from '../surfaces/Connect'
@@ -16,7 +16,7 @@ import { FX_RECORDS, Launcher, useStar, type FxRec } from '../surfaces/Launcher'
 import { SnippetTab } from '../surfaces/Snippets'
 import { DETACHABLE, FIXED_H, GhostLayer, recordFrames, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
 import { customOf, refreshPets, useCustomPets, type IslandPrefs } from '../surfaces/PetSettings'
-import { NOTE_COLORS } from '../surfaces/Notes'
+import { enterCommits, nextColor, NOTE_COLOR_NAMES, NOTE_COLORS } from '../surfaces/Notes'
 import { Ico } from '../surfaces/Icons'
 import type { CapSize } from '../surfaces/Pet'
 import { useSnippets } from '../surfaces/Snippets'
@@ -160,8 +160,8 @@ export function Desktop({ only }: { only?: string }) {
   const [demoNow, setDemoNow] = useState<Date | null>(null)
   const clock = demoNow ?? new Date()
   // 아스키 창: ?scene= 으로 장면 지정 (AI 연결 start_ascii(scene) 등), 없으면 계절·시간대
-  const urlScene = new URLSearchParams(location.search).get('scene') as SceneId | null
-  const scene = only === 'ascii' && urlScene && urlScene in SCENES ? urlScene : pickScene(clock)
+  const urlScene = new URLSearchParams(location.search).get('scene') as SceneId | FxKind | null
+  const scene = only === 'ascii' && urlScene && (urlScene in SCENES || urlScene in FX_LABEL) ? urlScene : pickScene(clock)
 
   // v2 효과: 스위치·도시는 저장 (스위치는 트레이와 공유, Rust 가 판정). 날씨: 시안 = 가짜, 실제 앱 = 독 창이 30분마다 받아 store 에.
   const [fxOn, setFxOn] = useValue('fx.enabled', true)
@@ -197,10 +197,10 @@ export function Desktop({ only }: { only?: string }) {
   // v2 아스키 전체화면: from = 위젯 rect(확대 출발점), saver = 자리 비움 화면보호기
   // 실제 앱: 아스키 창(surface=ascii)을 Rust 가 연다 — ?saver=1 화면보호기, ?from=x,y,w,h 위젯 화면 rect
   // scene = 아스키 LP 로 고른 장면 (없으면 계절·시간대 자동), lp = Island 에 '아스키 재생 중' 으로 보여 줄 레코드 이름
-  type AsciiState = { open: boolean; from: DOMRect | null; saver: boolean; scene?: SceneId; lp?: string }
+  type AsciiState = { open: boolean; from: DOMRect | null; saver: boolean; scene?: SceneId | FxKind; lp?: string }
   const [ascii, setAscii] = useState<AsciiState>(() => {
-    const q = new URLSearchParams(location.search), f = q.get('from')?.split(',').map(Number), sc = q.get('scene') as SceneId | null
-    return { open: only === 'ascii', from: f?.length === 4 ? new DOMRect(f[0], f[1], f[2], f[3]) : null, saver: q.get('saver') === '1', scene: sc && sc in SCENES ? sc : undefined }
+    const q = new URLSearchParams(location.search), f = q.get('from')?.split(',').map(Number), sc = q.get('scene') as SceneId | FxKind | null
+    return { open: only === 'ascii', from: f?.length === 4 ? new DOMRect(f[0], f[1], f[2], f[3]) : null, saver: q.get('saver') === '1', scene: sc && (sc in SCENES || sc in FX_LABEL) ? sc : undefined }
   })
   // 화면보호기: watch 루프가 입력(키 포함)을 감지하면 'ascii-close'
   useEffect(() => (isTauri && only === 'ascii' ? onEvent('ascii-close', () => setAscii((a) => ({ ...a, open: false }))) : undefined), [])
@@ -589,10 +589,10 @@ export function Desktop({ only }: { only?: string }) {
   const [mockRects, setMockRects] = useState<Record<string, DOMRect>>({})
   // (a4) 메모 = 메모 보드(떠 있는 창 float-notes)에 붙는다. '보드에 붙이기' · 새 메모 = 빈 칸에 쓰고 보드를 연다 (note.edit = 바로 편집)
   const [boardNotes, setBoardNotes] = useItems<Note>('note', seedNotes)
-  const addNote = (text = '') => {
+  const addNote = (text = '', color = nextColor(boardNotes)) => {
     setHub(false)
     const id = crypto.randomUUID()
-    setBoardNotes((all) => [...all, { id, text, color: 0, ...freeSlot(all), w: 210, h: 140 }])
+    setBoardNotes((all) => [...all, { id, text, color, ...freeSlot(all), w: 210, h: 140 }])
     if (isTauri) storeSet('note.edit', id)
     openFloat('notes')
   }
@@ -605,7 +605,7 @@ export function Desktop({ only }: { only?: string }) {
       onSaveGroup={saveGroup} onRemoveGroup={(id) => setGroups((gs) => gs.filter((g) => g.id !== id))} onPlayFx={isTauri ? undefined : mockPlay} onStopFx={isTauri ? undefined : mockStop} />
   )
   const viewBody = (k: ViewKind, ghostOnly = false): ReactNode =>
-    k === 'notes' ? <NotesView notes={boardNotes} onAttach={(text) => (addNote(text), say('보드에 붙였어요', 'ok'))} onBoard={() => (setHub(false), openFloat('notes'))} onNotepad={notepad} />
+    k === 'notes' ? <NotesView notes={boardNotes} onAttach={(text, color) => (addNote(text, color), say('보드에 붙였어요', 'ok'))} onBoard={() => (setHub(false), openFloat('notes'))} onNotepad={notepad} />
     : k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
     : k === 'snippets' && snipEdit ? <div className="snip-edit"><SnippetTab /><div className="foot"><small>어디서든 ; 로 시작</small><button className="btn ghost" onClick={() => setSnipEdit(false)}>완료</button></div></div>
     : k === 'snippets' ? (
@@ -633,7 +633,7 @@ export function Desktop({ only }: { only?: string }) {
     : floatBody(k as FloatKind)
   const floatBody = (f: FloatKind) =>
     f === 'todo' ? <TodoTab todos={todos} setTodos={setTodos} onAdded={peekIsland} />
-    : f === 'calendar' ? <><div className="float-tools"><CalendarFilter /></div><MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={peekIsland} /></>
+    : f === 'calendar' ? <MonthCalendar events={events} setEvents={setEvents} todos={todos} onAdded={peekIsland} />
     : f === 'clips' ? <ClipsList clips={clips} onCopy={copyClip} />
     : f === 'shelf' ? (
       <>
@@ -836,7 +836,8 @@ export function Desktop({ only }: { only?: string }) {
           from={ascii.from}
           saver={ascii.saver}
           caption={`${clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(clock)}`}
-          onClose={() => setAscii((a) => ({ ...a, open: false }))}
+          // (a7) 덮개는 모니터마다 창 하나 — 한 곳에서 닫으면 모두 닫는다
+          onClose={() => (setAscii((a) => ({ ...a, open: false })), isTauri && ascii.saver && void coverCloseAll())}
           onClosed={isTauri ? () => void closeSelf() : undefined}
         />
       )}
@@ -879,16 +880,24 @@ function FxCloser() {
 
 
 /** 아일랜드 안 '메모' (a4): 빠른 메모 → '보드에 붙이기' · 메모 카드(누르면 보드) · 메모장으로 열기 · '보드 열기' */
-function NotesView({ notes, onAttach, onBoard, onNotepad }: { notes: Note[]; onAttach: (text: string) => void; onBoard: () => void; onNotepad: (id: string) => void }) {
+function NotesView({ notes, onAttach, onBoard, onNotepad }: { notes: Note[]; onAttach: (text: string, color: number) => void; onBoard: () => void; onNotepad: (id: string) => void }) {
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
+  // (a7) 색: 고른 색은 기억(note.color), 고른 적 없으면 마지막 메모 다음 색 (늘 노랑이 아니게)
+  const [picked, setPicked] = useValue<number | null>('note.color', null)
+  const color = picked ?? nextColor(notes)
   const list = notes.filter((n) => !q || n.text.toLowerCase().includes(q.toLowerCase()))
-  const attach = () => (onAttach(text.trim()), setText(''))
+  const attach = () => (onAttach(text.trim(), color), setText(''))
   return (
     <>
-      <div className="quick">
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Ctrl+Enter = 보드에 붙이기)" rows={2} aria-label="빠른 메모"
-          onKeyDown={(e) => e.key === 'Enter' && e.ctrlKey && (e.preventDefault(), attach())} />
+      <div className="quick" style={{ '--nc': NOTE_COLORS[color] } as CSSProperties}>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Enter = 보드에 붙이기 · Shift+Enter = 줄 바꿈)" rows={2} aria-label="빠른 메모"
+          onKeyDown={(e) => enterCommits(e) && (e.preventDefault(), text.trim() && attach())} />
+        <div className="qcolors" role="radiogroup" aria-label="메모 색">
+          {NOTE_COLORS.map((c, i) => (
+            <button key={c} role="radio" aria-checked={color === i} aria-label={NOTE_COLOR_NAMES[i]} style={{ '--nc': c } as CSSProperties} onClick={() => setPicked(i)} />
+          ))}
+        </div>
       </div>
       {notes.length > 4 && <div className="field"><Ico k="search" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="메모 검색" /></div>}
       <div className="memos">
