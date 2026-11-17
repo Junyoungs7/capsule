@@ -11,6 +11,7 @@ import { McpSettings } from './Mcp'
 import { Pet, PETS, PET_STATES, SIZES_CAP, STYLES, petScale, type CapSize, type PetStyle } from './Pet'
 import { customOf, draftOf, newDraft, pick, PetImportView, refreshPets, removePet, useCustomPets, type Draft, type IslandPrefs } from './PetSettings'
 import { TeamSection } from './Team'
+import { UndoToast } from './Undo'
 import type { Weather } from './Fx'
 import { moonName, moonPhase } from './Ascii'
 
@@ -156,6 +157,7 @@ export function SettingsWin(p: SettingsProps) {
           </div>
         </div>
         {toast && <div key={toast.n} className="toast on" role="status">{toast.t}</div>}
+        <UndoToast />
       </section>
     </div>
   )

@@ -326,6 +326,8 @@ export const teamCreate = (name: string, color: string) => invoke<TeamGroupRaw>(
 export const teamInvite = (group: string) => invoke<[string, string]>('team_invite', { group })
 export const teamJoin = (input: string) => invoke('team_join', { input })
 export const teamFlags = (group: string, alarms: boolean, news: boolean) => invoke('team_flags', { group, alarms, news })
+/** (a10) 그룹 나가기: 이 PC 에서 그룹·일정·메모·채팅을 지우고 그룹원에게 알림 (그룹원 쪽은 그대로) */
+export const teamLeave = (group: string) => invoke('team_leave', { group })
 export const teamName = (name: string) => invoke('team_name', { name })
 
 /* ── 내 펫 (Rust pets.rs: %APPDATA%\Hera\pets) ── */

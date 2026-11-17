@@ -1,5 +1,6 @@
-import { isTauri, onEvent, setClip, useItems, teamCreate, teamFlags, type TeamGroupRaw, teamInvite, teamJoin, teamState } from '../data/api'
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent } from 'react'
+import { isTauri, onEvent, setClip, useItems, teamCreate, teamFlags, teamLeave, type TeamGroupRaw, teamInvite, teamJoin, teamState } from '../data/api'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type FormEvent, type SetStateAction } from 'react'
+import { deleteWithUndo } from './Undo'
 
 /* Hera Team 시안 (계획: .omc/plans/hera-team.md) — 동료 PC 와 달력·메모만 공유하는 '공유 그룹'.
    시안 전용 모듈 저장소: 그룹·숨긴 그룹(달력 필터)·열린 시트. 실제 통신(P2P·암호화·동기화)은 Hera Link 위에서 나중에. */
@@ -42,7 +43,20 @@ const fromRaw = (g: TeamGroupRaw): TeamGroup => ({
   id: g.id, name: g.name, color: g.color, alarms: g.alarms, news: g.news,
   members: g.members.map((m) => ({ id: m.pk, name: m.name, online: m.pk === myPk || online.has(m.pk), me: m.pk === myPk })),
 })
-export const refreshTeam = () => teamState().then((t) => ((myPk = t.pk), t.online?.forEach((pk) => online.add(pk)), setTeam({ groups: t.groups.map(fromRaw) })), () => {})
+// (a10) 나가는 중(되돌리기 5초)인 그룹: Rust 에는 아직 있으니 새로 고쳐 받아도 숨긴다
+const leaving = new Set<string>()
+export const refreshTeam = () => teamState().then((t) => ((myPk = t.pk), t.online?.forEach((pk) => online.add(pk)), setTeam({ groups: t.groups.map(fromRaw).filter((g) => !leaving.has(g.id)) })), () => {})
+const setGroups = (f: SetStateAction<TeamGroup[]>) => setTeam((s) => ({ groups: typeof f === 'function' ? f(s.groups) : f }))
+/** (a10) 그룹 나가기 = 바로 사라지고 5초 '되돌리기'. 그동안은 아무것도 지우거나 알리지 않는다 — 5초 뒤에 한 번만 team_leave
+    (이 PC 의 그룹·일정·메모·채팅·파일을 지우고 그룹원에게 '나감'. 그룹원 쪽 기록은 그대로) */
+export function leaveGroup(g: TeamGroup) {
+  leaving.add(g.id)
+  setTeam((s) => ({ sheet: s.sheet?.group === g.id ? null : s.sheet, hidden: s.hidden }))
+  deleteWithUndo(`${g.name}에서 나왔어요`, setGroups, g, {
+    onUndo: () => leaving.delete(g.id),
+    onCommit: () => (isTauri ? void teamLeave(g.id).finally(() => (leaving.delete(g.id), void refreshTeam())) : leaving.delete(g.id)),
+  })
+}
 export const myTeamPk = () => myPk
 if (isTauri) {
   st = { ...st, groups: [] }
@@ -123,6 +137,7 @@ export function TeamSection() {
             <div className="team-acts">
               <BoardButton g={g} on={open === 'board'} onClick={() => toggle('board', g.id)} />
               <button aria-expanded={open === 'invite'} data-invite onClick={() => toggle('invite', g.id)}>동료 초대</button>
+              <button className="leave" data-leave onClick={() => leaveGroup(g)} title="이 PC에서 그룹을 지워요 · 동료 쪽 기록은 그대로">그룹 나가기</button>
             </div>
             {open === 'invite' && <Invite g={g} />}
             {open === 'board' && <Board g={g} />}

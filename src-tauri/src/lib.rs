@@ -466,6 +466,12 @@ async fn team_join(app: AppHandle, input: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || team::app::join(&app, &input)).await.map_err(|e| e.to_string())?
 }
 
+/// (a10) 그룹 나가기 (이 PC 에서 지우고 그룹원에게 알림)
+#[tauri::command]
+fn team_leave(app: AppHandle, group: String) -> Result<(), String> {
+    team::app::leave(&app, &group)
+}
+
 #[tauri::command]
 fn team_flags(app: AppHandle, group: String, alarms: bool, news: bool) {
     team::app::flags(&app, &group, alarms, news)
@@ -778,7 +784,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, alarms_ready, lnk_target,
-            ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
+            ascii_stop, team_state, team_create, team_leave, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
             float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, pick_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             notes::note_notepad, pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)

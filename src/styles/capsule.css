@@ -565,3 +565,6 @@ html.mx .hx .gp-pop[data-up='true'] { animation-name: gp-in-up; }
 .hx .undo-toast button { height: 26px; padding: 0 12px; border-radius: 13px; font-size: 12.5px; font-weight: 650; color: #fff; background: var(--accent); }
 @keyframes undo-in { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } }
 html.mx .hx .undo-toast { animation: undo-in var(--sp-pop-ms, 420ms) var(--sp-pop, ease) both; }
+/* (a10) 그룹 나가기: 카드 단추 줄 끝, 조용한 빨강 */
+.hx .team-acts button.leave { flex: none; padding: 0 12px; color: #ff8a80; background: transparent; box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .team-acts button.leave:hover { background: rgba(255, 69, 58, 0.14); }

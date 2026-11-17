@@ -94,7 +94,17 @@ pub struct Node {
     outbox: Mutex<HashMap<String, (PathBuf, String)>>,
     /// 요청해 둔 채팅 파일: (fid, 파일 이름) — 진행률을 메시지에 잇는다
     pending: Mutex<Vec<(String, String)>>,
+    /// (a10) 나간 그룹 — 늦게 만난 그룹원이 옛 그룹 정보로 다시 끌어들이지 않게 + 아직 모르는 그룹원에게 알릴 것
+    left: Mutex<Vec<Left>>,
     sink: TeamSink,
+}
+
+/// 나간 그룹 기록: 그 뒤(at 보다 새로) 다시 초대되면 들어올 수 있다. tell = 아직 '나감'을 못 알린 그룹원 공개키
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Left {
+    pub id: String,
+    pub at: i64,
+    pub tell: Vec<String>,
 }
 
 fn now_ms() -> i64 {
@@ -130,6 +140,7 @@ impl Node {
             invites: Mutex::new(vec![]),
             outbox: Mutex::new(HashMap::new()),
             pending: Mutex::new(vec![]),
+            left: Mutex::new(vec![]),
             sink,
         })
     }
@@ -141,6 +152,55 @@ impl Node {
     #[cfg_attr(not(test), allow(dead_code))] // 시험·디버그용
     pub fn item(&self, key: &str) -> Option<Value> {
         self.items.lock().unwrap().get(key).cloned()
+    }
+
+    /// (a10) 저장해 둔 '나간 그룹' 되살리기 (시작할 때)
+    pub fn set_left(&self, left: Vec<Left>) {
+        *self.left.lock().unwrap() = left;
+    }
+
+    pub fn left_list(&self) -> Vec<Left> {
+        self.left.lock().unwrap().clone()
+    }
+
+    fn left_after(&self, group: &str, rev: i64) -> bool {
+        self.left.lock().unwrap().iter().any(|l| l.id == group && rev <= l.at)
+    }
+
+    /// (a10) 그룹 나가기: 이 PC 에서만 그룹·항목(일정·메모·채팅)을 지우고 그룹원에게 '나감'을 알린다.
+    /// 그룹원은 나를 그룹원 목록에서 빼고 서로 알린다 — 그들의 그룹·항목은 그대로. 지운 항목은 묘비를 보내지 않는다 (그룹이 먼저 사라져서).
+    /// 돌려주는 값 = 이 그룹이던 항목 키 (위층이 store·파일을 지운다)
+    pub fn leave_group(&self, group: &str) -> Option<Vec<String>> {
+        let g = {
+            let mut gs = self.groups.lock().unwrap();
+            let i = gs.iter().position(|g| g.id == group)?;
+            gs.remove(i)
+        };
+        let keys: Vec<String> = {
+            let mut items = self.items.lock().unwrap();
+            let keys: Vec<String> = items.iter().filter(|(k, v)| group_of(Some(v)).as_deref() == Some(group) || (k.starts_with("tomb:") && v.as_str() == Some(group))).map(|(k, _)| k.clone()).collect();
+            for k in &keys {
+                items.remove(k);
+            }
+            keys
+        };
+        {
+            let mut meta = self.meta.lock().unwrap();
+            for k in &keys {
+                meta.remove(k.strip_prefix("tomb:").unwrap_or(k));
+            }
+        }
+        self.outbox.lock().unwrap().retain(|_, (_, gid)| gid != group);
+        self.invites.lock().unwrap().retain(|i| i.group != group);
+        let mut tell: Vec<String> = g.members.iter().map(|m| m.pk.clone()).filter(|pk| *pk != self.pk).collect();
+        for c in self.conns.lock().unwrap().iter().filter(|c| c.is_ready()) {
+            let pk = lf::hex(&c.peer_pk);
+            if tell.contains(&pk) && c.send(json!({ "t": "tleave", "group": group })).is_ok() {
+                tell.retain(|x| *x != pk);
+            }
+        }
+        self.left.lock().unwrap().push(Left { id: group.into(), at: now_ms(), tell });
+        Some(keys.into_iter().filter(|k| !k.starts_with("tomb:")).collect())
     }
 
     pub fn has_open_invite(&self) -> bool {
@@ -275,7 +335,7 @@ impl Node {
                     *cur = Group { alarms, news, ..g.clone() };
                     changed = true;
                 }
-                None if g.has(&self.pk) => {
+                None if g.has(&self.pk) && !self.left_after(&g.id, g.rev) => {
                     gs.push(g.clone());
                     changed = true;
                 }
@@ -350,7 +410,7 @@ impl Node {
                 if !g.has(&pk) {
                     return;
                 }
-                let first = !self.groups.lock().unwrap().iter().any(|x| x.id == g.id);
+                let first = !self.groups.lock().unwrap().iter().any(|x| x.id == g.id) && !self.left_after(&g.id, g.rev);
                 self.update_group(g.clone(), Some(from));
                 if first && g.has(&self.pk) {
                     (self.sink)(TeamEv::Joined { group: g.id.clone(), ok: true, error: String::new() });
@@ -373,6 +433,19 @@ impl Node {
                         eprintln!("chat file {fid}: {e}");
                     }
                 });
+            }
+            "tleave" => {
+                // (a10) 그룹원이 나감 → 목록에서 빼고(새 rev) 다른 그룹원에게 알린다. 그 그룹원이 아니면 무시
+                let gid = msg["group"].as_str().unwrap_or("").to_string();
+                let g = {
+                    let mut gs = self.groups.lock().unwrap();
+                    let Some(g) = gs.iter_mut().find(|g| g.id == gid && g.has(&pk)) else { return };
+                    g.members.retain(|m| m.pk != pk);
+                    g.rev = now_ms();
+                    g.clone()
+                };
+                (self.sink)(TeamEv::Group { group: g.clone() });
+                self.send_to(&gid, &json!({ "t": "tgroup", "group": g }), Some(from));
             }
             "tsync" => {
                 let group = msg["group"].as_str().unwrap_or("").to_string();
@@ -427,6 +500,12 @@ impl Node {
             (me.sink)(TeamEv::Online { pk: pk.clone(), name: c.peer_name.clone(), online: true });
             if let Some(code) = &code {
                 let _ = c.send(json!({ "t": "join", "code": code, "name": me.name }));
+            }
+            // (a10) 나간 그룹을 아직 모르는 그룹원이면 알린다 (한 번)
+            for l in me.left.lock().unwrap().iter_mut().filter(|l| l.tell.contains(&pk)) {
+                if c.send(json!({ "t": "tleave", "group": l.id })).is_ok() {
+                    l.tell.retain(|x| *x != pk);
+                }
             }
             for g in me.groups().into_iter().filter(|g| g.has(&pk)) {
                 let _ = c.send(json!({ "t": "tgroup", "group": g }));
@@ -486,7 +565,7 @@ impl Node {
 
     /// 비콘을 받았을 때 접속할 상대인가: 같은 그룹원 + 아직 연결 안 됨 + 공개키가 내 것보다 큼(양쪽이 동시에 걸지 않게)
     pub fn should_dial(&self, pk: &str) -> bool {
-        pk > self.pk.as_str() && !self.connected_to(pk) && self.groups.lock().unwrap().iter().any(|g| g.has(pk))
+        pk > self.pk.as_str() && !self.connected_to(pk) && (self.groups.lock().unwrap().iter().any(|g| g.has(pk)) || self.left.lock().unwrap().iter().any(|l| l.tell.iter().any(|x| x == pk)))
     }
 
     #[cfg_attr(not(test), allow(dead_code))] // 시험 정리용
@@ -535,7 +614,9 @@ pub mod app {
             let items: HashMap<String, Value> = entries.iter().filter(|(k, v)| ls::team_syncable(k) && group_of(Some(v)).is_some()).map(|(k, v)| (k.clone(), v.clone())).collect();
             let meta: ls::Meta = get("team.meta").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
             let a = app.clone();
-            Node::new(&my_name(app), secret, groups, items, meta, Arc::new(move |e| on_team(&a, e)))
+            let n = Node::new(&my_name(app), secret, groups, items, meta, Arc::new(move |e| on_team(&a, e)));
+            n.set_left(get("team.left").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default());
+            n
         })
         .clone()
     }
@@ -857,6 +938,38 @@ pub mod app {
         Err(format!("연결하지 못했어요: {last}"))
     }
 
+    /// (a10) 그룹 나가기: 그룹을 이 PC 에서 지우고(일정·메모·채팅·받은/보낸 채팅 파일) 그룹원에게 알린다. 그룹원 쪽 기록은 그대로.
+    /// 되돌리기 5초는 JS 가 기다린 뒤에만 부른다 (나감은 남에게 보이므로 지웠다 다시 넣지 않는다).
+    pub fn leave(app: &AppHandle, group: &str) -> Result<(), String> {
+        let n = node(app);
+        let keys = n.leave_group(group).ok_or("그룹이 없어요")?;
+        if let Some(s) = store(app) {
+            s.delete(format!("team.group:{group}"));
+            s.set("team.left", serde_json::to_value(n.left_list()).unwrap_or(Value::Null));
+            // 그룹 항목: store 에 있는 것 + 노드가 알던 것
+            let mut ks: Vec<(String, Value)> = s.entries().into_iter().filter(|(k, v)| ls::team_syncable(k) && group_of(Some(v)).as_deref() == Some(group)).collect();
+            ks.extend(keys.into_iter().filter_map(|k| s.get(&k).map(|v| (k, v))));
+            for (k, v) in ks {
+                s.delete(&k);
+                if let Some(fid) = v["fid"].as_str() {
+                    for sub in ["chat", "chat-out"] {
+                        if let Some(d) = chat_dir(app, sub) {
+                            let _ = std::fs::remove_dir_all(d.join(fid));
+                        }
+                    }
+                    s.delete(format!("chatin:{fid}"));
+                    s.delete(format!("chatout:{fid}"));
+                }
+            }
+            if s.get("chat.group").is_some_and(|v| v.as_str() == Some(group)) {
+                s.delete("chat.group");
+            }
+        }
+        persist_meta(app);
+        let _ = app.emit("team", json!({ "kind": "left", "group": group }));
+        Ok(())
+    }
+
     pub fn set_name(app: &AppHandle, name: &str) {
         if let Some(s) = store(app) {
             s.set("team.name", name.trim()); // 다음 실행부터 (접속할 때 알리는 이름)
@@ -957,6 +1070,48 @@ mod tests {
         assert!(!b.node.request_file("f2", "x", "00ff"));
         let _ = std::fs::remove_dir_all(&dir);
         for p in [&a, &b, &d] {
+            p.node.close_all();
+        }
+    }
+
+    /// (a10) 나가기: A 가 나감 → A 쪽 그룹·항목 없음, B·C 는 그대로 (A 만 목록에서 빠짐), 옛 그룹 정보로는 다시 안 끌려 들어옴,
+    /// 나간 뒤 A 에게 그룹 항목이 오지 않음, 나중에 다시 초대되면 들어올 수 있음
+    #[test]
+    fn leave_group_wipes_here_keeps_peers() {
+        let (a, b, c) = (peer("A"), peer("B"), peer("C"));
+        let g = a.node.create_group("개발팀", "#14b8a6");
+        let code = a.node.invite(&g.id).unwrap();
+        b.node.connect(a.addr, Some(code)).unwrap();
+        assert!(wait(|| b.node.groups().iter().any(|x| x.id == g.id)));
+        let code = b.node.invite(&g.id).unwrap();
+        c.node.connect(b.addr, Some(code)).unwrap();
+        assert!(wait(|| a.node.groups()[0].members.len() == 3));
+        a.node.local_change("event:e1", Some(json!({ "id": "e1", "title": "회의", "group": g.id, "by": "A" })));
+        b.node.local_change("note:n1", Some(json!({ "id": "n1", "text": "메모", "group": g.id, "by": "B" })));
+        assert!(wait(|| a.node.item("note:n1").is_some() && c.node.item("event:e1").is_some()));
+        let old = a.node.groups()[0].clone();
+
+        let keys = a.node.leave_group(&g.id).unwrap();
+        assert!(keys.contains(&"event:e1".to_string()) && keys.contains(&"note:n1".to_string()), "{keys:?}");
+        assert!(a.node.groups().is_empty() && a.node.item("event:e1").is_none() && a.node.item("note:n1").is_none(), "wiped here");
+        assert!(a.node.leave_group(&g.id).is_none(), "twice = nothing");
+        // 그룹원: A 만 빠지고 항목은 그대로 (묘비 없음)
+        assert!(wait(|| b.node.groups()[0].members.len() == 2 && c.node.groups()[0].members.len() == 2), "B and C drop A");
+        assert!(!b.node.groups()[0].has(&a.node.pk));
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(b.node.item("event:e1").is_some() && c.node.item("note:n1").is_some(), "peers keep their copies");
+        // 나간 뒤 그룹 항목은 A 에게 적용되지 않는다
+        b.node.local_change("event:e2", Some(json!({ "id": "e2", "title": "나간 뒤", "group": g.id, "by": "B" })));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(a.node.item("event:e2").is_none());
+        // 옛 그룹 정보(나가기 전 rev)로는 다시 안 들어온다
+        a.node.update_group(old, None);
+        assert!(a.node.groups().is_empty(), "stale group info does not pull A back");
+        // 다시 초대 → 들어올 수 있다
+        let code = b.node.invite(&g.id).unwrap();
+        a.node.connect(b.addr, Some(code)).unwrap();
+        assert!(wait(|| a.node.groups().iter().any(|x| x.id == g.id)), "re-invite works");
+        for p in [&a, &b, &c] {
             p.node.close_all();
         }
     }
