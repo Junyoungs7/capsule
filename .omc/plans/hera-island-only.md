@@ -180,5 +180,8 @@
    JS 히트 rect 는 창 아래로 넘치지 않게 자름. cargo `taskbar_clock_is_never_a_capsule_press` (48px 띠 · 100/125/150% · 음수 원점 · 보조 모니터 작업 표시줄).
 - 시험: `.omc/verify/a7-cdp.mjs` 46 (덮개 두 종류·두 모니터·한 곳 닫기 = 모두 · cargo cover 2 · Enter/Shift+Enter/조합 · 색 줄 기억 · FAB · 칩 · 캘린더 하나·안 잘림·히트 rect · 숫자 가운데).
   cargo `cover_picks_both_kinds_without_repeat` · `cover_one_window_per_monitor`(왼쪽 음수 원점 · 100/150/125% 섞임). cargo test ×3 (lib 75 + 5 + 3, 9 ignored 그대로), clippy --all-targets · tsc 깨끗.
-  island · pets · lp · chat · term · settings · connect · motion · when 통과. a4 는 '…end shifts with it' 1개 실패 — 깨끗한 6f5167d 에서도 똑같이 실패(이번 변경과 무관, 따로 볼 것).
+  island · pets · lp · chat · term · settings · connect · motion · when 통과. a4 49 통과.
   설치 파일 `src-tauri/target/release/bundle/nsis/Hera_0.1.0_x64-setup.exe` (15.49 MiB, 실행 안 함).
+- **(a7 추가) 시작을 바꾸면 끝이 늦게 따라감** (a4 '…end shifts with it' 실패, 6f5167d 부터): 값은 맞았지만 날짜 칸 표시가 자기 draft 상태라,
+  고친 칸은 commit 때 바로, 다른 칸(끝)은 `useEffect` 로 shown 에 맞춰 한 렌더 늦게 바뀌었다 → 그 사이엔 시작 = 내일, 끝 = 오늘 옛 시각. 
+  → `TimeField` 는 고치는 중에만 draft, 아니면 늘 부모 값(`draft ?? shown`) — 두 칸이 같은 프레임에 바뀐다. a4 49 · a7 46 · when 41 통과.

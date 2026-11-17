@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import type { Todo } from '../data/types'
 import { dayKey } from '../data/holidays'
 import { Ico } from './Icons'
@@ -31,23 +31,23 @@ export function todoDays(t: Pick<Todo, 'start' | 'due'>): string[] {
 /** 날짜·시각 한 칸: 직접 쓰기(Enter·포커스 잃을 때 해석) · ↑/↓ 한 칸 */
 function TimeField({ label, date, allDay, onCommit }: { label: string; date: Date; allDay: boolean; onCommit: (d: Date) => void }) {
   const shown = fmtWhen(date, allDay)
-  const [draft, setDraft] = useState(shown)
+  // 고치는 중일 때만 draft, 아니면 늘 부모 값(shown) — (a7) 예전엔 draft 를 effect 로 shown 에 맞춰
+  // 시작을 바꾸면 끝 칸이 한 프레임 늦게(때로는 그 사이 읽힌 옛 값으로) 보였다
+  const [draft, setDraft] = useState<string | null>(null)
   const [bad, setBad] = useState(false)
   const el = useRef<HTMLInputElement>(null)
-  const editing = useRef(false)
   const caretAt = useRef<number | null>(null) // ↑↓ 뒤 커서 자리 (값이 바뀌면 브라우저가 끝으로 옮긴다 → 바로 되돌림, 다음 키가 오기 전에)
-  useEffect(() => void (!editing.current && setDraft(shown)), [shown])
   useLayoutEffect(() => {
     const c = caretAt.current
     if (c != null && el.current && document.activeElement === el.current) el.current.setSelectionRange(c, c)
   })
   const commit = () => {
-    editing.current = false
-    if (draft.trim() === shown) return setDraft(shown)
+    if (draft === null) return
+    setDraft(null)
+    if (draft.trim() === shown) return
     const d = parseWhen(draft, date)
-    if (!d) return void (setBad(true), setDraft(shown), setTimeout(() => setBad(false), 900))
+    if (!d) return void (setBad(true), setTimeout(() => setBad(false), 900))
     onCommit(d)
-    setDraft(fmtWhen(d, allDay))
   }
   const key = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') return void (e.preventDefault(), commit()) // 날짜 칸의 Enter 는 저장이 아니라 해석
@@ -55,18 +55,16 @@ function TimeField({ label, date, allDay, onCommit }: { label: string; date: Dat
     e.preventDefault()
     const caret = caretAt.current ?? el.current?.selectionStart ?? 0
     const seg = Math.min(segmentAt(shown, caret), allDay ? 1 : 3)
-    const d = stepWhen(parseWhen(draft, date) ?? date, seg, e.key === 'ArrowUp' ? 1 : -1)
-    editing.current = false
+    const d = stepWhen((draft !== null && parseWhen(draft, date)) || date, seg, e.key === 'ArrowUp' ? 1 : -1)
+    setDraft(null)
     onCommit(d)
-    const t = fmtWhen(d, allDay)
-    caretAt.current = Math.min(caret, t.length)
-    setDraft(t)
+    caretAt.current = Math.min(caret, fmtWhen(d, allDay).length)
   }
   return (
     <label className="when-f" data-bad={bad}>
       <small>{label}</small>
-      <input ref={el} value={draft} aria-label={`${label} 날짜·시각`} spellCheck={false} autoComplete="off"
-        onChange={(e) => ((editing.current = true), (caretAt.current = null), setDraft(e.target.value))} onBlur={() => ((caretAt.current = null), commit())} onMouseDown={() => (caretAt.current = null)} onKeyDown={key} onFocus={(e) => e.currentTarget.select()} />
+      <input ref={el} value={draft ?? shown} aria-label={`${label} 날짜·시각`} spellCheck={false} autoComplete="off"
+        onChange={(e) => ((caretAt.current = null), setDraft(e.target.value))} onBlur={() => ((caretAt.current = null), commit())} onMouseDown={() => (caretAt.current = null)} onKeyDown={key} onFocus={(e) => e.currentTarget.select()} />
       <i>{weekday(date)}</i>
     </label>
   )
