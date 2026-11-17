@@ -95,7 +95,7 @@ pub fn recognize(w: u32, h: u32, bgra: &[u8]) -> Result<(String, String), String
     let bmp = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(&buf, BitmapPixelFormat::Bgra8, w as i32, h as i32, BitmapAlphaMode::Premultiplied).map_err(e)?;
     let ko = Language::CreateLanguage(&HSTRING::from("ko")).map_err(e)?;
     let engine = if OcrEngine::IsLanguageSupported(&ko).unwrap_or(false) { OcrEngine::TryCreateFromLanguage(&ko) } else { OcrEngine::TryCreateFromUserProfileLanguages() }
-        .map_err(|_| "이 PC 에 글자 인식 언어 팩이 없어요 — Windows 설정 → 시간 및 언어 → 언어에서 한국어·영어의 '광학 문자 인식'을 설치해 주세요".to_string())?;
+        .map_err(|_| "이 PC에 글자 인식 언어 팩이 없어요 — Windows 설정 → 시간 및 언어 → 언어에서 한국어·영어의 '광학 문자 인식'을 설치해 주세요".to_string())?;
     let lang = engine.RecognizerLanguage().and_then(|l| l.LanguageTag()).map(|t| t.to_string()).unwrap_or_default();
     let res = engine.RecognizeAsync(&bmp).map_err(e)?.join().map_err(e)?;
     let mut lines = vec![];

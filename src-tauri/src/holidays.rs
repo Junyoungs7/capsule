@@ -325,7 +325,7 @@ mod tests {
     #[ignore]
     fn emit_holidays() {
         let months = lunar_months(2026, 2030);
-        let mut out = String::from("// 생성: src-tauri/src/holidays.rs (cargo test --lib emit_holidays -- --ignored). 2026–2027 은 월력요항 표와 일치 검증.\nconst H: Record<string, string> = {\n");
+        let mut out = String::from("// 생성: src-tauri/src/holidays.rs (cargo test --lib emit_holidays -- --ignored). 2026–2027은 월력요항 표와 일치 검증.\nconst H: Record<string, string> = {\n");
         for y in 2026..=2030 {
             let line: Vec<String> = holidays(y, &months, &ELECTIONS).into_iter().map(|(d, n)| format!("'{d}': '{n}'")).collect();
             out += &format!("  {},\n\n", line.join(", "));

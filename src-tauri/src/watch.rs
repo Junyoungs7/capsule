@@ -788,12 +788,12 @@ mod tests {
             let o = (wx, wy);
             // 시계·날짜 = 작업 표시줄 오른쪽 끝 (오른쪽에서 40, 띠 가운데) · 알림 영역 = 그 왼쪽
             for clock in [(mon[2] - (40.0 * s) as i32, mon[3] - bar / 2), (mon[2] - (90.0 * s) as i32, mon[3] - 4), (mon[2] - 1, wa[3])] {
-                assert!(!capsule_takes(clock, wa, o, &[cap], 0.0), "시계 {clock:?} 는 캡슐이 아님 {mon:?}");
+                assert!(!capsule_takes(clock, wa, o, &[cap], 0.0), "시계 {clock:?}는 캡슐이 아님 {mon:?}");
                 assert!(!in_work_area(clock.0, clock.1, wa));
             }
             // 넘친 rect 의 띠 쪽 부분도 받지 않는다 → 캡슐이 받는 영역은 작업 표시줄과 겹치지 않음
             let bottom = (cap[1] + cap[3]) as i32 + o.1;
-            assert!(bottom > wa[3], "시험 전제: 머묾 rect 가 창 아래로 넘친다");
+            assert!(bottom > wa[3], "시험 전제: 머묾 rect가 창 아래로 넘친다");
             let x = o.0 + (cap[0] + cap[2] / 2.0) as i32;
             for y in wa[3]..mon[3] {
                 assert!(!capsule_takes((x, y), wa, o, &[cap], DRAG_MARGIN));

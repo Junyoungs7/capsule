@@ -98,7 +98,7 @@ fn clean_name(s: &str) -> Result<String, String> {
 
 pub fn check_meta(m: &Meta) -> Result<(), String> {
     if m.version != 1 {
-        return Err("pet.json 은 version 1 만 읽을 수 있어요".into());
+        return Err("pet.json은 version 1만 읽을 수 있어요".into());
     }
     clean_name(&m.name)?;
     if m.style != "pixel" && m.style != "smooth" {
@@ -123,11 +123,11 @@ pub fn check_meta(m: &Meta) -> Result<(), String> {
 /// 한 이미지: 크기 · 형식 · 프레임 크기 (시트면 가로 한 줄 frames 칸)
 pub fn check_image(b: &[u8], frames: u32) -> Result<(&'static str, u32, u32), String> {
     if b.len() > MAX_FILE {
-        return Err("이미지는 4MB 까지 쓸 수 있어요".into());
+        return Err("이미지는 4MB까지 쓸 수 있어요".into());
     }
-    let (ext, w, h) = sniff(b).ok_or("PNG · GIF · WebP · APNG 만 쓸 수 있어요")?;
+    let (ext, w, h) = sniff(b).ok_or("PNG · GIF · WebP · APNG만 쓸 수 있어요")?;
     if w / frames.max(1) > MAX_DIM || h > MAX_DIM || w < frames {
-        return Err("한 프레임은 1024×1024 까지예요".into());
+        return Err("한 프레임은 1024×1024까지예요".into());
     }
     Ok((ext, w, h))
 }
@@ -396,7 +396,7 @@ pub fn import_zip(root: &Path, b: &[u8]) -> Result<String, String> {
         files.push((n.clone(), d.clone()));
     }
     if files.len() != meta.states.len() {
-        return Err("pet.json 에 적힌 이미지가 없어요".into());
+        return Err("pet.json에 적힌 이미지가 없어요".into());
     }
     let meta = Meta { name: clean_name(&meta.name)?, ..meta };
     let id = new_id();

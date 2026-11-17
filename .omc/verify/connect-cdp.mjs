@@ -22,7 +22,7 @@ try {
   // 연결됨 (가짜 Rust 이벤트)
   await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'link.enabled', value: true })`)
   await h.emit('link-status', { state: 'connected', detail: '', peer: 'MacBook Pro', onPeer: false, fingerprint: '' })
-  ok('connected → green dot + summary line "MacBook Pro 와 연결됨"', await until(() => isl.eval(`document.querySelector('.hub .app[data-go=link] .sdot').dataset.sdot === 'ok' && /MacBook Pro 와 연결됨/.test(document.querySelector('.hub .linkline')?.textContent ?? '')`)))
+  ok('connected → green dot + summary line "MacBook Pro와 연결됨"', await until(() => isl.eval(`document.querySelector('.hub .app[data-go=link] .sdot').dataset.sdot === 'ok' && /MacBook Pro와 연결됨/.test(document.querySelector('.hub .linkline')?.textContent ?? '')`)))
   await isl.clickSel('.hub .linkline')
   ok('summary line opens the 연결 view (420 wide, content-sized)', await until(() => isl.eval(`!!document.querySelector('.view[data-k=link] .lnk') && document.querySelector('.isl .skin').offsetWidth === 420`)))
   await sleep(600)

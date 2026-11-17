@@ -235,7 +235,7 @@ try {
   // 떠 있는 창: 'Island로' · 핀 · 닫기 (최소화 없음), 머리줄 두 번 누르기 = 아무 일 없음
   const fw = h.pages.get('float-todo')
   await until(() => fw.eval(`!!document.querySelector('.win .wbar')`), 5000)
-  ok('window chrome = Island로 · pin · close (no minimise)', await fw.eval(`[...document.querySelectorAll('.wbar .act button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()).join('|')`) === 'Island로|항상 위|닫기')
+  ok('window chrome = 캡슐로 · pin · close (no minimise)', await fw.eval(`[...document.querySelectorAll('.wbar .act button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()).join('|')`) === '캡슐로|항상 위|닫기')
   ok('no OS caption drag region anywhere', await fw.eval(`!document.querySelector('[data-tauri-drag-region]')`))
   const nd = h.calls.length
   await fw.click(120, 20, 2)

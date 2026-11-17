@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { deleteWithUndo } from './Undo'
 import { isTauri, ocrStart, snippetPaste, useItems } from '../data/api'
 import { expand, seedSnippets, type Snippet } from '../data/snippets'
 import { setV3 } from './Notes'
@@ -97,7 +98,7 @@ export function SnippetTab() {
               <b>{n.title}</b>
               <small>{n.body.replace(/\s+/g, ' ')}</small>
             </span>
-            <button className="icon-btn del" onClick={(e) => (e.stopPropagation(), setSnips((all) => all.filter((x) => x.id !== n.id)))} aria-label={`${n.title} 삭제`}>×</button>
+            <button className="icon-btn del" onClick={(e) => (e.stopPropagation(), deleteWithUndo('상용구를 지웠어요', setSnips, n))} aria-label={`${n.title} 삭제`}>×</button>
           </li>
         ))}
       </ul>

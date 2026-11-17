@@ -274,6 +274,43 @@ export const chatAttach = async (group: string, f: File) =>
   invoke<string>('chat_attach', new Uint8Array(await f.arrayBuffer()), { headers: { 'x-group': group, 'x-name': encodeURIComponent(f.name) } })
 export const clipFiles = (paths: string[]) => invoke('clip_files', { paths })
 export const shelfAdd = (path: string) => invoke('shelf_add', { path })
+
+/* (a9) 네이티브 파일 대화상자 지킴이: 대화상자는 웹뷰 밖 별도 창이라 그 안을 누르면 watch 루프가 '아일랜드 밖 클릭'(island-outside)으로 보고해
+   허브가 접혔다 (a4 날짜 고르기와 같은 원인). 대화상자가 떠 있는 동안은 그 알림을 무시하고, 닫히면(고름·취소) 다시 받는다. */
+let picking = 0
+export const isPicking = () => picking > 0
+async function guardPicker<T>(open: () => Promise<T>): Promise<T> {
+  picking++
+  ;(window as Window & { __heraPicking?: number }).__heraPicking = picking
+  try {
+    return await open()
+  } finally {
+    picking--
+    ;(window as Window & { __heraPicking?: number }).__heraPicking = picking
+  }
+}
+/** 경로가 필요한 곳(선반): Rust 가 Windows 파일 열기 대화상자 → 경로들 (취소 = []) */
+export const pickPaths = (multi = true) => guardPicker(() => (isTauri ? invoke<string[]>('pick_files', { multi }) : Promise.resolve([] as string[])))
+/** 내용이 필요한 곳(채팅 첨부 · 펫 이미지·zip): 웹뷰 파일 고르기. 닫히면 = change · cancel (· 창이 다시 포커스를 받으면 안전망) */
+export function pickFiles(accept: string, multiple: boolean, folder = false): Promise<File[]> {
+  return guardPicker(
+    () =>
+      new Promise<File[]>((res) => {
+        const inp = document.createElement('input')
+        inp.type = 'file'
+        inp.accept = accept
+        inp.multiple = multiple
+        if (folder) inp.webkitdirectory = true
+        let t = 0
+        const end = () => (removeEventListener('focus', back), clearTimeout(t), res([...(inp.files ?? [])]))
+        const back = () => (t = window.setTimeout(end, 800)) // 취소 이벤트가 없는 웹뷰용
+        inp.addEventListener('change', end, { once: true })
+        inp.addEventListener('cancel', end, { once: true })
+        addEventListener('focus', back, { once: true })
+        inp.click()
+      }),
+  )
+}
 export const fileSrc = (path: string) => convertFileSrc(path)
 /** store 의 `<prefix><키>` → 값 (항목이 {id} 객체가 아닌 것: chatin:<fid> = 경로). 실제 앱만, 시안 = 빈 객체 */
 export function usePrefix<T>(prefix: string): Record<string, T> {

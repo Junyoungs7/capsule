@@ -607,6 +607,12 @@ fn clip_files(paths: Vec<String>) -> Result<(), String> {
     clip::set_files(&paths)
 }
 
+/// (a9) Windows 파일 열기 대화상자 → 경로들 (취소 = 빈 목록)
+#[tauri::command]
+async fn pick_files(multi: bool) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || launch::pick_files(multi)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn shelf_add(app: AppHandle, path: String) -> Result<(), String> {
     app.emit_to("island", "shelf-add", path).map_err(|e| e.to_string())
@@ -773,7 +779,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, alarms_ready, lnk_target,
             ascii_stop, team_state, team_create, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
-            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, pick_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             notes::note_notepad, pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
@@ -783,7 +789,7 @@ pub fn run() {
             if std::fs::read(&file).is_ok_and(|b| serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&b).is_err()) {
                 let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
                 let bak = file.with_file_name(format!("hera.json.bak-{ts}"));
-                eprintln!("hera.json 이 깨져 있어 {} 로 옮기고 새로 만든다: {:?}", bak.display(), std::fs::rename(&file, &bak));
+                eprintln!("hera.json 이 깨져 있어 {}로 옮기고 새로 만든다: {:?}", bak.display(), std::fs::rename(&file, &bak));
             }
             // 첫 실행 시드 (Rust 에서 1회 — 여러 창이 동시에 시드하는 경쟁 없음)
             let s = app.store("hera.json")?;

@@ -109,7 +109,7 @@ function MiniCal({ value, onChange }: { value: When; onChange: (w: When) => void
 }
 
 export function WhenFields({ value, onChange }: { value: When; onChange: (w: When) => void }) {
-  const [cal, setCal] = useState(false)
+  const [cal, setCal] = useState(true) // (a9) 달력은 처음부터 펼쳐 둔다 — '달력' 칩으로 접기
   const [s, e] = [dayKey(value.start), dayKey(value.end)]
   const is = (k: 'today' | 'tomorrow' | 'weekend') => {
     const c = chip(value, k)

@@ -217,7 +217,7 @@ export function Launcher(p: Props) {
   const info = !deck ? { kind: '플래터', t: '레코드를 올려 주세요', s: '끌어다 놓거나 누르면 재생 · 앱은 실행, 효과는 화면에' }
     : deck.kind === 'app'
       ? { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'set' ? (play ? `차례로 여는 중 · ${(deck.rec.targets ?? []).map((x) => byId(x)?.title).filter(Boolean).join(' → ')}` : `${deck.rec.targets?.length ?? 0}개를 차례로 실행`) : play ? '실행했어요 · 판을 꺼내도 앱은 닫히지 않아요' : '암을 내리면 실행' }
-      : { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'fx' ? (play ? '바탕화면에 25초 · 끝나면 상자로 돌아가요' : '화면 효과 25초') : play ? '전체화면 · Esc 로 닫기' : '전체화면 아스키 장면' }
+      : { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'fx' ? (play ? '바탕화면에 25초 · 끝나면 상자로 돌아가요' : '화면 효과 25초') : play ? '전체화면 · Esc로 닫기' : '전체화면 아스키 장면' }
   const deckDisc = (d: number, extra: string) => deck?.kind === 'fx'
     ? <Disc d={d} cover={deck.rec.cover} kind={deck.rec.kind} glyph={deck.rec.glyph} extra={extra} />
     : deck ? <Disc d={d} cover={deck.rec.cover} kind={deck.rec.kind} rec={deck.rec} extra={extra} set={setCovers(deck.rec)} /> : null
@@ -289,7 +289,7 @@ export function Launcher(p: Props) {
           </div>
         ))}
       </div>
-      <div className="lpfoot"><Ico k="search" /><span>Ctrl+Alt+K 검색에서도 이름으로 재생</span><span className="spacer" /><span>{crate === 'app' ? 'URL 을 여기로 끌어 놓으면 추가' : '★ = 맨 앞 · 검색 맨 위'}</span></div>
+      <div className="lpfoot"><Ico k="search" /><span>Ctrl+Alt+K 검색에서도 이름으로 재생</span><span className="spacer" /><span>{crate === 'app' ? 'URL을 여기로 끌어 놓으면 추가' : '★ = 맨 앞 · 검색 맨 위'}</span></div>
       <Sheet mode={sheet} setMode={setSheet} {...p} apps={p.records.filter((x) => x.kind === 'single')} edit={editG} clearEdit={() => setEditG(null)} say={say} />
       {toast && <div key={toast.n} className="toast on" role="status">{toast.t}</div>}
     </div>

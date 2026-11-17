@@ -15,7 +15,7 @@ try {
   await sleep(400)
   const sec = () => sw.eval(`document.querySelector('.swin .pin').dataset.pane`)
   const nav = await sw.eval(`[...document.querySelectorAll('.swin .nav [data-sec]')].map((b) => b.textContent.trim())`)
-  ok('8 sections in the left nav: 일반 · Island · 펫 · 연결 · 채팅 · 터미널·아라 · 단축키 · 정보', nav.join('|') === '일반|Island|펫|연결|채팅|터미널 · 아라|단축키|정보', nav.join('|'))
+  ok('8 sections in the left nav: 일반 · 캡슐 · 펫 · 연결 · 채팅 · 터미널·아라 · 단축키 · 정보', nav.join('|') === '일반|캡슐|펫|연결|채팅|터미널 · 아라|단축키|정보', nav.join('|'))
   ok('window fills 940×680 (title bar 44 · nav 216)', await until(() => sw.eval(`(() => { const b = document.querySelector('.swin .sbox').getBoundingClientRect(), n = document.querySelector('.swin .nav').getBoundingClientRect(); return Math.round(b.width) === 940 && Math.round(b.height) === 680 && Math.round(n.width) === 216 })()`)))
   ok('own title-bar drag (no OS caption region)', await sw.eval(`!document.querySelector('[data-tauri-drag-region]')`))
 
@@ -72,7 +72,7 @@ try {
   ok('hero switch → link.enabled + link_apply (Hera Link, not Deskflow)', (await until(() => h.store.get('link.enabled') === true)) && (await until(() => h.calls.slice(n).some((c) => c[1] === 'link_apply'), 3000)))
   await sw.clickSel('.swin [data-ltab=share]')
   await until(() => sw.eval(`document.querySelectorAll('.swin .sh').length === 6`))
-  ok('함께 쓰기: 6 switches incl. "채팅 알림은 커서가 있는 PC 에서만"', await sw.eval(`/커서가 있는 PC 에서만/.test(document.querySelector('.swin .sh[data-share=chat]').textContent)`))
+  ok('함께 쓰기: 6 switches incl. "채팅 알림은 커서가 있는 PC 에서만"', await sw.eval(`/커서가 있는 PC에서만/.test(document.querySelector('.swin .sh[data-share=chat]').textContent)`))
   await sw.eval(`document.querySelector('.swin .sh[data-share=clip] .sw').click()`)
   ok('클립보드 off → link.share.clip = false (Rust link::shared reads it)', await until(() => h.store.get('link.share')?.clip === false))
   await sw.clickSel('.swin [data-ltab=layout]')
@@ -104,7 +104,7 @@ try {
   /* 채팅 · 터미널 · 단축키 · 정보 */
   await sw.clickSel('.swin .nav [data-sec=chat]')
   await until(async () => (await sec()) === 'chat')
-  await sw.eval(`(() => { const s = ${row('이 PC 에 보관')}.querySelector('select'); s.value = '90'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
+  await sw.eval(`(() => { const s = ${row('이 PC에 보관')}.querySelector('select'); s.value = '90'; s.dispatchEvent(new Event('change', { bubbles: true })) })()`)
   ok('채팅 보관 → chat.retentionDays = 90', await until(() => h.store.get('chat.retentionDays') === 90))
   ok('Team groups live under 채팅', await sw.eval(`!!document.querySelector('.swin .teamcard')`))
   await sw.clickSel('.swin .nav [data-sec=term]')

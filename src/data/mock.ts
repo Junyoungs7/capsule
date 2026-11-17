@@ -84,7 +84,7 @@ if (STRESS) {
   )
   seedClips.unshift(
     { id: 'qc1', text: 'SELECT b.banner_id, b.title, b.start_dt, b.end_dt FROM banner b WHERE b.use_yn = ' + "'Y'" + ' AND sysdate BETWEEN b.start_dt AND b.end_dt ORDER BY b.sort_no', at: Date.now() - 60_000 },
-    { id: 'qc2', text: '가을 특가 · 단풍 여행 기획전 메인 배너 카피 (최종) — 최대 30% 할인, 11/30 까지', at: Date.now() - 4 * 60_000 },
+    { id: 'qc2', text: '가을 특가 · 단풍 여행 기획전 메인 배너 카피 (최종) — 최대 30% 할인, 11/30까지', at: Date.now() - 4 * 60_000 },
   )
 }
 if (EMPTY) for (const a of [seedEvents, seedTodos, seedClips, seedShelf, seedRecords, seedGroups] as unknown[][]) a.length = 0

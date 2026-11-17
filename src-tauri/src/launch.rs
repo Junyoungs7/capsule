@@ -193,6 +193,39 @@ fn known_folder_path(id: &str) -> Option<String> {
     std::path::Path::new(&p).exists().then_some(p)
 }
 
+/// (a9) 파일 고르기 (Windows 파일 열기 대화상자) — 선반 '파일 고르기'. 대화상자는 모달이라 자기 STA 스레드에서 (sta() 큐를 막지 않게).
+/// 취소 = 빈 목록. JS 가 대화상자가 떠 있는 동안 'island-outside' 를 무시한다 (대화상자 안 클릭 = 히트 rect 밖이라 허브가 접혔다, a4 날짜 고르기와 같은 원인).
+pub fn pick_files(multi: bool) -> Result<Vec<String>, String> {
+    use windows::Win32::System::Com::{CoTaskMemFree, CoUninitialize};
+    use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, FOS_ALLOWMULTISELECT, FOS_FORCEFILESYSTEM, SIGDN_FILESYSPATH};
+    std::thread::spawn(move || unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        let r = (|| -> Result<Vec<String>, String> {
+            let d: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(|e| e.message())?;
+            let mut o = d.GetOptions().map_err(|e| e.message())? | FOS_FORCEFILESYSTEM;
+            if multi {
+                o |= FOS_ALLOWMULTISELECT;
+            }
+            d.SetOptions(o).map_err(|e| e.message())?;
+            if d.Show(None).is_err() {
+                return Ok(Vec::new()); // 취소
+            }
+            let items = d.GetResults().map_err(|e| e.message())?;
+            let mut out = Vec::new();
+            for i in 0..items.GetCount().map_err(|e| e.message())? {
+                let p = items.GetItemAt(i).and_then(|it| it.GetDisplayName(SIGDN_FILESYSPATH)).map_err(|e| e.message())?;
+                out.push(p.to_string().unwrap_or_default());
+                CoTaskMemFree(Some(p.0 as _));
+            }
+            Ok(out)
+        })();
+        CoUninitialize();
+        r
+    })
+    .join()
+    .map_err(|_| "파일 고르기 창이 멈췄어요".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

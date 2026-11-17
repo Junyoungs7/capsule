@@ -302,7 +302,7 @@ fn ara(args: &[&str], cwd: &str) -> Result<serde_json::Value, String> {
         use std::os::windows::process::CommandExt;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = c.output().map_err(|e| format!("아라 CLI 를 실행하지 못했어요: {e}"))?;
+    let out = c.output().map_err(|e| format!("아라 CLI를 실행하지 못했어요: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);
     serde_json::from_str(text.trim()).map_err(|_| format!("아라 CLI 응답을 읽지 못했어요 (exit {:?}) {}", out.status.code(), String::from_utf8_lossy(&out.stderr).trim()))
 }

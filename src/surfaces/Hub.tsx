@@ -129,11 +129,11 @@ export function WinChrome({ k, pin, onPin, onAbsorb, onClose, onBarDown, childre
 }) {
   return (
     <div className={`hx win ${moving ? 'moving' : ''}`} data-kind={k} data-enter={enter}>
-      <div className="wbar" onPointerDown={onBarDown} onDoubleClick={(e) => e.preventDefault()} title="끌어서 옮기기 · 캡슐에 놓으면 Island로">
+      <div className="wbar" onPointerDown={onBarDown} onDoubleClick={(e) => e.preventDefault()} title="끌어서 옮기기 · 캡슐에 놓으면 캡슐로 돌아가요">
         <span className="grip" />
         <span className="wt"><span className="well sm" style={{ '--c': `var(${COLOR[k]})` } as CSSProperties}><Ico k={ICON[k]} /></span>{NAME[k]}</span>
         <span className="act">
-          <button className="ret" data-absorb onClick={onAbsorb}><Ico k="dock" />Island로</button>
+          <button className="ret" data-absorb onClick={onAbsorb}><Ico k="dock" />캡슐로</button>
           <button data-pin aria-label="항상 위" aria-pressed={!!pin} onClick={onPin}><Ico k="pin" /></button>
           <button className="close" data-wclose aria-label="닫기" onClick={onClose}><Ico k="close" /></button>
         </span>

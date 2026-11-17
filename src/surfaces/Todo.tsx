@@ -1,4 +1,5 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { deleteWithUndo } from './Undo'
 import type { Todo } from '../data/types'
 import { fmtWhen } from './Island'
 import { todoWhen, WhenFields } from './DateRange'
@@ -43,7 +44,7 @@ export function TodoTab({ todos, setTodos, onAdded }: { todos: Todo[]; setTodos:
               <b>{t.title}</b>
               <small>{todoWhen(t, fmtWhen)}</small>
             </span>
-            <button className="icon-btn del" onClick={() => setTodos((all) => all.filter((x) => x.id !== t.id))} aria-label={`${t.title} 삭제`}>×</button>
+            <button className="icon-btn del" onClick={() => deleteWithUndo('할 일을 지웠어요', setTodos, t)} aria-label={`${t.title} 삭제`}>×</button>
           </li>
         ))}
       </ul>

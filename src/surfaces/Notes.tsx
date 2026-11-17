@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
+import { deleteWithUndo } from './Undo'
 import { isTauri, onStore, storeGet, storeSet, useItems } from '../data/api'
 import { reducedMotion } from './Tile'
 import { Avatar, groupOf } from './Team'
@@ -64,7 +65,7 @@ export function NoteBoard({ onNotepad }: { onNotepad: (id: string) => void }) {
       {notes.length === 0 && <p className="board-empty">빈 보드예요 — 빈 곳을 두 번 누르거나 + 로 메모를 붙이세요</p>}
       {notes.map((n) => (
         <NoteCard key={n.id} n={n} z={front === n.id ? 3 : 1} edit={fresh === n.id} onFront={() => setFront(n.id)} onPatch={(p) => patch(n.id, p)}
-          onNotepad={() => onNotepad(n.id)} onDelete={() => setNotes((all) => all.filter((x) => x.id !== n.id))} />
+          onNotepad={() => onNotepad(n.id)} onDelete={() => deleteWithUndo('메모를 지웠어요', setNotes, n)} />
       ))}
       <button className="board-add fab" aria-label="새 메모" onClick={() => add()}><Ico d="M12 5v14M5 12h14" /></button>
     </div>

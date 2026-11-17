@@ -90,7 +90,7 @@ const ago = (t: number) => {
 /** 최근 복사: 누르면 다시 클립보드에 (메모리에만 — 재시작하면 사라짐) */
 export function ClipsList({ clips, onCopy }: { clips: Clip[]; onCopy: (c: Clip) => void }) {
   const [done, setDone] = useState<string | null>(null)
-  if (!clips.length) return <p className="float-empty">아직 복사한 글자가 없어요. 무엇이든 복사하면 여기 쌓여요 (최근 20개 · Hera 를 끄면 지워져요).</p>
+  if (!clips.length) return <p className="float-empty">아직 복사한 글자가 없어요. 무엇이든 복사하면 여기 쌓여요 (최근 20개 · Hera를 끄면 지워져요).</p>
   return (
     <ul className="float-list">
       {clips.map((c) => (
@@ -107,9 +107,10 @@ export function ClipsList({ clips, onCopy }: { clips: Clip[]; onCopy: (c: Clip) 
 
 const fname = (p: string) => p.split(/[\\/]/).pop()!
 /** 선반: 누르면 열기 · 끌면 밖으로 복사(OLE) · 우클릭/× = 빼기. 파일은 노치에 끌어 놓으면 들어온다. */
-export function ShelfList({ files, onOpen, onRemove, onSend, peer }: { files: ShelfFile[]; onOpen: (f: ShelfFile) => void; onRemove: (f: ShelfFile) => void; onSend?: (f: ShelfFile) => void; peer?: string }) {
+export function ShelfList({ files, onOpen, onRemove, onSend, peer, onPick }: { files: ShelfFile[]; onOpen: (f: ShelfFile) => void; onRemove: (f: ShelfFile) => void; onSend?: (f: ShelfFile) => void; peer?: string; onPick?: () => void }) {
   const [down, setDown] = useState<{ x: number; y: number; id: string; dragged: boolean } | null>(null)
-  if (!files.length) return <p className="float-empty">비어 있어요. 파일을 캡슐로 끌어 오면 담겨요 (최대 4개).</p>
+  // (a9) 빈 상태에서 바로: 파일 고르기 (대화상자가 떠 있는 동안 허브가 접히지 않는다)
+  if (!files.length) return <div className="float-empty"><p>비어 있어요. 파일을 캡슐로 끌어 오거나 골라서 담아요 (최대 4개).</p>{onPick && <button className="btn" data-shelf-pick onClick={onPick}>파일 고르기</button>}</div>
   return (
     <ul className="float-list shelf-list">
       {[...files].sort((a, b) => b.at - a.at).map((f) => (

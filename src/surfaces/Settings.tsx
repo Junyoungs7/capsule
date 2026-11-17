@@ -19,12 +19,12 @@ import { moonName, moonPhase } from './Ascii'
 
 type Sec = 'general' | 'island' | 'pet' | 'link' | 'chat' | 'term' | 'keys' | 'about'
 const SECS: [Sec, string, IcoKey, string][] = [
-  ['general', '일반', 'power', '--gray'], ['island', 'Island', 'island', '--indigo'], ['pet', '펫', 'paw', '--pink'], ['link', '연결', 'link', '--teal'],
+  ['general', '일반', 'power', '--gray'], ['island', '캡슐', 'island', '--indigo'], ['pet', '펫', 'paw', '--pink'], ['link', '연결', 'link', '--teal'],
   ['chat', '채팅', 'chat', '--green'], ['term', '터미널 · 아라', 'term', '--gray'], ['keys', '단축키', 'key', '--orange'], ['about', '정보', 'info', '--blue'],
 ]
 const SEC_WORDS: Record<Sec, string> = {
   general: '할 일 알림 날짜 시작 자동 실행 윈도우 트레이 상단 공간 메뉴막대 날씨 계절 효과 도시 화면보호기 자리 비움 아스키 폴더',
-  island: '위치 오른쪽 왼쪽 아래 크기 작게 보통 크게 아주 전체화면 숨기기 알림 펫 캡슐',
+  island: 'island 아일랜드 위치 오른쪽 왼쪽 아래 크기 작게 보통 크게 아주 전체화면 숨기기 알림 펫 캡슐',
   pet: '펫 내 펫 추가 픽셀 플랫 클레이 라인 잠들기 이미지 zip 가져오기 내보내기',
   link: '연결 페어링 기기 맥 pc 마우스 키보드 클립보드 파일 동기화 모니터 배치 키 매핑 한/영 tls 포트 deskflow 코드 해제 함께',
   chat: '채팅 보관 기간 파일 크기 사진 팀 team 그룹 초대 코드 알림 소리',
@@ -140,7 +140,7 @@ export function SettingsWin(p: SettingsProps) {
                 {k === 'link' && <i className="stat" style={{ background: look.cls === 'ok' ? 'var(--green)' : look.cls === 'warn' ? 'var(--orange)' : '#55555c' }} />}
               </button>
             ))}
-            <div className="foot">설정은 이 PC 에만 저장돼요</div>
+            <div className="foot">설정은 이 PC에만 저장돼요</div>
           </nav>
           <div className="pane" ref={pane}>
             <div className="pin pane-in" key={sec + (sec === 'link' ? ltab : '')} data-pane={sec}>
@@ -172,7 +172,7 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
   const folder = () => void appDataDir().then((d) => launch(d)).then(() => say('탐색기에서 열었어요'), (e) => say(String(e)))
   return (
     <>
-      <Head k="general" sub="Hera 가 켜지는 방식과 바탕화면 효과" />
+      <Head k="general" sub="Hera가 켜지는 방식과 바탕화면 효과" />
       <Grp h="시작"><div className="card">
         <Row t="Windows 시작 시 Hera 실행" s="기본은 꺼짐 — 켜면 로그인할 때 트레이로 조용히 시작해요"><Sw on={auto} label="Windows 시작 시 실행" set={(v) => (isTauri ? void autostart(v).then(setAuto) : setAuto(v))} /></Row>
         <Row t="트레이 아이콘" s="알림 영역에서 효과 끄기·검색·종료 · 지금은 항상 켜져 있어요" soon><Sw on label="트레이 아이콘" set={() => {}} /></Row>
@@ -284,7 +284,7 @@ function PetPane({ prefs, setPref, say }: SettingsProps & { say: (t: string) => 
                   <small>{c.name}</small>
                   <span className="cact">
                     <span role="button" onClick={() => void draftOf(c).then(setDraft)} aria-label={`${c.name} 편집·이름 바꾸기`} title="편집·이름 바꾸기"><Ico k="edit" /></span>
-                    <span role="button" onClick={() => void petExport(c.id).then((x) => say(`내보냈어요 · ${x}`), (e) => say(String(e)))} aria-label={`${c.name} 내보내기`} title=".herapet.zip 으로 내보내기"><Ico k="download" /></span>
+                    <span role="button" onClick={() => void petExport(c.id).then((x) => say(`내보냈어요 · ${x}`), (e) => say(String(e)))} aria-label={`${c.name} 내보내기`} title=".herapet.zip으로 내보내기"><Ico k="download" /></span>
                     <span role="button" className="del" data-cpet-del={c.id} onClick={() => void removePet(c.id).then(() => prefs.pet === `custom:${c.id}` && setPref('pet', 'cat'))} aria-label={`${c.name} 삭제`} title="삭제"><Ico k="trash" /></span>
                   </span>
                 </div>
@@ -294,7 +294,7 @@ function PetPane({ prefs, setPref, say }: SettingsProps & { say: (t: string) => 
             </>
           )}
       </div>
-      {tab === 'custom' && <p className="snote">내 펫 이미지는 이 PC 의 <span className="mono">%APPDATA%\com.hera.app\pets</span> 에만 저장돼요. 업로드하지 않아요.</p>}
+      {tab === 'custom' && <p className="snote">내 펫 이미지는 이 PC의 <span className="mono">%APPDATA%\com.hera.app\pets</span> 에만 저장돼요. 업로드하지 않아요.</p>}
       <Grp h={`${cur?.name ?? PETS[shown]?.name ?? ''} · 상태별 모습`}><div className="pstrip">
         {PET_STATES.map(([s, l]) => <div key={s}><span className="petbox"><Pet kind={shown} custom={cur} state={s} pk={cur ? 0.6 : petScale(PETS[shown]?.style ?? 'flat', 's') * 0.8} /></span><small>{l}</small></div>)}
       </div></Grp>
@@ -318,7 +318,7 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
   const m = mapped(c)
   return (
     <>
-      <Head k="link" sub="내 PC 와 맥이 마우스·키보드·클립보드·파일을 함께 써요" />
+      <Head k="link" sub="내 PC와 맥이 마우스·키보드·클립보드·파일을 함께 써요" />
       <div className="hero">
         <div className="pcs">
           <span className="pc"><span className="well" style={{ '--c': 'var(--teal)' } as CSSProperties}><Ico k="pc" /></span><b>{c.me || '이 PC'}</b></span>
@@ -338,10 +338,10 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
             <div className="card"><Row t="처음 보는 맥 · 확인할 지문" s={<span className="mono">{b.status.fingerprint.match(/.{1,4}/g)?.slice(0, 8).join(' ')}…</span>} lead={<Ico k="shield" className="ico lead" />}><button className="btn sm" onClick={() => b.onTrust(b.status!.fingerprint)}>신뢰</button></Row></div>
           )}
           <Grp h="이 PC"><div className="card">
-            <Row t="이 PC 이름" s={`포트 ${c.port} · 맥 Hera 에 이 이름으로 보여요`} lead={<span className="well md" style={{ '--c': 'var(--teal)' } as CSSProperties}><Ico k="pc" /></span>}>
+            <Row t="이 PC 이름" s={`포트 ${c.port} · 맥 Hera에 이 이름으로 보여요`} lead={<span className="well md" style={{ '--c': 'var(--teal)' } as CSSProperties}><Ico k="pc" /></span>}>
               <input className="inp" defaultValue={c.me} placeholder="이 PC 이름" style={{ width: 140 }} aria-label="이 PC 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() !== c.me && put({ me: e.target.value.trim() })} />
             </Row>
-            <Row t="다른 기기에서 보이기" s="같은 네트워크의 Hera 가 이 PC 를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요" soon><Sw on label="보이기" set={() => {}} /></Row>
+            <Row t="다른 기기에서 보이기" s="같은 네트워크의 Hera가 이 PC를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요" soon><Sw on label="보이기" set={() => {}} /></Row>
           </div></Grp>
           <Grp h={<>내 기기 <span className="chip">{devs.length}대 페어링</span></>}><div className="card devs">
             {devs.map((d) => (
@@ -351,10 +351,10 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
                 <button className="btn danger sm" data-unpair={d.id} onClick={() => (b.onUnpair(), say('페어링을 해제했어요'))}>페어링 해제</button>
               </div>
             ))}
-            {!devs.length && <Row t="페어링한 기기가 없어요" s="맥 Hera 에서 이 PC 를 고르면 위에 6자리 숫자가 떠요" />}
+            {!devs.length && <Row t="페어링한 기기가 없어요" s="맥 Hera에서 이 PC를 고르면 위에 6자리 숫자가 떠요" />}
           </div></Grp>
           <Grp h={<>같은 네트워크에서 찾음 <span className="chip info"><Ico k="wifi" />준비 중</span></>}><div className="card devs">
-            <Row t="주변 기기 찾기" s="지금은 맥 Hera 에서 연결을 시작해요 — 이 목록은 다음 버전에서" soon />
+            <Row t="주변 기기 찾기" s="지금은 맥 Hera에서 연결을 시작해요 — 이 목록은 다음 버전에서" soon />
           </div><p className="snote">페어링 = 양쪽 화면에 같은 6자리가 뜨면 <b>같아요</b>. 처음 한 번만 하고, 그다음부터는 켜질 때 자동으로 이어져요.</p></Grp>
         </>
       )}
@@ -382,13 +382,13 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           <Grp><div className="card">
             <Row t="가장자리 두 번 치기" s="실수로 넘어가지 않게 — 두 번 밀어야 넘어가요"><Sw on={c.doubleTap} set={(v) => put({ doubleTap: v })} label="두 번 치기" /></Row>
             <Row t="마우스 흔들어 커서 찾기" s="빠르게 좌우로 흔들면 커서 둘레에 파란 물결"><Sw on={locator} set={setLocator} label="커서 찾기" /></Row>
-            <Row t={`${look.peer} 를 안 쓰면 자동 화면보호기`} s="맥을 N분 동안 쓰지 않으면 맥 화면을 가려요 · 0 = 끔"><Step value={c.autoSaverMin} set={(n) => put({ autoSaverMin: n })} max={240} step={5} unit="분" label="자동 화면보호기" /></Row>
+            <Row t={`${look.peer}를 안 쓰면 자동 화면보호기`} s="맥을 N분 동안 쓰지 않으면 맥 화면을 가려요 · 0 = 끔"><Step value={c.autoSaverMin} set={(n) => put({ autoSaverMin: n })} max={240} step={5} unit="분" label="자동 화면보호기" /></Row>
           </div></Grp>
         </>
       )}
       {tab === 'keyboard' && (
         <>
-          <Grp h={`${look.peer} 에서 쓸 때 수식키`}><div className="presets">
+          <Grp h={`${look.peer}에서 쓸 때 수식키`}><div className="presets">
             {PRESETS.map(([k, t, s]) => <button key={k} className={`preset ${c.keymap === k ? 'on' : ''}`} data-keymap={k} onClick={() => put({ keymap: k })}><b>{t}</b><small>{s}</small></button>)}
           </div></Grp>
           <div className="kbrow">
@@ -398,7 +398,7 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           </div>
           {c.keymap === 'custom' && <KeyRows c={c} put={put} />}
           <Grp><div className="card">
-            <Row t="한/영 (맥에 커서가 있을 때)" s={c.ime === 'hera' ? '맥 Hera 가 입력 소스를 바꿔요 (가장 확실)' : c.ime === 'off' ? '한/영 키를 맥으로 넘기지 않아요' : '맥 입력 전환 단축키 보내기 (실험적)'}>
+            <Row t="한/영 (맥에 커서가 있을 때)" s={c.ime === 'hera' ? '맥 Hera가 입력 소스를 바꿔요 (가장 확실)' : c.ime === 'off' ? '한/영 키를 맥으로 넘기지 않아요' : '맥 입력 전환 단축키 보내기 (실험적)'}>
               <Sel value={c.ime} set={(v) => put({ ime: v })} label="한/영 방식" opts={[['hera', '맥 Hera'], ['capslock', 'Caps Lock'], ['ctrl-space', 'Ctrl+Space'], ['cmd-space', '⌘+Space'], ['off', '끄기']]} />
             </Row>
           </div></Grp>
@@ -409,15 +409,15 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           <Grp><div className="card">
             <Row t="연결 암호화" s="끄면 같은 네트워크의 누구나 입력을 볼 수 있어요 · 기본 켜짐" lead={<Ico k="lock" className="ico lead" />}><Sw on={c.tls} set={(v) => put({ tls: v })} label="TLS" /></Row>
             <Row t="맥 위치" s="이 PC 화면 기준 · 모니터마다 정하려면 화면 배치"><Sel value={c.side} set={(v) => put({ side: v })} label="맥 위치" opts={[['right', '오른쪽'], ['left', '왼쪽'], ['top', '위'], ['bottom', '아래']]} /></Row>
-            <Row t="맥 이름" s="맥 Hera 에 적힌 이름과 같아야 해요"><input className="inp" defaultValue={c.peer} style={{ width: 140 }} aria-label="맥 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== c.peer && put({ peer: e.target.value.trim() })} /></Row>
-            <Row t="입력 포트" s="맥 Hera 와 같아야 해요"><input className="inp mono" defaultValue={c.port} style={{ width: 90, textAlign: 'center' }} aria-label="입력 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.port && put({ port: Number(e.target.value) })} /></Row>
+            <Row t="맥 이름" s="맥 Hera에 적힌 이름과 같아야 해요"><input className="inp" defaultValue={c.peer} style={{ width: 140 }} aria-label="맥 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== c.peer && put({ peer: e.target.value.trim() })} /></Row>
+            <Row t="입력 포트" s="맥 Hera와 같아야 해요"><input className="inp mono" defaultValue={c.port} style={{ width: 90, textAlign: 'center' }} aria-label="입력 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.port && put({ port: Number(e.target.value) })} /></Row>
             <Row t="파일 포트" s="파일·클립보드·동기화 채널 (암호화 · 페어링한 기기만)"><input className="inp mono" defaultValue={c.filePort} style={{ width: 90, textAlign: 'center' }} aria-label="파일 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.filePort && put({ filePort: Number(e.target.value) })} /></Row>
           </div></Grp>
-          <Grp h="Deskflow 를 쓰고 있다면"><div className="card">
-            <Row t="Deskflow 설정 가져오기" s="이름·배치·인증서만 읽어 와요 (읽기 전용) — Hera 는 Deskflow 를 켜거나 끄거나 바꾸지 않아요">
+          <Grp h="Deskflow를 쓰고 있다면"><div className="card">
+            <Row t="Deskflow 설정 가져오기" s="이름·배치·인증서만 읽어 와요 (읽기 전용) — Hera는 Deskflow를 켜거나 끄거나 바꾸지 않아요">
               <button className="btn ghost sm" data-import onClick={() => void b.onImport().then(() => say('Deskflow 설정을 읽어 왔어요 (이름·배치·인증서)'), (e) => say(String(e)))}><Ico k="download" />가져오기</button>
             </Row>
-            <Row t="Deskflow 가 실행 중이면" s="Hera 의 마우스·키보드 공유는 쉬고 기다려요 · 파일·클립보드는 그대로" lead={<Ico k="info" className="ico lead" />}><span className="chip">자동 대기</span></Row>
+            <Row t="Deskflow가 실행 중이면" s="Hera의 마우스·키보드 공유는 쉬고 기다려요 · 파일·클립보드는 그대로" lead={<Ico k="info" className="ico lead" />}><span className="chip">자동 대기</span></Row>
           </div></Grp>
         </>
       )}
@@ -433,8 +433,8 @@ function ChatPane() {
     <>
       <Head k="chat" sub="사내망 동료와 직접 주고받는 채팅 · 팀과 같은 종단간 암호화" />
       <Grp h="보관"><div className="card">
-        <Row t="이 PC 에 보관" s="지난 메시지는 이 PC 에서만 지워요 (다른 사람 기록은 그대로)"><Sel value={days} set={setDays} label="보관 기간" opts={[[7, '7일'], [30, '30일 (기본)'], [90, '90일'], [365, '1년']]} /></Row>
-        <Row t="파일·사진 최대" s="보낸 사람 PC 에서 직접 받아요 — 보낸 사람이 꺼져 있으면 켜질 때까지 대기"><Sel value={mb} set={setMb} label="파일 크기 상한" opts={[[25, '25MB'], [100, '100MB (기본)'], [500, '500MB']]} /></Row>
+        <Row t="이 PC에 보관" s="지난 메시지는 이 PC에서만 지워요 (다른 사람 기록은 그대로)"><Sel value={days} set={setDays} label="보관 기간" opts={[[7, '7일'], [30, '30일 (기본)'], [90, '90일'], [365, '1년']]} /></Row>
+        <Row t="파일·사진 최대" s="보낸 사람 PC에서 직접 받아요 — 보낸 사람이 꺼져 있으면 켜질 때까지 대기"><Sel value={mb} set={setMb} label="파일 크기 상한" opts={[[25, '25MB'], [100, '100MB (기본)'], [500, '500MB']]} /></Row>
         <Row t="받은 파일 저장 위치" s={<span className="mono">다운로드\Hera</span>} soon />
       </div></Grp>
       <Grp h="알림"><div className="card">
@@ -469,15 +469,15 @@ function TermPane() {
 /* ── 단축키 ── */
 function KeysPane() {
   const [term] = useValue('term.hotkey', 'Ctrl+Backquote')
-  const K: [string, string, string][] = [[term, '터미널 드롭다운', 'Ctrl+` 기본'], ['Ctrl+Alt+K', '검색 · 실행 (팔레트)', 'Win+K 는 Windows 가 쓰고 있어 Ctrl+Alt+K 예요'], ['Ctrl+Alt+T', '화면 글자 복사 (OCR)', '영역을 끌어서 글자만']]
+  const K: [string, string, string][] = [[term, '터미널 드롭다운', 'Ctrl+` 기본'], ['Ctrl+Alt+K', '검색 · 실행 (팔레트)', 'Win+K는 Windows가 쓰고 있어 Ctrl+Alt+K예요'], ['Ctrl+Alt+T', '화면 글자 복사 (OCR)', '영역을 끌어서 글자만']]
   return (
     <>
       <Head k="keys" sub="전역 단축키 · 바꾸기는 준비 중이에요" />
       <Grp><div className="card">
         {K.map(([combo, t, s]) => <Row key={t} t={t} s={s}><span className="keycap"><Keys combo={combo} /></span></Row>)}
-        <Row t="Island 허브 열기" s="정하지 않음 — 캡슐을 눌러도 열려요" soon />
+        <Row t="허브 열기" s="정하지 않음 — 캡슐을 눌러도 열려요" soon />
       </div></Grp>
-      <Grp h="Island 안에서"><div className="card">
+      <Grp h="허브 안에서"><div className="card">
         <Row t="접기" s="허브·화면을 캡슐로"><span className="keycap" style={{ minWidth: 0 }}><kbd>Esc</kbd></span></Row>
         <Row t="뒤로" s="화면 → 허브"><span className="keycap" style={{ minWidth: 0 }}><kbd>‹</kbd></span></Row>
         <Row t="LP 재생 / 정지" s="LP 화면에서"><span className="keycap" style={{ minWidth: 0 }}><kbd>Space</kbd></span></Row>
@@ -497,7 +497,7 @@ function About() {
       <Grp><div className="card">
         <Row t="업데이트 확인" s="자동 업데이트는 아직 없어요" soon />
         <Row t="오픈 소스 라이선스" s="Pretendard (OFL 1.1) · 내장 입력 엔진 deskflow-core (GPL-2.0) · Tauri (MIT/Apache-2.0) · 펫 그림은 모두 직접 그린 것" />
-        <Row t="개인정보" s="메모·채팅·펫 이미지는 이 PC 와 내 기기 사이에서만 오가요. 서버로 보내지도, 사용 기록을 모으지도 않아요"><span className="chip ok"><i />로컬 전용</span></Row>
+        <Row t="개인정보" s="메모·채팅·펫 이미지는 이 PC와 내 기기 사이에서만 오가요. 서버로 보내지도, 사용 기록을 모으지도 않아요"><span className="chip ok"><i />로컬 전용</span></Row>
       </div></Grp>
     </>
   )

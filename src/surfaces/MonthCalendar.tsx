@@ -1,4 +1,5 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { deleteWithUndo } from './Undo'
 import type { CalendarEvent, Todo } from '../data/types'
 import { dayKey, isHoliday } from '../data/holidays'
 import { todoDays } from './DateRange'
@@ -156,7 +157,7 @@ export function MonthCalendar({ events, setEvents, todos, onAdded }: Props) {
             <span className="ev-time">{hm(ev.start)}</span>
             <span className="grow"><b>{ev.title}</b>{g && <small>{ev.by}님이 추가</small>}</span>
             {g && <span className="gchip">{g.name}</span>}
-            <button className="icon-btn del" onClick={() => setEvents((all) => all.filter((x) => x.id !== ev.id))} aria-label={`${ev.title} 삭제`}>×</button>
+            <button className="icon-btn del" onClick={() => deleteWithUndo('일정을 지웠어요', setEvents, ev)} aria-label={`${ev.title} 삭제`}>×</button>
           </li>
           )
         })}

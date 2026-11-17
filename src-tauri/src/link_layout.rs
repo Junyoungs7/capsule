@@ -111,11 +111,11 @@ pub fn plan(mons: &[Mon]) -> Plan {
                     continue; // 모서리만 닿음
                 }
                 if !on_bbox(w, side, bw) {
-                    p.limits.push(format!("PC 모니터 {} 의 {} 가장자리는 PC 화면 안쪽이라 맥으로 넘어갈 수 없어요", w.id, kor(side)));
+                    p.limits.push(format!("PC 모니터 {}의 {} 가장자리는 PC 화면 안쪽이라 맥으로 넘어갈 수 없어요", w.id, kor(side)));
                     continue;
                 }
                 if !on_bbox(m, opposite(side), bm) {
-                    p.limits.push(format!("맥 모니터 {} 의 {} 가장자리는 맥 화면 안쪽이라 연결할 수 없어요", m.id, kor(opposite(side))));
+                    p.limits.push(format!("맥 모니터 {}의 {} 가장자리는 맥 화면 안쪽이라 연결할 수 없어요", m.id, kor(opposite(side))));
                     continue;
                 }
                 let win = pct(w, horiz, a, b, bw);

@@ -69,13 +69,13 @@ pub static TOOLS: &[Tool] = &[
         desc: "Hera 할 일 목록 / List Hera to-dos. 공유 그룹 항목은 group 필드가 있어요.",
         props: &[("include_done", "boolean", "완료한 것도 포함 / include completed (default false)")], required: &[] },
     Tool { name: "add_todo", group: Group::Write, confirm: false, ko: "할 일 추가",
-        desc: "할 일 추가 / Add a to-do (due 시각에 Island 알림).",
+        desc: "할 일 추가 / Add a to-do (due 시각에 캡슐 알림).",
         props: &[("title", "string", "제목 / title"), ("due", "string", ISO)], required: &["title"] },
     Tool { name: "complete_todo", group: Group::Write, confirm: false, ko: "할 일 완료",
         desc: "할 일 완료(또는 되돌리기) / Mark a to-do done or not done.",
         props: &[("id", "string", "할 일 id / to-do id"), ("done", "boolean", "기본 true / default true")], required: &["id"] },
     Tool { name: "update_todo", group: Group::Write, confirm: false, ko: "할 일 수정",
-        desc: "할 일 제목·마감 수정 / Update a to-do. due 를 빈 문자열로 주면 마감 삭제.",
+        desc: "할 일 제목·마감 수정 / Update a to-do. due를 빈 문자열로 주면 마감 삭제.",
         props: &[("id", "string", "할 일 id"), ("title", "string", "새 제목 / new title"), ("due", "string", ISO)], required: &["id"] },
     Tool { name: "list_events", group: Group::Read, confirm: false, ko: "일정 보기",
         desc: "기간 안의 일정 / List calendar events overlapping [from, to). 기본 = 오늘부터 7일.",
@@ -105,7 +105,7 @@ pub static TOOLS: &[Tool] = &[
         desc: "메모 수정 / Update a sticky note.",
         props: &[("id", "string", "메모 id"), ("text", "string", "내용"), ("color", "string", "색 (이름 또는 0–5)"), ("pinned", "boolean", "고정")], required: &["id"] },
     Tool { name: "show_island_alert", group: Group::Screen, confirm: false, ko: "알림 띄우기",
-        desc: "Island 에 알림 카드 띄우기 / Show an alert card in the Island.",
+        desc: "캡슐에 알림 카드 띄우기 / Show an alert card in the Island.",
         props: &[("title", "string", "제목 / title"), ("body", "string", "본문 / body")], required: &["title"] },
     Tool { name: "start_effect", group: Group::Screen, confirm: false, ko: "화면 효과",
         desc: "전체화면 날씨·시간 효과 25초 / Play a full-screen effect for ~25s (전체화면 앱 중엔 무시).",
@@ -126,7 +126,7 @@ pub static TOOLS: &[Tool] = &[
         desc: "파일을 독 선반에 놓기(최대 4개, 사용자 확인 필요) / Put a file on the dock shelf (asks the user).",
         props: &[("path", "string", "파일 절대 경로 / absolute file path")], required: &["path"] },
     Tool { name: "send_to_mac", group: Group::Files, confirm: true, ko: "맥으로 보내기",
-        desc: "Hera Link 로 연결된 Mac 에 파일 보내기(사용자 확인 필요) / Send a file to the linked Mac (asks the user).",
+        desc: "Hera Link로 연결된 Mac에 파일 보내기(사용자 확인 필요) / Send a file to the linked Mac (asks the user).",
         props: &[("path", "string", "파일 절대 경로 / absolute file path")], required: &["path"] },
     Tool { name: "search_clipboard_history", group: Group::Clip, confirm: false, ko: "클립보드 기록 검색",
         desc: "최근 복사한 텍스트 검색(메모리 20개) / Search recent clipboard text.",
@@ -166,7 +166,7 @@ const MAX_STR: usize = 10_000;
 
 /// 인자 검사: 객체 · 필수 · 알 수 없는 인자 · 타입 · enum · 길이
 pub fn validate(t: &Tool, args: &Value) -> Result<(), String> {
-    let Some(m) = args.as_object() else { return Err("arguments 는 객체여야 해요 (arguments must be an object)".into()) };
+    let Some(m) = args.as_object() else { return Err("arguments는 객체여야 해요 (arguments must be an object)".into()) };
     for r in t.required {
         if m.get(*r).is_none_or(Value::is_null) {
             return Err(format!("'{r}' 인자가 필요해요 (missing required argument '{r}')"));
@@ -208,7 +208,7 @@ pub fn handle(line: &str, forward: &mut dyn FnMut(Value) -> Result<Value, String
             "protocolVersion": p["protocolVersion"].as_str().unwrap_or(PROTOCOL),
             "capabilities": {"tools": {}, "resources": {}},
             "serverInfo": {"name": "hera", "title": "Hera", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": "Hera(윈도우 독·Island) 의 할 일·일정·메모·알림을 다루는 도구. 시각은 시간대가 있는 ISO 8601 로 주세요 — 지금 시각·시간대는 get_status. 권한은 사용자가 Hera 설정 → AI 연결(MCP)에서 정해요."
+            "instructions": "Hera(윈도우 캡슐)의 할 일·일정·메모·알림을 다루는 도구. 시각은 시간대가 있는 ISO 8601로 주세요 — 지금 시각·시간대는 get_status. 권한은 사용자가 Hera 설정 → AI 연결(MCP)에서 정해요."
         })),
         "ping" => ok(json!({})),
         "tools/list" => ok(json!({"tools": TOOLS.iter().map(|t| json!({"name": t.name, "description": format!("[{}] {}", t.group.label(), t.desc), "inputSchema": t.schema()})).collect::<Vec<_>>()})),
@@ -320,7 +320,7 @@ pub fn fmt_iso(ms: i64) -> String {
 
 /// 시간대 있는 ISO → 저장 형식(UTC Z). 오류 메시지는 AI 가 고칠 수 있게.
 pub fn norm_iso(field: &str, s: &str) -> Result<String, String> {
-    parse_iso(s).map(fmt_iso).ok_or_else(|| format!("'{field}' 시각을 읽지 못했어요: '{s}' — 시간대를 포함한 ISO 8601 로 (e.g. 2026-11-15T09:00:00+09:00)"))
+    parse_iso(s).map(fmt_iso).ok_or_else(|| format!("'{field}' 시각을 읽지 못했어요: '{s}' — 시간대를 포함한 ISO 8601로 (e.g. 2026-11-15T09:00:00+09:00)"))
 }
 
 /// 현지 자정 (tz_min = UTC 와의 차, 분)

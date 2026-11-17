@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import type { CalendarEvent } from '../data/types'
-import { chatAttach, chatSendPaths, clipFiles, dragOut, fileSrc, isTauri, islandOpen, launch, onEvent, setClip, shelfAdd, storeSet, teamState, useItems, usePrefix, useValue } from '../data/api'
+import { chatAttach, chatSendPaths, clipFiles, dragOut, fileSrc, isTauri, pickFiles, islandOpen, launch, onEvent, setClip, shelfAdd, storeSet, teamState, useItems, usePrefix, useValue } from '../data/api'
 import { CalendarSelect, refreshTeam, useTeam } from './Team'
 
 /* 팀 채팅 (떠 있는 창 · 허브 '채팅'): 공유 그룹마다 방 1개 — 달력·메모와 같은 그룹.
@@ -71,7 +71,6 @@ export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
   const [over, setOver] = useState(false)
   const [big, setBig] = useState<Msg | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const file = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const say = (t: string) => (onToast ? onToast(t) : (setToast(t), setTimeout(() => setToast(null), 1600)))
 
@@ -115,7 +114,7 @@ export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
     setMsgs((all) => [...all, { id, group: group.id, by: me.name, byPk: me.pk, kind: 'text', text: t, at: Date.now() }])
     setText('')
   }
-  const attach = (fl: FileList) => {
+  const attach = (fl: FileList | File[]) => {
     if (!group) return
     for (const f of [...fl]) {
       if (!isTauri) {
@@ -229,15 +228,14 @@ export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
         onDragOver={(e: DragEvent) => (e.preventDefault(), setOver(true))} onDragLeave={() => setOver(false)}
         onDrop={(e: DragEvent) => (e.preventDefault(), setOver(false), attach(e.dataTransfer.files))}
         onSubmit={(e) => (e.preventDefault(), send())}>
-        <button type="button" className="chat-plus" aria-label="파일·사진 첨부" title="파일·사진 (최대 100MB)" onClick={() => file.current?.click()}>＋</button>
-        <input type="file" ref={file} multiple hidden onChange={(e) => (e.target.files && attach(e.target.files), (e.target.value = ''))} />
+        <button type="button" className="chat-plus" aria-label="파일·사진 첨부" title="파일·사진 (최대 100MB)" onClick={() => void pickFiles('', true).then((fs) => fs.length && attach(fs))}>＋</button>
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder={over ? '놓으면 보내요' : `${group.name}에 메시지`} aria-label="메시지" autoFocus />
         <button className="primary">보내기</button>
       </form>
       {big && (
         <div className="chat-big" onClick={() => setBig(null)} role="dialog" aria-label={big.name} tabIndex={-1} ref={(el) => el?.focus()} onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), setBig(null))}>
           <img src={big.img ?? fileSrc(pathOf(big) ?? '')} alt={big.name} />
-          <small>{big.name} · {fmtSize(big.size)} · 누르거나 Esc 로 닫기</small>
+          <small>{big.name} · {fmtSize(big.size)} · 누르거나 Esc로 닫기</small>
         </div>
       )}
       {toast && <div className="chat-toast" role="status">{toast}</div>}

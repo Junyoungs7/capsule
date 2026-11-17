@@ -158,7 +158,7 @@ pub fn parse_line(line: &str) -> Option<LogEv> {
         let human = if msg.contains("tls certificate") || msg.contains("could not use tls") {
             "암호화 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 연결 암호화를 끄세요".to_string()
         } else if msg.contains("failed to create event for windows event loop") {
-            "다른 Deskflow 가 실행 중이에요 — Deskflow 앱을 먼저 종료하세요".to_string()
+            "다른 Deskflow가 실행 중이에요 — Deskflow 앱을 먼저 종료하세요".to_string()
         } else if msg.contains("listen") || msg.contains("bind") || msg.contains("address already in use") {
             format!("포트를 열 수 없어요 — 다른 프로그램이 쓰고 있을 수 있어요 ({msg})")
         } else {
@@ -829,7 +829,7 @@ pub fn start(app: AppHandle) {
             if child.is_none() {
                 #[cfg(windows)]
                 if win::standalone_running() {
-                    set(&app, |s| (s.state = "blocked".into(), s.detail = "Deskflow 앱(deskflow-core)이 실행 중이에요 — Deskflow 를 먼저 종료하세요".into()).1);
+                    set(&app, |s| (s.state = "blocked".into(), s.detail = "Deskflow 앱(deskflow-core)이 실행 중이에요 — Deskflow를 먼저 종료하세요".into()).1);
                     if matches!(rx.recv_timeout(Duration::from_secs(5)), Err(RecvTimeoutError::Disconnected)) {
                         return;
                     }
@@ -965,7 +965,7 @@ pub fn files_start(app: &AppHandle) {
     let listener = match std::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
         Ok(l) => l,
         Err(e) => {
-            set(app, |s| s.detail = format!("파일을 주고받을 포트 {port} 를 열 수 없어요: {e}"));
+            set(app, |s| s.detail = format!("파일을 주고받을 포트 {port}를 열 수 없어요: {e}"));
             return;
         }
     };

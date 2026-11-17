@@ -3,7 +3,7 @@ import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile 
 import {
   clipList, closePalette, closeSelf, coverCloseAll, isTauri, islandOpen, launch, openAscii, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
   asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  chatSendPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
+  chatSendPaths, isPicking, pickPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
 import { AMBIENT } from '../surfaces/LinkExtras'
@@ -30,6 +30,7 @@ import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
 import { freeSlot, NoteBoard, seedNotes, setV3, useV3, V3Demo, type Note } from '../surfaces/Notes'
 import { Ocr } from '../surfaces/Ocr'
+import { UndoToast } from '../surfaces/Undo'
 import { GlassDefs } from '../surfaces/GlassDefs'
 import { FX_LABEL, Fx, fakeWeather, fetchWeather, geocode, pickFx, type FxKind, type Weather } from '../surfaces/Fx'
 
@@ -452,7 +453,7 @@ export function Desktop({ only }: { only?: string }) {
     if (!isTauri || only !== 'island') return
     // 실제 앱: 아일랜드 창은 클릭 통과라 바깥 클릭을 못 본다 → watch 루프가 알려 줌 · 파일을 끌고 캡슐 근처로 오면 드롭존
     const offs = [
-      onEvent('island-outside', () => !ghostRef.current && setHub(false)),
+      onEvent('island-outside', () => !ghostRef.current && !isPicking() && setHub(false)), // (a9) 파일 대화상자 안 클릭은 무시
       onEvent<boolean>('drag-near', setDragNear),
       // Ctrl+` = 터미널 (모서리에서 위로 640×300)
       onEvent<string>('island-open', (v) => ((VIEWS as string[]).includes(v) ? openHub(v as ViewKind) : openHub())),
@@ -639,7 +640,7 @@ export function Desktop({ only }: { only?: string }) {
       <>
         <div className="dropz"><div><Ico k="upload" />파일을 캡슐로 끌어다 놓으세요<br /><small style={{ color: 'var(--t3)' }}>최대 4개 · 나중에 다른 앱으로 끌어 쓰기</small></div></div>
         <ShelfList files={shelf} onOpen={(x) => void launch(x.path).catch((e) => showAlert({ title: '파일을 열 수 없어요', body: String(e) }))}
-          onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onSend={filesTo ? (x) => sendToPeer([x.path]) : undefined} peer={filesTo ?? undefined} />
+          onRemove={(x) => setShelf((fs) => fs.filter((y) => y.id !== x.id))} onPick={() => void pickPaths().then((ps) => ps.length && shelve(ps))} onSend={filesTo ? (x) => sendToPeer([x.path]) : undefined} peer={filesTo ?? undefined} />
       </>
     )
     : f === 'chat' ? <ChatWindow setEvents={setEvents} onTeam={only === 'island' ? () => setHubView('team') : undefined} />
@@ -677,6 +678,7 @@ export function Desktop({ only }: { only?: string }) {
         extra={k === 'todo' ? <span className="chp">{todos.length - openTodos} / {todos.length}</span> : k === 'notes' ? <button className="ib" aria-label="새 메모" onClick={() => addNote()}><Ico k="plus" /></button> : k === 'link' ? <ConnectHead b={linkB} /> : null}>
         {viewBody(k as ViewKind)}
         {toastMsg && <div key={toastMsg.n} className="vtoast on" role="status">{toastMsg.text}</div>}
+        <UndoToast />
       </ViewShell>
     )
   const floatQ = new URLSearchParams(location.search).get('f') as FloatKind | null
@@ -788,7 +790,7 @@ export function Desktop({ only }: { only?: string }) {
           render={(k) => <WinChrome k={k} moving>{viewBody(k, true)}</WinChrome>} />
       )}
       {only === 'island' && <McpIsland />} {/* AI 연결(MCP) 확인 카드·칩 — Mcp.tsx */}
-      {only === 'float' && floatQ && (floatQ === 'lp' ? <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell> : <FloatWin f={floatQ}>{floatBody(floatQ)}</FloatWin>)}
+      {only === 'float' && floatQ && (floatQ === 'lp' ? <FloatShell f={floatQ}>{floatBody(floatQ)}</FloatShell> : <FloatWin f={floatQ}>{floatBody(floatQ)}<UndoToast /></FloatWin>)}
       {!only && mockFloats.map((f, i) => {
         const r = mockRects[f]
         return (

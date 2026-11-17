@@ -85,7 +85,7 @@ try {
   await isl.eval(`[...document.querySelectorAll('.view[data-k=todo] .when .dr-chip')].find((b) => b.textContent === '오늘').click()`)
   ok('오늘 → today', await until(async () => (await field(0)).startsWith(`${new Date().getMonth() + 1}/${new Date().getDate()} `)))
   // 달력에서 기간
-  await isl.clickSel('[data-cal]')
+  if (!(await isl.eval(`!!document.querySelector('.view[data-k=todo] .dr')`))) await isl.clickSel('[data-cal]') // (a9) 처음부터 펼쳐져 있음
   ok('달력 opens in the view (prototype tokens), inside the hit rect', (await until(() => isl.eval(`!!document.querySelector('.view[data-k=todo] .dr .dr-grid')`))) && (await sleep(600), await inside2('.view[data-k=todo] .dr')))
   const d = new Date(), k1 = d.toLocaleDateString('sv'), d3 = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 2), k3 = d3.toLocaleDateString('sv')
   await isl.clickSel(`.dr-d[data-k="${k1}"]`)
@@ -151,7 +151,7 @@ try {
   ok('보드에 붙이기 → a note in a free board slot + the board opens', await until(() => [...h.store].some(([k, v]) => k.startsWith('note:') && v?.text === '새 보드 메모' && v.x === 480 && v.y === 16) && h.calls.slice(nb).some((c) => c[1] === 'float_open' && c[2]?.f === 'notes') && h.pages.has('float-notes'), 10000))
   ok('no desktop-notes surface / toggle anymore', !h.calls.some((c) => c[1] === 'hub_action' && c[2]?.kind === 'notes') && ![...h.pages.keys()].some((l) => /^notes\d/.test(l)))
   const bd = h.pages.get('float-notes')
-  ok('board window = Hera float chrome (Island로 · pin · close)', await until(() => bd.eval(`[...document.querySelectorAll('.wbar .act button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()).join('|') === 'Island로|항상 위|닫기'`), 5000))
+  ok('board window = Hera float chrome (캡슐로 · pin · close)', await until(() => bd.eval(`[...document.querySelectorAll('.wbar .act button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim()).join('|') === '캡슐로|항상 위|닫기'`), 5000))
   ok('notes stick on the board', await until(() => bd.eval(`document.querySelectorAll('.board .note').length === 3`)))
   ok('the new note opens for editing', await until(() => bd.eval(`!!document.querySelector('.board .note textarea')`)))
   await bd.eval(`document.activeElement?.blur()`)

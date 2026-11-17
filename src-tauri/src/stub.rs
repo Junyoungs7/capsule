@@ -50,6 +50,9 @@ pub mod launch {
     pub fn sta<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
         f()
     }
+    pub fn pick_files(_: bool) -> Result<Vec<String>, String> {
+        Err(super::NA.into())
+    }
     pub fn launch(_: &str) -> Result<(), String> {
         Err(super::NA.into())
     }

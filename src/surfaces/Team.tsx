@@ -162,7 +162,7 @@ function NewGroup({ first }: { first: boolean }) {
   }
   return (
     <div className="team-add" data-first={first}>
-      {first && <p className="team-empty">아직 그룹이 없어요. 이름을 쓰고 Enter 를 누르면 바로 만들어져요.</p>}
+      {first && <p className="team-empty">아직 그룹이 없어요. 이름을 쓰고 Enter를 누르면 바로 만들어져요.</p>}
       <form className="create" onSubmit={make}>
         <div className="team-row">
           <i className="gdot" style={{ '--g': color } as CSSProperties} />
@@ -195,7 +195,7 @@ function Invite({ g }: { g: TeamGroup }) {
   const copy = () => (isTauri ? void setClip(link) : void navigator.clipboard?.writeText(link).catch(() => {}), setCopied(true))
   return (
     <div className="invite">
-      <p>동료가 Hera 의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요.</p>
+      <p>동료가 Hera의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요.</p>
       <div className="code" aria-label={`초대 코드 ${code.split('').join(' ')}`}>
         {code.split('').map((c, i) => <span key={i}>{c}</span>)}
       </div>
@@ -204,7 +204,7 @@ function Invite({ g }: { g: TeamGroup }) {
         <input readOnly value={link} aria-label="초대 문자열" onFocus={(e) => e.currentTarget.select()} />
         <button className="primary" onClick={copy}>{copied ? '복사했어요' : '복사'}</button>
       </div>
-      <small>같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP 를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요.</small>
+      <small>같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요.</small>
     </div>
   )
 }

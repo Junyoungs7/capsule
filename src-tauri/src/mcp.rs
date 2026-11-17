@@ -342,7 +342,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
                 None => start + 3_600_000,
             };
             if end < start {
-                return Err("end 가 start 보다 빨라요 (end before start)".into());
+                return Err("end가 start보다 빨라요 (end before start)".into());
             }
             let mut v = json!({"id": new_id(), "title": str_arg(a, "title"), "start": proto::fmt_iso(start), "end": proto::fmt_iso(end), "source": "local"});
             if let Some(g) = a["group"].as_str().filter(|x| !x.is_empty()) {
@@ -354,7 +354,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
         "update_event" => patch(s, "event", a, &["start", "end"]),
         "delete_event" => {
             let key = format!("event:{}", str_arg(a, "id"));
-            if s.delete(&key) { Ok(json!("삭제했어요 (deleted)")) } else { Err("그 id 의 일정이 없어요 (no such event)".into()) }
+            if s.delete(&key) { Ok(json!("삭제했어요 (deleted)")) } else { Err("그 id의 일정이 없어요 (no such event)".into()) }
         }
         "list_notes" => Ok(json!(items(s, "note"))),
         "add_note" => {
@@ -381,7 +381,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
                 p["text"] = json!(t);
             }
             if !a["color"].is_null() {
-                p["color"] = json!(note_color(&a["color"]).ok_or("색은 yellow|pink|blue|green|purple|orange 또는 0–5 예요")?);
+                p["color"] = json!(note_color(&a["color"]).ok_or("색은 yellow|pink|blue|green|purple|orange 또는 0–5예요")?);
             }
             if let Some(b) = a["pinned"].as_bool() {
                 p["pinned"] = json!(b);
@@ -394,7 +394,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
         }
         "show_island_alert" => {
             app.emit("hera-alert", json!({"title": str_arg(a, "title"), "body": str_arg(a, "body")})).map_err(|e| e.to_string())?;
-            Ok(json!("Island 에 띄웠어요 (shown)"))
+            Ok(json!("캡슐에 띄웠어요 (shown)"))
         }
         "start_effect" => {
             if crate::watch::FULLSCREEN.load(Ordering::Relaxed) {
@@ -430,7 +430,7 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
                 .into_iter()
                 .filter_map(|w| serde_json::to_value(w).ok())
                 .find(|w| [&w["title"], &w["exe"]].iter().any(|x| x.as_str().is_some_and(|x| x.to_lowercase().contains(&q))))
-                .ok_or_else(|| format!("'{q}' 와 맞는 창이 없어요 — list_running_apps 로 확인 (no matching window)"))?;
+                .ok_or_else(|| format!("'{q}' 와 맞는 창이 없어요 — list_running_apps로 확인 (no matching window)"))?;
             let keys: Vec<String> = serde_json::from_value(w["keys"].clone()).unwrap_or_default();
             crate::launch::sta(move || crate::watch::activate(&keys))?;
             Ok(json!({"activated": w["title"]}))
@@ -455,12 +455,12 @@ fn run(app: &AppHandle, s: &Store, t: &Tool, a: &Value) -> Result<Value, String>
         }
         "send_to_mac" => {
             let path = str_arg(a, "path");
-            let peer = crate::link::files_connected().ok_or("Mac 과 연결되어 있지 않아요 — Hera Link 를 확인해 주세요 (no Mac connected)")?;
+            let peer = crate::link::files_connected().ok_or("Mac과 연결되어 있지 않아요 — Hera Link를 확인해 주세요 (no Mac connected)")?;
             if !std::path::Path::new(path).is_file() {
                 return Err(format!("파일이 없어요: {path} (file not found)"));
             }
             crate::link::send_file(app, path)?;
-            Ok(json!(format!("{peer} 으로 보냈어요 (sent)")))
+            Ok(json!(format!("{peer}으로 보냈어요 (sent)")))
         }
         "search_clipboard_history" => {
             let q = str_arg(a, "query").to_lowercase();

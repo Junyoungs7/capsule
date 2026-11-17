@@ -262,7 +262,7 @@ pub fn float_pin(app: AppHandle, window: WebviewWindow, on: bool) -> Result<(), 
 
 /* ── 머리줄 끌기 = 직접 이동 (OS 이동 루프를 쓰지 않는다) ──
    OS 캡션 끌기(HTCAPTION)는 화면 가장자리에서 Aero Snap·최대화가 먼저 잡아 흡수가 일어나지 않았다 (a3 버그 3 원인).
-   phase = start | move | end | absorb('Island로'). 커서는 Rust 가 직접 읽는다 (DPI·모니터와 무관한 물리 px). */
+   phase = start | move | end | absorb('캡슐로'). 커서는 Rust 가 직접 읽는다 (DPI·모니터와 무관한 물리 px). */
 static GRAB: Mutex<Vec<(String, (i32, i32))>> = Mutex::new(Vec::new());
 static NEAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

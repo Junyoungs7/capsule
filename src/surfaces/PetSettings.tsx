@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { isTauri, petDelete, petList, petSave, petsChanged } from '../data/api'
+import { isTauri, petDelete, petList, petSave, petsChanged, pickFiles } from '../data/api'
 import { Ico } from './Icons'
 import { Pet, PET_STATES, SIZES_CAP, type CapSize, type CustomPet, type PetState } from './Pet'
 
@@ -82,15 +82,9 @@ export function looksPixel(f: { w: number; h: number; img?: HTMLImageElement }) 
 const STATE_KEYS = PET_STATES.map(([k]) => k)
 export const stateOfName = (name: string) => STATE_KEYS.find((k) => new RegExp(`(^|[\\\\/_-])${k}\\.`, 'i').test(name))
 
-export function pick(accept: string, multiple: boolean, folder: boolean, cb: (fs: File[]) => void) {
-  const inp = document.createElement('input')
-  inp.type = 'file'
-  inp.accept = accept
-  inp.multiple = multiple
-  if (folder) inp.webkitdirectory = true
-  inp.onchange = () => inp.files?.length && cb([...inp.files])
-  inp.click()
-}
+/** (a9) 파일 대화상자는 api.pickFiles (떠 있는 동안 아일랜드 밖 클릭 무시) */
+export const pick = (accept: string, multiple: boolean, folder: boolean, cb: (fs: File[]) => void) =>
+  void pickFiles(accept, multiple, folder).then((fs) => fs.length && cb(fs))
 
 /** 파일 → 초안: `<상태>.<확장자>` (또는 `…_<상태>`) 는 그 칸, 아니면 평소. pet.json 은 이름·스타일·시트를 미리 채운다 */
 export async function addFiles(d: Draft, list: File[], slot?: PetState): Promise<Draft> {
@@ -189,7 +183,7 @@ export function PetImportView({ draft, setDraft, size, onSaved, onCancel }: { dr
       </label>
       {err && <div className="imp-err" role="alert">{err}</div>}
       <div className="foot">
-        <small>이미지는 이 PC 에만 저장돼요 · PNG · GIF · WebP · APNG</small>
+        <small>이미지는 이 PC에만 저장돼요 · PNG · GIF · WebP · APNG</small>
         <button className="btn ghost" data-imp="cancel" onClick={onCancel}>취소</button>
         <button className="btn" data-imp="save" disabled={!c} onClick={() => void save()}>저장</button>
       </div>

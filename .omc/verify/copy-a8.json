@@ -17,7 +17,7 @@
 [
 "src/surfaces/Team.tsx",
 "동료의 Hera 에서 <b>팀 → 코드로 참여</b>에 입력하면 들어와요.",
-"동료가 Hera 의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요."
+"동료가 Hera의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요."
 ],
 [
 "src/surfaces/Team.tsx",
@@ -27,7 +27,7 @@
 [
 "src/surfaces/Team.tsx",
 "사내망 자동 발견이 막혀 있으면 상대가 <b>{code}@{ip}</b> 처럼 코드와 내 IP 를 함께 입력하면 돼요.",
-"같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP 를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요."
+"같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요."
 ],
 [
 "src/surfaces/Team.tsx",
@@ -47,7 +47,7 @@
 [
 "src/surfaces/Float.tsx",
 "(최근 20개, 메모리에만)",
-"(최근 20개 · Hera 를 끄면 지워져요)"
+"(최근 20개 · Hera를 끄면 지워져요)"
 ],
 [
 "src/surfaces/Float.tsx",
@@ -97,7 +97,7 @@
 [
 "src/surfaces/Launcher.tsx",
 "'전체화면 · Esc 로 끝'",
-"'전체화면 · Esc 로 닫기'"
+"'전체화면 · Esc로 닫기'"
 ],
 [
 "src/surfaces/Connect.tsx",
@@ -167,7 +167,7 @@
 [
 "src/surfaces/Settings.tsx",
 "내 PC 끼리 마우스·키보드·클립보드·파일 함께 쓰기 (Hera Link)",
-"내 PC 와 맥이 마우스·키보드·클립보드·파일을 함께 써요"
+"내 PC와 맥이 마우스·키보드·클립보드·파일을 함께 써요"
 ],
 [
 "src/surfaces/Settings.tsx",
@@ -177,7 +177,7 @@
 [
 "src/surfaces/Settings.tsx",
 "같은 네트워크의 Hera 가 이 PC 를 찾게 · 끄면 페어링한 기기만",
-"같은 네트워크의 Hera 가 이 PC 를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요"
+"같은 네트워크의 Hera가 이 PC를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요"
 ],
 [
 "src/surfaces/Settings.tsx",
@@ -197,7 +197,7 @@
 [
 "src/surfaces/Settings.tsx",
 "엔진이 맥을 부르는 이름 (맥 Hera 와 같아야 해요)",
-"맥 Hera 에 적힌 이름과 같아야 해요"
+"맥 Hera에 적힌 이름과 같아야 해요"
 ],
 [
 "src/surfaces/Settings.tsx",
@@ -212,7 +212,7 @@
 [
 "src/surfaces/Settings.tsx",
 "Win+K 는 Windows 예약이라 Ctrl+Alt+K",
-"Win+K 는 Windows 가 쓰고 있어 Ctrl+Alt+K 예요"
+"Win+K는 Windows가 쓰고 있어 Ctrl+Alt+K예요"
 ],
 [
 "src/surfaces/Settings.tsx",
@@ -232,12 +232,12 @@
 [
 "src/surfaces/Mcp.tsx",
 "같은 사용자 계정의 로컬 연결만",
-"이 PC 의 내 계정에서만 연결돼요"
+"이 PC의 내 계정에서만 연결돼요"
 ],
 [
 "src/surfaces/Mcp.tsx",
 "메모리에만 최근 50개",
-"최근 50개 · Hera 를 끄면 지워져요"
+"최근 50개 · Hera를 끄면 지워져요"
 ],
 [
 "src/surfaces/Mcp.tsx",
@@ -297,7 +297,7 @@
 [
 "src-tauri/src/link.rs",
 "파일 채널 포트 {port} 를 열 수 없어요: {e}",
-"파일을 주고받을 포트 {port} 를 열 수 없어요: {e}"
+"파일을 주고받을 포트 {port}를 열 수 없어요: {e}"
 ],
 [
 "src-tauri/src/mcp.rs",
@@ -312,7 +312,7 @@
 [
 "src-tauri/src/ocr.rs",
 "이 PC 에 OCR 언어 팩이 없어요 (설정 > 시간 및 언어 > 언어에서 한국어/영어 '광학 문자 인식' 설치)",
-"이 PC 에 글자 인식 언어 팩이 없어요 — Windows 설정 → 시간 및 언어 → 언어에서 한국어·영어의 '광학 문자 인식'을 설치해 주세요"
+"이 PC에 글자 인식 언어 팩이 없어요 — Windows 설정 → 시간 및 언어 → 언어에서 한국어·영어의 '광학 문자 인식'을 설치해 주세요"
 ],
 [
 "src-tauri/src/launch.rs",
@@ -332,7 +332,7 @@
 [
 "src-tauri/src/pets.rs",
 "Err(\"pet.json version 1 만\".into())",
-"Err(\"pet.json 은 version 1 만 읽을 수 있어요\".into())"
+"Err(\"pet.json은 version 1만 읽을 수 있어요\".into())"
 ],
 [
 "src-tauri/src/pets.rs",
@@ -342,17 +342,17 @@
 [
 "src-tauri/src/pets.rs",
 "Err(\"이미지는 4MB 까지\".into())",
-"Err(\"이미지는 4MB 까지 쓸 수 있어요\".into())"
+"Err(\"이미지는 4MB까지 쓸 수 있어요\".into())"
 ],
 [
 "src-tauri/src/pets.rs",
 "ok_or(\"PNG · GIF · WebP · APNG 만\")",
-"ok_or(\"PNG · GIF · WebP · APNG 만 쓸 수 있어요\")"
+"ok_or(\"PNG · GIF · WebP · APNG만 쓸 수 있어요\")"
 ],
 [
 "src-tauri/src/pets.rs",
 "Err(\"프레임은 1024×1024 까지\".into())",
-"Err(\"한 프레임은 1024×1024 까지예요\".into())"
+"Err(\"한 프레임은 1024×1024까지예요\".into())"
 ],
 [
 "src-tauri/src/pets.rs",

@@ -649,7 +649,7 @@ pub mod app {
         let max_mb = store(app).and_then(|s| s.get("chat.maxMB")).and_then(|v| v.as_u64()).unwrap_or(100);
         let size = std::fs::metadata(src).map_err(|e| e.to_string())?.len();
         if size > max_mb * 1024 * 1024 {
-            return Err(format!("{max_mb}MB 보다 큰 파일은 보낼 수 없어요"));
+            return Err(format!("{max_mb}MB보다 큰 파일은 보낼 수 없어요"));
         }
         let name = src.file_name().ok_or("파일 이름 없음")?.to_string_lossy().into_owned();
         let fid = lf::hex(&lf::random32())[..16].to_string();
@@ -845,7 +845,7 @@ pub mod app {
             addrs = HOSTS.lock().unwrap().clone();
         }
         if addrs.is_empty() {
-            return Err("초대한 PC 를 찾지 못했어요 — 초대 문자열을 붙여 넣거나 '코드@IP' 로 입력하세요".into());
+            return Err("초대한 PC를 찾지 못했어요 — 초대 문자열을 붙여 넣거나 '코드@IP' 로 입력하세요".into());
         }
         let mut last = String::new();
         for a in addrs {

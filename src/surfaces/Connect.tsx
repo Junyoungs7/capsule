@@ -32,10 +32,10 @@ export function linkLook(b: Pick<LinkBundle, 'on' | 'status' | 'pair' | 'cfg' | 
   const side = SIDE[b.cfg?.side ?? 'right']
   if (b.pair) return { cls: 'warn', label: '페어링 확인', title: '새 기기가 연결을 요청해요', sub: `${b.pair.name} · 양쪽 숫자를 확인하세요`, peer }
   if (!b.on) return { cls: 'off', label: '꺼짐', title: '연결 꺼짐', sub: '켜면 내 맥과 마우스·키보드·클립보드·파일을 함께 써요', peer }
-  if (st === 'connected') return { cls: 'ok', label: '연결됨', title: `${peer} 와 연결됨`, sub: `${side} 가장자리${b.filesPeer ? ' · 클립보드 · 파일 · 할 일 동기화' : ''}`, peer }
-  if (st === 'blocked') return { cls: 'warn', label: '대기', title: 'Deskflow 가 실행 중이에요', sub: 'Hera 의 입력 공유는 쉬고 기다려요 (Deskflow 는 건드리지 않아요)', peer }
+  if (st === 'connected') return { cls: 'ok', label: '연결됨', title: `${peer}와 연결됨`, sub: `${side} 가장자리${b.filesPeer ? ' · 클립보드 · 파일 · 할 일 동기화' : ''}`, peer }
+  if (st === 'blocked') return { cls: 'warn', label: '대기', title: 'Deskflow가 실행 중이에요', sub: 'Hera의 입력 공유는 쉬고 기다려요 (Deskflow는 건드리지 않아요)', peer }
   if (st === 'error') return { cls: 'bad', label: '문제 있음', title: '연결에 문제가 있어요', sub: b.status?.detail || '설정 → 연결 → 고급을 확인하세요', peer }
-  return { cls: 'off', label: '기다리는 중', title: `${peer} 를 기다리는 중`, sub: '다시 켜지면 자동으로 이어져요', peer }
+  return { cls: 'off', label: '기다리는 중', title: `${peer}를 기다리는 중`, sub: '다시 켜지면 자동으로 이어져요', peer }
 }
 
 /** 함께 쓰기 스위치 (store link.share.<k>, 없으면 켬 — Rust link::shared 와 같은 규칙). input = 연결 켜기 그 자체 */
@@ -45,7 +45,7 @@ export const SHARES: [ShareKey, IcoKey, string, string, string][] = [
   ['clip', 'clips', '클립보드', '텍스트 · 양방향', '복사한 텍스트가 양쪽 최근 복사에'],
   ['files', 'file', '파일', '끌어서 보내기', '파일을 캡슐·화면 가장자리로 끌어 놓기 · 받은 파일 → 선반'],
   ['sync', 'sync', '할 일·일정', '개인 항목 동기화', '개인 항목만 · 양쪽에서 고치면 나중에 고친 쪽으로 맞춰요'],
-  ['chat', 'chat', '채팅 알림', '커서 있는 PC 에서만', '채팅 알림은 커서가 있는 PC 에서만 펫이 알려요'],
+  ['chat', 'chat', '채팅 알림', '커서 있는 PC에서만', '채팅 알림은 커서가 있는 PC에서만 펫이 알려요'],
   ['fx', 'spark', '상대 화면 효과', '눈·비·아스키', '맥 화면에 효과·아스키 켜기, 맥이 보낸 효과 받기'],
 ]
 export function useShare(b: Pick<LinkBundle, 'on' | 'setOn'>) {
@@ -70,7 +70,7 @@ export function PairCode({ code, onPair, compact, who }: { code: string; onPair:
   return compact ? (
     <div className="pairbox"><small><b style={{ color: 'var(--t1)' }}>{who}</b> 와 연결하려고 해요</small>{box}<small>맥 화면에도 같은 숫자가 떠 있으면 '같아요'</small>{btns}</div>
   ) : (
-    <div className="pairpanel">{box}<div className="tt"><b>{who} 와 연결하려고 해요</b><small>숫자 비교 페어링 — 양쪽 화면의 6자리가 같으면 같은 기기예요. 다르면 취소하세요.</small>{btns}</div></div>
+    <div className="pairpanel">{box}<div className="tt"><b>{who}와 연결하려고 해요</b><small>숫자 비교 페어링 — 양쪽 화면의 6자리가 같으면 같은 기기예요. 다르면 취소하세요.</small>{btns}</div></div>
   )
 }
 
@@ -98,7 +98,7 @@ export function ConnectView({ b, onSettings }: { b: LinkBundle; onSettings: (sec
           <span className="tt"><b>{d.name}</b><small>{d.label} · {d.sub}</small></span>
         </div>
       ))}
-      {!devs.length && <div className="dev dim"><span className="tt"><b>페어링한 기기가 없어요</b><small>맥 Hera 에서 이 PC 를 고르면 여기에 숫자가 떠요</small></span></div>}
+      {!devs.length && <div className="dev dim"><span className="tt"><b>페어링한 기기가 없어요</b><small>맥 Hera에서 이 PC를 고르면 여기에 숫자가 떠요</small></span></div>}
       {!b.pair && (
         <>
           <div className="sect">함께 쓰는 것 · {look.peer}</div>
