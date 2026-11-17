@@ -87,3 +87,7 @@
 - 팀 그룹 나가기(5초 되돌리기 동안 아무것도 안 보냄, 이 PC 데이터만 지움, 동료에게 알림, 다시 초대 가능)
 - idle 메모리 89.1 MB (80초)
 - 제안 대기: 모두에게서 지우기, 5초 동안 그룹 일정·메모 숨기기
+
+## Island a11 설치 (2026-11-17 14:02)
+- bd9a5da: Island 안 LP 끌기 고스트가 커서 밑에 (조상 transform 기준점 보정). lp-cdp 에 Island·LP 창 두 곳 검사 — 고치기 전 코드는 212px 어긋나 FAIL, 수정 후 ALL PASS. tsc OK.
+- idle 80s: 8 processes, privateWS 92.7 MB. Deskflow 3개 실행 중 (deskflow-core 는 사용자 deskflow-daemon 이 14:03:46 에 스스로 새로 띄움 — 부모 = daemon, Hera 아님).
