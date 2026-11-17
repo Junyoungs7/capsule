@@ -108,7 +108,7 @@ pub fn launch(target: &str) -> Result<(), String> {
             nShow: SW_SHOWNORMAL.0,
             ..Default::default()
         };
-        ShellExecuteExW(&mut info).map_err(|e| format!("실행 실패: {target} ({})", e.message()))
+        ShellExecuteExW(&mut info).map_err(|e| format!("실행하지 못했어요: {target} ({})", e.message()))
     }
 }
 
@@ -167,7 +167,7 @@ pub fn start_apps() -> Result<Vec<(String, String)>, String> {
         let _ = child.kill();
     }
     let _ = child.wait();
-    let out = out.map_err(|_| "Get-StartApps: 10초 안에 끝나지 않았어요".to_string())?;
+    let out = out.map_err(|_| "시작 메뉴 앱 목록을 10초 안에 읽지 못했어요".to_string())?;
     let json: serde_json::Value = serde_json::from_slice(&out).map_err(|e| format!("Get-StartApps: {e}"))?;
     let v: Vec<(String, String)> = json
         .as_array()

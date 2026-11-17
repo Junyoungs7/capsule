@@ -90,7 +90,7 @@ const ago = (t: number) => {
 /** 최근 복사: 누르면 다시 클립보드에 (메모리에만 — 재시작하면 사라짐) */
 export function ClipsList({ clips, onCopy }: { clips: Clip[]; onCopy: (c: Clip) => void }) {
   const [done, setDone] = useState<string | null>(null)
-  if (!clips.length) return <p className="float-empty">아직 복사한 글자가 없어요. 무엇이든 복사하면 여기 쌓여요 (최근 20개, 메모리에만).</p>
+  if (!clips.length) return <p className="float-empty">아직 복사한 글자가 없어요. 무엇이든 복사하면 여기 쌓여요 (최근 20개 · Hera 를 끄면 지워져요).</p>
   return (
     <ul className="float-list">
       {clips.map((c) => (
@@ -129,8 +129,8 @@ export function ShelfList({ files, onOpen, onRemove, onSend, peer }: { files: Sh
             <span><b>{fname(f.path)}</b><small>{f.path}</small></span>
           </button>
           {/* (a4) 네이티브 title 말풍선 대신 시안 토큰 말풍선 */}
-          <span className="tip" id={`tip-${f.id}`} role="tooltip"><b>{f.path}</b><small>클릭: 열기 · 끌기: 밖으로 복사 · 우클릭: 빼기</small></span>
-          {onSend && <button className="mini" onClick={() => onSend(f)} aria-label={`${peer ?? 'Mac'}으로 보내기`}>{peer ?? 'Mac'}</button>}
+          <span className="tip" id={`tip-${f.id}`} role="tooltip"><b>{f.path}</b><small>누르면 열기 · 다른 앱으로 끌면 복사 · 오른쪽 클릭으로 빼기</small></span>
+          {onSend && <button className="mini" onClick={() => onSend(f)} aria-label={`${peer ?? '맥'}으로 보내기`}>{peer ?? 'Mac'}</button>}
           <button className="mini" onClick={() => onRemove(f)} aria-label="선반에서 빼기">×</button>
         </li>
       ))}

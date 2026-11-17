@@ -217,7 +217,7 @@ export function Launcher(p: Props) {
   const info = !deck ? { kind: '플래터', t: '레코드를 올려 주세요', s: '끌어다 놓거나 누르면 재생 · 앱은 실행, 효과는 화면에' }
     : deck.kind === 'app'
       ? { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'set' ? (play ? `차례로 여는 중 · ${(deck.rec.targets ?? []).map((x) => byId(x)?.title).filter(Boolean).join(' → ')}` : `${deck.rec.targets?.length ?? 0}개를 차례로 실행`) : play ? '실행했어요 · 판을 꺼내도 앱은 닫히지 않아요' : '암을 내리면 실행' }
-      : { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'fx' ? (play ? '바탕화면에 25초 · 끝나면 상자로 돌아가요' : '화면 효과 25초') : play ? '전체화면 · Esc 로 끝' : '전체화면 아스키 장면' }
+      : { kind: KIND[deck.rec.kind] + (play ? ' · 재생 중' : ''), t: deck.rec.title, s: deck.rec.kind === 'fx' ? (play ? '바탕화면에 25초 · 끝나면 상자로 돌아가요' : '화면 효과 25초') : play ? '전체화면 · Esc 로 닫기' : '전체화면 아스키 장면' }
   const deckDisc = (d: number, extra: string) => deck?.kind === 'fx'
     ? <Disc d={d} cover={deck.rec.cover} kind={deck.rec.kind} glyph={deck.rec.glyph} extra={extra} />
     : deck ? <Disc d={d} cover={deck.rec.cover} kind={deck.rec.kind} rec={deck.rec} extra={extra} set={setCovers(deck.rec)} /> : null
@@ -310,6 +310,9 @@ function Sheet({ mode, setMode, apps, onAddRecord, onAddSet, onSaveGroup, edit, 
     if (mode === 'add' && !start && isTauri) void startApps().then(setStart, () => setFailed(true))
   }, [mode])
   const close = () => (setMode(null), clearEdit())
+  const first = useRef<HTMLInputElement>(null)
+  // (a8) 시트를 열면 첫 칸에 커서 (시트는 늘 그려져 있어 autoFocus 가 안 먹는다)
+  useEffect(() => void (mode && requestAnimationFrame(() => first.current?.focus())), [mode])
   const add = () => url.trim() && (onAddRecord(url.trim()), setUrl(''), say('앱 상자에 넣었어요'))
   const make = () => {
     if (pick.length < 2) return
@@ -320,7 +323,7 @@ function Sheet({ mode, setMode, apps, onAddRecord, onAddSet, onSaveGroup, edit, 
   }
   const hits = (start ?? []).filter(([n]) => n.toLowerCase().includes(q.toLowerCase())).slice(0, 40)
   return (
-    <div className={`sheet ${mode ? 'on' : ''}`} aria-hidden={!mode}>
+    <div className={`sheet ${mode ? 'on' : ''}`} aria-hidden={!mode} onKeyDown={(e) => mode && e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), close())}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <div className="seg">{([['add', '앱 · URL'], ['set', '세트 만들기'], ['group', '앱 묶음']] as const).map(([k, l]) => <button key={k} className={mode === k ? 'on' : ''} data-sheet={k} onClick={() => (clearEdit(), setMode(k))}>{l}</button>)}</div>
         <span className="spacer" />
@@ -328,21 +331,21 @@ function Sheet({ mode, setMode, apps, onAddRecord, onAddSet, onSaveGroup, edit, 
       </div>
       {mode === 'add' || !mode ? (
         <>
-          <div className="addrow"><input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="URL 또는 .exe 경로" aria-label="URL 또는 경로" /><button className="btn sm" data-lpadd onClick={add}>추가</button></div>
+          <div className="addrow"><input ref={mode === 'add' || !mode ? first : undefined} className="inp" value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="URL 또는 .exe 경로" aria-label="URL 또는 경로" /><button className="btn sm" data-lpadd onClick={add}>추가</button></div>
           <div className="dropz"><Ico k="upload" />브라우저 주소를 LP 화면으로 끌어 놓아도 돼요 · exe·바로가기는 캡슐로</div>
           <div className="sect">시작 메뉴에서</div>
           <label className="inp" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}><Ico k="search" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder={start ? `앱 검색 (${start.length}개)` : failed ? '불러오지 못했어요' : isTauri ? '불러오는 중…' : '시안: 실제 앱에서만'} aria-label="시작 메뉴 앱 검색" style={{ flex: 1 }} /></label>
           <div className="list">
             {hits.map(([n, t]) => (
               <div key={t} className="lrow"><span className="well md" style={{ '--c': 'var(--gray)' } as CSSProperties}><Ico k={'doc' as IcoKey} /></span><span className="tt"><b>{n}</b><small>시작 메뉴 바로가기</small></span>
-                <button className="ib" onClick={() => (onAddRecord(t, n), say(`${n} 을(를) 넣었어요`))} aria-label={`${n} 추가`}><Ico k="plus" /></button></div>
+                <button className="ib" onClick={() => (onAddRecord(t, n), say(`앱 상자에 넣었어요 · ${n}`))} aria-label={`${n} 추가`}><Ico k="plus" /></button></div>
             ))}
           </div>
         </>
       ) : (
         <>
-          <p className="snote" style={{ padding: 0 }}>{mode === 'set' ? <>고른 <b>순서대로</b> 실행돼요 (앞 앱이 뜬 뒤 다음). 2개 이상.</> : '한 칸에 모아 둬요. 열면 안에서 골라 실행.'}</p>
-          <div className="addrow"><input className="inp" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${mode === 'set' ? '세트' : '묶음'} 이름`} aria-label="이름" /><button className="btn sm" data-lpmake disabled={pick.length < 2} onClick={make}>{pick.length}개로 {edit ? '저장' : '만들기'}</button></div>
+          <p className="snote" style={{ padding: 0 }}>{mode === 'set' ? <>고른 <b>순서대로</b> 하나씩 실행돼요 · 2개 이상 골라 주세요</> : '여러 앱을 한 칸에 모아 둬요 · 열어서 골라 실행해요'}</p>
+          <div className="addrow"><input ref={mode === 'set' || mode === 'group' ? first : undefined} className="inp" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && make()} placeholder={`${mode === 'set' ? '세트' : '묶음'} 이름`} aria-label="이름" /><button className="btn sm" data-lpmake disabled={pick.length < 2} onClick={make}>{pick.length}개로 {edit ? '저장' : '만들기'}</button></div>
           <div className="list">
             {apps.map((a) => {
               const k = pick.indexOf(a.id)

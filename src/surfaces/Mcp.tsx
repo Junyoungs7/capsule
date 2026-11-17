@@ -9,10 +9,10 @@ type Perms = Record<'read' | 'write' | 'screen' | 'exec' | 'files' | 'clip', boo
 const PERMS_DEFAULT: Perms = { read: true, write: true, screen: true, exec: false, files: false, clip: false }
 const GROUPS: [keyof Perms, string, string][] = [
   ['read', '읽기', '할 일·일정·메모·실행 중 앱 조회'],
-  ['write', '쓰기', '할 일·일정·메모 추가/수정/완료 (삭제는 확인)'],
+  ['write', '쓰기', '할 일·일정·메모 추가·수정·완료 (지울 때는 물어봐요)'],
   ['screen', '화면', 'Island 알림 띄우기·효과·아스키'],
-  ['exec', '실행', '앱/URL 실행·창 활성화 — 매번 확인'],
-  ['files', '파일', '선반·Mac으로 보내기 — 매번 확인'],
+  ['exec', '실행', '앱·URL 실행, 창 앞으로 가져오기 — 매번 물어봐요'],
+  ['files', '파일', '선반·맥으로 보내기 — 매번 물어봐요'],
   ['clip', '클립보드 기록 읽기', '최근 복사한 텍스트 검색'],
 ]
 type LogEntry = { at: number; tool: string; text?: string; group?: string | null; ok: boolean; error?: string | null }
@@ -40,7 +40,7 @@ export function McpSettings() {
       <label className="row">
         <span className="grow">
           <b>이 PC의 AI 도구가 Hera를 다루게 하기</b>
-          <small>Claude Code·Claude Desktop 등 · 같은 사용자 계정의 로컬 연결만</small>
+          <small>Claude Code·Claude Desktop 등 · 이 PC 의 내 계정에서만 연결돼요</small>
         </span>
         <input type="checkbox" className="switch" checked={on} onChange={(e) => setOn(e.target.checked)} />
       </label>
@@ -91,7 +91,7 @@ export function McpSettings() {
             <span className="grow">
               <b>최근 AI 호출</b>
               {log === null ? (
-                <small>메모리에만 최근 50개</small>
+                <small>최근 50개 · Hera 를 끄면 지워져요</small>
               ) : log.length === 0 ? (
                 <small>아직 없어요</small>
               ) : (

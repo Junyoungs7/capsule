@@ -1,0 +1,362 @@
+[
+[
+"src/surfaces/Team.tsx",
+"<small>같은 사내망 동료와 달력·메모 공유</small>",
+"<small>사내망 동료와 달력·메모를 함께 써요</small>"
+],
+[
+"src/surfaces/Team.tsx",
+"누가 추가·수정하면 Island 에 짧게",
+"누가 추가·수정하면 캡슐에 짧게 알려요"
+],
+[
+"src/surfaces/Team.tsx",
+"모두 편집할 수 있어요 · 지운 메모는 7일간 휴지통",
+"그룹원 모두 고칠 수 있어요 · 지운 메모는 7일 동안 휴지통에"
+],
+[
+"src/surfaces/Team.tsx",
+"동료의 Hera 에서 <b>팀 → 코드로 참여</b>에 입력하면 들어와요.",
+"동료가 Hera 의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요."
+],
+[
+"src/surfaces/Team.tsx",
+"10분 동안 유효 · 이후 대화는 그룹 키로 암호화",
+"10분 동안 쓸 수 있어요 · 그 뒤 주고받는 내용은 그룹 키로 암호화돼요"
+],
+[
+"src/surfaces/Team.tsx",
+"사내망 자동 발견이 막혀 있으면 상대가 <b>{code}@{ip}</b> 처럼 코드와 내 IP 를 함께 입력하면 돼요.",
+"같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP 를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요."
+],
+[
+"src/surfaces/Team.tsx",
+"초대받은 6자리 코드 또는 초대 문자열을 붙여 넣으세요.",
+"받은 초대 코드 6자리 또는 초대 문자열"
+],
+[
+"src/surfaces/Chat.tsx",
+"채팅방은 Hera Team 공유 그룹마다 하나씩 생겨요.",
+"팀 그룹마다 채팅방이 하나씩 생겨요."
+],
+[
+"src/surfaces/Chat.tsx",
+"Team 에서 그룹 만들기 · 들어오기",
+"팀 그룹 만들기 · 초대 코드로 참여"
+],
+[
+"src/surfaces/Float.tsx",
+"(최근 20개, 메모리에만)",
+"(최근 20개 · Hera 를 끄면 지워져요)"
+],
+[
+"src/surfaces/Float.tsx",
+"클릭: 열기 · 끌기: 밖으로 복사 · 우클릭: 빼기",
+"누르면 열기 · 다른 앱으로 끌면 복사 · 오른쪽 클릭으로 빼기"
+],
+[
+"src/surfaces/Float.tsx",
+"${peer ?? 'Mac'}으로 보내기",
+"${peer ?? '맥'}으로 보내기"
+],
+[
+"src/surfaces/Snippets.tsx",
+"팔레트(Ctrl K)에서",
+"검색(Ctrl+Alt+K)에서"
+],
+[
+"src/mockup/Desktop.tsx",
+"영역을 고르면 글자를 읽어 복사해요 · Ctrl Alt T",
+"영역을 고르면 글자를 읽어 복사해요 · Ctrl+Alt+T"
+],
+[
+"src/mockup/Desktop.tsx",
+"인식은 이 PC 에서만 (Windows OCR)",
+"글자 인식은 이 PC 안에서만 해요"
+],
+[
+"src/surfaces/Ocr.tsx",
+"드래그해서 글자를 읽을 영역을 고르세요",
+"글자를 읽을 영역을 끌어서 고르세요"
+],
+[
+"src/surfaces/Launcher.tsx",
+"say(`${n} 을(를) 넣었어요`)",
+"say(`앱 상자에 넣었어요 · ${n}`)"
+],
+[
+"src/surfaces/Launcher.tsx",
+"<>고른 <b>순서대로</b> 실행돼요 (앞 앱이 뜬 뒤 다음). 2개 이상.</>",
+"<>고른 <b>순서대로</b> 하나씩 실행돼요 · 2개 이상 골라 주세요</>"
+],
+[
+"src/surfaces/Launcher.tsx",
+"'한 칸에 모아 둬요. 열면 안에서 골라 실행.'",
+"'여러 앱을 한 칸에 모아 둬요 · 열어서 골라 실행해요'"
+],
+[
+"src/surfaces/Launcher.tsx",
+"'전체화면 · Esc 로 끝'",
+"'전체화면 · Esc 로 닫기'"
+],
+[
+"src/surfaces/Connect.tsx",
+"'Hera Link 꺼짐'",
+"'연결 꺼짐'"
+],
+[
+"src/surfaces/Connect.tsx",
+"Hera Link 켜기",
+"연결 켜기"
+],
+[
+"src/surfaces/Connect.tsx",
+"개인 항목만 · 마지막에 바꾼 쪽이 이겨요",
+"개인 항목만 · 양쪽에서 고치면 나중에 고친 쪽으로 맞춰요"
+],
+[
+"src/surfaces/Connect.tsx",
+"`파일 채널: ${b.filesPeer}`",
+"`파일 주고받기: ${b.filesPeer}`"
+],
+[
+"src/mockup/Desktop.tsx",
+"'Hera Link · 상대 PC 화면'",
+"'연결 · 상대 PC 화면'"
+],
+[
+"src/surfaces/Settings.tsx",
+"t=\"효과 이벤트\"",
+"t=\"날씨·시간 효과\""
+],
+[
+"src/surfaces/Settings.tsx",
+"눈·비 시작, 노을, 달 뜰 때 20~30초 동안 바탕화면에",
+"눈·비가 오기 시작할 때, 노을, 달이 뜰 때 20~30초 동안 바탕화면에 보여요"
+],
+[
+"src/surfaces/Settings.tsx",
+"s=\"지금 날씨·시간대에 맞는 효과를 바로\"",
+"s=\"지금 날씨·시간대에 맞는 효과를 바로 띄워요\""
+],
+[
+"src/surfaces/Settings.tsx",
+"· 끄면 날짜 없는 할 일(알림 없음)",
+"· 끄면 날짜·알림 없이 저장해요"
+],
+[
+"src/surfaces/Settings.tsx",
+"t=\"아스키 화면보호기\" s=\"입력이 없으면 계절 장면을 전체화면으로 · 마우스를 움직이면 꺼져요\"",
+"t=\"화면보호기\" s=\"한동안 입력이 없으면 모든 모니터를 아스키·효과 그림으로 가려요 · 마우스를 움직이면 사라져요\""
+],
+[
+"src/surfaces/Settings.tsx",
+"픽셀 펫은 크기가 바뀌어도 점 하나가 화면 픽셀 정수배로 맞춰져서 흐려지지 않아요.",
+"픽셀 펫은 크기를 바꿔도 흐려지지 않아요."
+],
+[
+"src/surfaces/Settings.tsx",
+"t=\"펫이 알림 알려 주기\"",
+"t=\"펫으로 알림 받기\""
+],
+[
+"src/surfaces/Settings.tsx",
+"잠든 동안 CPU 거의 0",
+"잠든 동안은 거의 쉬어요"
+],
+[
+"src/surfaces/Settings.tsx",
+"내 PC 끼리 마우스·키보드·클립보드·파일 함께 쓰기 (Hera Link)",
+"내 PC 와 맥이 마우스·키보드·클립보드·파일을 함께 써요"
+],
+[
+"src/surfaces/Settings.tsx",
+"t=\"새 맥 지문\"",
+"t=\"처음 보는 맥 · 확인할 지문\""
+],
+[
+"src/surfaces/Settings.tsx",
+"같은 네트워크의 Hera 가 이 PC 를 찾게 · 끄면 페어링한 기기만",
+"같은 네트워크의 Hera 가 이 PC 를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요"
+],
+[
+"src/surfaces/Settings.tsx",
+"커서가 이 PC 에만 있은 지 N분 · 0 = 끔",
+"맥을 N분 동안 쓰지 않으면 맥 화면을 가려요 · 0 = 끔"
+],
+[
+"src/surfaces/Settings.tsx",
+"엔진으로 맥 전환 단축키 보내기 (실험적)",
+"맥 입력 전환 단축키 보내기 (실험적)"
+],
+[
+"src/surfaces/Settings.tsx",
+"t=\"TLS 암호화\"",
+"t=\"연결 암호화\""
+],
+[
+"src/surfaces/Settings.tsx",
+"엔진이 맥을 부르는 이름 (맥 Hera 와 같아야 해요)",
+"맥 Hera 에 적힌 이름과 같아야 해요"
+],
+[
+"src/surfaces/Settings.tsx",
+"팀 채팅 · 같은 사내망 P2P, Team 과 같은 종단간 암호화",
+"사내망 동료와 직접 주고받는 채팅 · 팀과 같은 종단간 암호화"
+],
+[
+"src/surfaces/Settings.tsx",
+"조용한 사무실 기본 꺼짐",
+"기본 꺼짐 (조용한 사무실용)"
+],
+[
+"src/surfaces/Settings.tsx",
+"Win+K 는 Windows 예약이라 Ctrl+Alt+K",
+"Win+K 는 Windows 가 쓰고 있어 Ctrl+Alt+K 예요"
+],
+[
+"src/surfaces/Settings.tsx",
+"서버·텔레메트리 없음",
+"서버로 보내지도, 사용 기록을 모으지도 않아요"
+],
+[
+"src/surfaces/LinkExtras.tsx",
+"Win = ⌘, Alt = ⌥ (엔진 기본)",
+"Win = ⌘, Alt = ⌥ (기본)"
+],
+[
+"src/surfaces/LinkExtras.tsx",
+"엔진은 수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요",
+"수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요"
+],
+[
+"src/surfaces/Mcp.tsx",
+"같은 사용자 계정의 로컬 연결만",
+"이 PC 의 내 계정에서만 연결돼요"
+],
+[
+"src/surfaces/Mcp.tsx",
+"메모리에만 최근 50개",
+"최근 50개 · Hera 를 끄면 지워져요"
+],
+[
+"src/surfaces/Mcp.tsx",
+"할 일·일정·메모 추가/수정/완료 (삭제는 확인)",
+"할 일·일정·메모 추가·수정·완료 (지울 때는 물어봐요)"
+],
+[
+"src/surfaces/Mcp.tsx",
+"앱/URL 실행·창 활성화 — 매번 확인",
+"앱·URL 실행, 창 앞으로 가져오기 — 매번 물어봐요"
+],
+[
+"src/surfaces/Mcp.tsx",
+"선반·Mac으로 보내기 — 매번 확인",
+"선반·맥으로 보내기 — 매번 물어봐요"
+],
+[
+"src/surfaces/PetSettings.tsx",
+"'픽셀 (정수 배율)'",
+"'픽셀 (또렷하게)'"
+],
+[
+"src/surfaces/PetSettings.tsx",
+"상태별 이미지 (선택 · 비면 평소 이미지 + 효과)",
+"상태별 이미지 (선택 · 비워 두면 평소 이미지로)"
+],
+[
+"src/surfaces/PetSettings.tsx",
+"스프라이트 시트 (가로로 이어 붙인 프레임)",
+"한 장에 여러 프레임 (가로로 이어 붙인 그림)"
+],
+[
+"src-tauri/src/link.rs",
+"TLS 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 TLS 를 끄세요",
+"암호화 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 연결 암호화를 끄세요"
+],
+[
+"src-tauri/src/link.rs",
+"msg.contains(\"TLS 인증서\")",
+"msg.contains(\"암호화 인증서\")"
+],
+[
+"src-tauri/src/link.rs",
+"TLS 인증서를 만들지 못했어요: {e}",
+"암호화 인증서를 만들지 못했어요: {e}"
+],
+[
+"src-tauri/src/link.rs",
+"포트를 열 수 없어요 (다른 프로그램이 사용 중?) — {msg}",
+"포트를 열 수 없어요 — 다른 프로그램이 쓰고 있을 수 있어요 ({msg})"
+],
+[
+"src-tauri/src/link.rs",
+"새 맥이 연결하려 해요 — 지문을 확인하고 신뢰하세요",
+"처음 보는 맥이 연결하려 해요 — 설정 → 연결에서 지문을 확인하고 신뢰를 눌러 주세요"
+],
+[
+"src-tauri/src/link.rs",
+"파일 채널 포트 {port} 를 열 수 없어요: {e}",
+"파일을 주고받을 포트 {port} 를 열 수 없어요: {e}"
+],
+[
+"src-tauri/src/mcp.rs",
+"패널 → 설정에서 켜 주세요.",
+"설정 → 터미널·아라 → AI 연결에서 켜 주세요."
+],
+[
+"src-tauri/src/mcp_proto.rs",
+"ko: \"Mac으로 보내기\"",
+"ko: \"맥으로 보내기\""
+],
+[
+"src-tauri/src/ocr.rs",
+"이 PC 에 OCR 언어 팩이 없어요 (설정 > 시간 및 언어 > 언어에서 한국어/영어 '광학 문자 인식' 설치)",
+"이 PC 에 글자 인식 언어 팩이 없어요 — Windows 설정 → 시간 및 언어 → 언어에서 한국어·영어의 '광학 문자 인식'을 설치해 주세요"
+],
+[
+"src-tauri/src/launch.rs",
+"format!(\"실행 실패: {target} ({})\"",
+"format!(\"실행하지 못했어요: {target} ({})\""
+],
+[
+"src-tauri/src/launch.rs",
+"Get-StartApps: 10초 안에 끝나지 않았어요",
+"시작 메뉴 앱 목록을 10초 안에 읽지 못했어요"
+],
+[
+"src-tauri/src/pets.rs",
+"Err(\"이름은 1–12자\".into())",
+"Err(\"이름은 1~12자로 써 주세요\".into())"
+],
+[
+"src-tauri/src/pets.rs",
+"Err(\"pet.json version 1 만\".into())",
+"Err(\"pet.json 은 version 1 만 읽을 수 있어요\".into())"
+],
+[
+"src-tauri/src/pets.rs",
+"Err(\"시트: 프레임 1–64 · fps 1–30\".into())",
+"Err(\"한 장에 여러 프레임: 1~64장 · 초당 1~30장\".into())"
+],
+[
+"src-tauri/src/pets.rs",
+"Err(\"이미지는 4MB 까지\".into())",
+"Err(\"이미지는 4MB 까지 쓸 수 있어요\".into())"
+],
+[
+"src-tauri/src/pets.rs",
+"ok_or(\"PNG · GIF · WebP · APNG 만\")",
+"ok_or(\"PNG · GIF · WebP · APNG 만 쓸 수 있어요\")"
+],
+[
+"src-tauri/src/pets.rs",
+"Err(\"프레임은 1024×1024 까지\".into())",
+"Err(\"한 프레임은 1024×1024 까지예요\".into())"
+],
+[
+"src-tauri/src/pets.rs",
+"format!(\"모르는 파일 {n}\")",
+"format!(\"알 수 없는 파일이 들어 있어요: {n}\")"
+]
+]

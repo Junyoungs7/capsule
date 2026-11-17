@@ -91,14 +91,14 @@ fn valid_file(n: &str) -> bool {
 fn clean_name(s: &str) -> Result<String, String> {
     let n = s.trim();
     if n.is_empty() || n.chars().count() > 12 || n.chars().any(char::is_control) {
-        return Err("이름은 1–12자".into());
+        return Err("이름은 1~12자로 써 주세요".into());
     }
     Ok(n.to_string())
 }
 
 pub fn check_meta(m: &Meta) -> Result<(), String> {
     if m.version != 1 {
-        return Err("pet.json version 1 만".into());
+        return Err("pet.json 은 version 1 만 읽을 수 있어요".into());
     }
     clean_name(&m.name)?;
     if m.style != "pixel" && m.style != "smooth" {
@@ -114,7 +114,7 @@ pub fn check_meta(m: &Meta) -> Result<(), String> {
     }
     if let Some(s) = m.sheet {
         if !(1..=64).contains(&s.frames) || !(1..=30).contains(&s.fps) {
-            return Err("시트: 프레임 1–64 · fps 1–30".into());
+            return Err("한 장에 여러 프레임: 1~64장 · 초당 1~30장".into());
         }
     }
     Ok(())
@@ -123,11 +123,11 @@ pub fn check_meta(m: &Meta) -> Result<(), String> {
 /// 한 이미지: 크기 · 형식 · 프레임 크기 (시트면 가로 한 줄 frames 칸)
 pub fn check_image(b: &[u8], frames: u32) -> Result<(&'static str, u32, u32), String> {
     if b.len() > MAX_FILE {
-        return Err("이미지는 4MB 까지".into());
+        return Err("이미지는 4MB 까지 쓸 수 있어요".into());
     }
-    let (ext, w, h) = sniff(b).ok_or("PNG · GIF · WebP · APNG 만")?;
+    let (ext, w, h) = sniff(b).ok_or("PNG · GIF · WebP · APNG 만 쓸 수 있어요")?;
     if w / frames.max(1) > MAX_DIM || h > MAX_DIM || w < frames {
-        return Err("프레임은 1024×1024 까지".into());
+        return Err("한 프레임은 1024×1024 까지예요".into());
     }
     Ok((ext, w, h))
 }
@@ -390,7 +390,7 @@ pub fn import_zip(root: &Path, b: &[u8]) -> Result<String, String> {
             continue;
         }
         if !meta.states.values().any(|v| v == n) {
-            return Err(format!("모르는 파일 {n}"));
+            return Err(format!("알 수 없는 파일이 들어 있어요: {n}"));
         }
         check_image(d, frames)?;
         files.push((n.clone(), d.clone()));

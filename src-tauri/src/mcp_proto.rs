@@ -125,7 +125,7 @@ pub static TOOLS: &[Tool] = &[
     Tool { name: "add_to_shelf", group: Group::Files, confirm: true, ko: "선반에 놓기",
         desc: "파일을 독 선반에 놓기(최대 4개, 사용자 확인 필요) / Put a file on the dock shelf (asks the user).",
         props: &[("path", "string", "파일 절대 경로 / absolute file path")], required: &["path"] },
-    Tool { name: "send_to_mac", group: Group::Files, confirm: true, ko: "Mac으로 보내기",
+    Tool { name: "send_to_mac", group: Group::Files, confirm: true, ko: "맥으로 보내기",
         desc: "Hera Link 로 연결된 Mac 에 파일 보내기(사용자 확인 필요) / Send a file to the linked Mac (asks the user).",
         props: &[("path", "string", "파일 절대 경로 / absolute file path")], required: &["path"] },
     Tool { name: "search_clipboard_history", group: Group::Clip, confirm: false, ko: "클립보드 기록 검색",

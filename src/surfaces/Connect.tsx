@@ -31,20 +31,20 @@ export function linkLook(b: Pick<LinkBundle, 'on' | 'status' | 'pair' | 'cfg' | 
   const st = b.status?.state ?? 'off'
   const side = SIDE[b.cfg?.side ?? 'right']
   if (b.pair) return { cls: 'warn', label: '페어링 확인', title: '새 기기가 연결을 요청해요', sub: `${b.pair.name} · 양쪽 숫자를 확인하세요`, peer }
-  if (!b.on) return { cls: 'off', label: '꺼짐', title: 'Hera Link 꺼짐', sub: '켜면 내 맥과 마우스·키보드·클립보드·파일을 함께 써요', peer }
+  if (!b.on) return { cls: 'off', label: '꺼짐', title: '연결 꺼짐', sub: '켜면 내 맥과 마우스·키보드·클립보드·파일을 함께 써요', peer }
   if (st === 'connected') return { cls: 'ok', label: '연결됨', title: `${peer} 와 연결됨`, sub: `${side} 가장자리${b.filesPeer ? ' · 클립보드 · 파일 · 할 일 동기화' : ''}`, peer }
   if (st === 'blocked') return { cls: 'warn', label: '대기', title: 'Deskflow 가 실행 중이에요', sub: 'Hera 의 입력 공유는 쉬고 기다려요 (Deskflow 는 건드리지 않아요)', peer }
   if (st === 'error') return { cls: 'bad', label: '문제 있음', title: '연결에 문제가 있어요', sub: b.status?.detail || '설정 → 연결 → 고급을 확인하세요', peer }
   return { cls: 'off', label: '기다리는 중', title: `${peer} 를 기다리는 중`, sub: '다시 켜지면 자동으로 이어져요', peer }
 }
 
-/** 함께 쓰기 스위치 (store link.share.<k>, 없으면 켬 — Rust link::shared 와 같은 규칙). input = Hera Link 켜기 그 자체 */
+/** 함께 쓰기 스위치 (store link.share.<k>, 없으면 켬 — Rust link::shared 와 같은 규칙). input = 연결 켜기 그 자체 */
 export type ShareKey = 'input' | 'clip' | 'files' | 'sync' | 'chat' | 'fx'
 export const SHARES: [ShareKey, IcoKey, string, string, string][] = [
   ['input', 'mouse', '마우스·키보드', '가장자리로 넘어감', '가장자리로 커서를 밀면 맥으로 넘어가요'],
   ['clip', 'clips', '클립보드', '텍스트 · 양방향', '복사한 텍스트가 양쪽 최근 복사에'],
   ['files', 'file', '파일', '끌어서 보내기', '파일을 캡슐·화면 가장자리로 끌어 놓기 · 받은 파일 → 선반'],
-  ['sync', 'sync', '할 일·일정', '개인 항목 동기화', '개인 항목만 · 마지막에 바꾼 쪽이 이겨요'],
+  ['sync', 'sync', '할 일·일정', '개인 항목 동기화', '개인 항목만 · 양쪽에서 고치면 나중에 고친 쪽으로 맞춰요'],
   ['chat', 'chat', '채팅 알림', '커서 있는 PC 에서만', '채팅 알림은 커서가 있는 PC 에서만 펫이 알려요'],
   ['fx', 'spark', '상대 화면 효과', '눈·비·아스키', '맥 화면에 효과·아스키 켜기, 맥이 보낸 효과 받기'],
 ]
@@ -78,7 +78,7 @@ export function PairCode({ code, onPair, compact, who }: { code: string; onPair:
 export function devicesOf(b: LinkBundle) {
   const look = linkLook(b)
   const name = b.pairedName || (b.status?.state === 'connected' ? look.peer : null)
-  return name ? [{ id: 'peer', name, icon: 'laptop' as IcoKey, cls: look.cls === 'ok' ? 'ok' : 'off', label: look.label, sub: b.filesPeer ? `파일 채널: ${b.filesPeer}` : b.status?.state === 'connected' ? '입력 공유 중' : '연결 대기' }] : []
+  return name ? [{ id: 'peer', name, icon: 'laptop' as IcoKey, cls: look.cls === 'ok' ? 'ok' : 'off', label: look.label, sub: b.filesPeer ? `파일 주고받기: ${b.filesPeer}` : b.status?.state === 'connected' ? '입력 공유 중' : '연결 대기' }] : []
 }
 
 /** 아일랜드 안 '연결' 화면 — 한눈에 보기. 자세한 것은 설정 → 연결 */
@@ -126,7 +126,7 @@ export function ConnectHead({ b }: { b: LinkBundle }) {
   return (
     <>
       <span className={`chp lchip ${look.cls}`} data-link={look.cls}><i />{look.label}</span>
-      <button className={`sw ${b.on ? 'on' : ''}`} data-linkon aria-label="Hera Link 켜기" aria-pressed={b.on} onClick={() => b.setOn(!b.on)} style={{ marginRight: 6 }} />
+      <button className={`sw ${b.on ? 'on' : ''}`} data-linkon aria-label="연결 켜기" aria-pressed={b.on} onClick={() => b.setOn(!b.on)} style={{ marginRight: 6 }} />
     </>
   )
 }

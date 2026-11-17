@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, typ
 export type Member = { id: string; name: string; online: boolean; me?: boolean }
 export type TeamGroup = { id: string; name: string; color: string; members: Member[]; alarms: boolean; news: boolean }
 export type TeamNote = { id: string; group: string; text: string; by: string; ago: string }
-type Sheet = { kind: 'invite' | 'board'; group: string } | { kind: 'join' | 'create' }
+type Sheet = { kind: 'invite' | 'board'; group: string }
 type TeamState = { groups: TeamGroup[]; hidden: string[]; sheet: Sheet | null }
 
 export const GROUP_COLORS = ['#14b8a6', '#8b5cf6', '#f59e0b', '#ef4444', '#3b82f6', '#ec4899', '#84cc16', '#06b6d4', '#f97316', '#a855f7', '#22c55e', '#e11d48']
@@ -90,7 +90,9 @@ export function Avatar({ m, color, size }: { m: Pick<Member, 'name' | 'online' |
   )
 }
 
-/* ── 패널 설정 → 팀 ── */
+/* ── 팀 (아일랜드 'Team' 화면 · 설정 → 채팅 → 팀 그룹) ──
+   (a8) 한 화면: 그룹 카드(초대 코드·공유 메모판은 카드 안에서 펼침) + 맨 아래 '새 그룹'(이름 · 색 · Enter) · '코드로 참여'(Enter).
+   예전 시트(화면을 덮는 판 · 따로 뜨는 이름 칸)는 없앴다 — 그룹이 없으면 만들기 칸이 바로 보이고 커서가 그 안에 있다. */
 export function TeamSection() {
   const { groups, sheet } = useTeam()
   const patch = (id: string, p: Partial<TeamGroup>) => {
@@ -98,14 +100,16 @@ export function TeamSection() {
     const g = { ...groupOf(id)!, ...p }
     if (isTauri) void teamFlags(id, g.alarms, g.news)
   }
-  useEffect(() => () => setTeam({ sheet: null }), []) // 다른 탭으로 가면 시트 닫기
+  useEffect(() => () => setTeam({ sheet: null }), []) // 다른 화면으로 가면 펼친 것 접기
+  const toggle = (kind: Sheet['kind'], group: string) => setTeam((s) => ({ sheet: s.sheet?.kind === kind && s.sheet.group === group ? null : { kind, group } }))
   return (
-    <>
-      <h3>팀 <small>같은 사내망 동료와 달력·메모 공유</small></h3>
+    <div className="team" onKeyDown={(e) => e.key === 'Escape' && sheet && (e.stopPropagation(), setTeam({ sheet: null }))}>
+      <h3>팀 <small>사내망 동료와 달력·메모를 함께 써요</small></h3>
       {groups.map((g) => {
         const on = g.members.filter((m) => m.online && !m.me).length
+        const open = sheet?.group === g.id ? sheet.kind : null
         return (
-          <div key={g.id} className="team-card" style={{ '--g': g.color } as CSSProperties}>
+          <div key={g.id} className="team-card" data-group={g.id} style={{ '--g': g.color } as CSSProperties}>
             <div className="team-top">
               <i className="gdot" />
               <span className="grow">
@@ -115,38 +119,67 @@ export function TeamSection() {
               <Avatars members={g.members} color={g.color} />
             </div>
             <label className="team-tog"><span className="grow">팀 일정 알림</span><input type="checkbox" className="switch" checked={g.alarms} onChange={(e) => patch(g.id, { alarms: e.target.checked })} /></label>
-            <label className="team-tog"><span className="grow">변경 소식 <small>누가 추가·수정하면 Island 에 짧게</small></span><input type="checkbox" className="switch" checked={g.news} onChange={(e) => patch(g.id, { news: e.target.checked })} /></label>
+            <label className="team-tog"><span className="grow">변경 소식 <small>누가 추가·수정하면 캡슐에 짧게 알려요</small></span><input type="checkbox" className="switch" checked={g.news} onChange={(e) => patch(g.id, { news: e.target.checked })} /></label>
             <div className="team-acts">
-              <BoardButton g={g} />
-              <button onClick={() => setTeam({ sheet: { kind: 'invite', group: g.id } })}>초대</button>
+              <BoardButton g={g} on={open === 'board'} onClick={() => toggle('board', g.id)} />
+              <button aria-expanded={open === 'invite'} data-invite onClick={() => toggle('invite', g.id)}>동료 초대</button>
             </div>
+            {open === 'invite' && <Invite g={g} />}
+            {open === 'board' && <Board g={g} />}
           </div>
         )
       })}
-      <div className="team-new">
-        <button onClick={() => setTeam({ sheet: { kind: 'create' } })}>그룹 만들기</button>
-        <button onClick={() => setTeam({ sheet: { kind: 'join' } })}>코드로 참여</button>
-      </div>
-      {sheet && <TeamSheet sheet={sheet} />}
-    </>
+      <NewGroup first={groups.length === 0} />
+    </div>
   )
 }
 
-/* 패널 안 시트 (패널 안쪽을 덮는 짙은 유리 판, 스프링으로 떠오름) */
-function TeamSheet({ sheet }: { sheet: Sheet }) {
-  const close = () => setTeam({ sheet: null })
-  const g = 'group' in sheet ? groupOf(sheet.group) : undefined
+/** 새 그룹 (이름 · 색 · Enter = 만들기) + 코드로 참여 (Enter) — 한 화면, 늘 보임. 만들면 그 카드의 초대 코드가 바로 펼쳐진다 */
+function NewGroup({ first }: { first: boolean }) {
+  const [name, setName] = useState('')
+  const [color, setColor] = useState(GROUP_COLORS[2])
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const make = (e: FormEvent) => {
+    e.preventDefault()
+    const n = name.trim()
+    if (!n) return
+    const done = (id: string) => (setName(''), setTeam({ sheet: { kind: 'invite', group: id } }))
+    if (isTauri) void teamCreate(n, color).then((g) => refreshTeam().then(() => done(g.id)))
+    else {
+      const id = crypto.randomUUID()
+      setTeam((s) => ({ groups: [...s.groups, { id, name: n, color, alarms: true, news: true, members: [{ id: 'me', name: '나', online: true, me: true }] }] }))
+      done(id)
+    }
+  }
+  const okCode = /^\d{6}(@[\d.]+)?$/.test(code) || code.startsWith('hera-team:')
+  const join = (e: FormEvent) => {
+    e.preventDefault()
+    if (!okCode) return
+    if (!isTauri) return setCode('')
+    setBusy('찾는 중…')
+    teamJoin(code).then(() => (setBusy(null), setCode(''), void refreshTeam()), (err) => setBusy(String(err)))
+  }
   return (
-    <div className="team-sheet" role="dialog" aria-label="팀" style={g ? ({ '--g': g.color } as CSSProperties) : undefined} onKeyDown={(e) => e.key === 'Escape' && close()}>
-      <header>
-        {g && <i className="gdot" />}
-        <b>{sheet.kind === 'invite' ? `${g?.name} 초대` : sheet.kind === 'board' ? `${g?.name} 공유 메모판` : sheet.kind === 'join' ? '코드로 참여' : '그룹 만들기'}</b>
-        <button className="icon-btn" onClick={close} aria-label="닫기">×</button>
-      </header>
-      {sheet.kind === 'invite' && g && <Invite g={g} />}
-      {sheet.kind === 'join' && <Join onDone={close} />}
-      {sheet.kind === 'create' && <Create onDone={close} />}
-      {sheet.kind === 'board' && g && <Board g={g} />}
+    <div className="team-add" data-first={first}>
+      {first && <p className="team-empty">아직 그룹이 없어요. 이름을 쓰고 Enter 를 누르면 바로 만들어져요.</p>}
+      <form className="create" onSubmit={make}>
+        <div className="team-row">
+          <i className="gdot" style={{ '--g': color } as CSSProperties} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="새 그룹 이름 (예: 디자인팀)" aria-label="새 그룹 이름" autoFocus={first} />
+          <button className="primary" disabled={!name.trim()}>만들기</button>
+        </div>
+        <div className="swatches" role="radiogroup" aria-label="그룹 색">
+          {GROUP_COLORS.map((c) => <button type="button" key={c} role="radio" aria-checked={color === c} style={{ '--g': c } as CSSProperties} onClick={() => setColor(c)} aria-label={c} />)}
+        </div>
+      </form>
+      <form className="join" onSubmit={join}>
+        <div className="team-row">
+          <input value={code} onChange={(e) => setCode(e.target.value.trim())} placeholder="받은 초대 코드 6자리 또는 초대 문자열" aria-label="초대 코드" />
+          <button className="primary" disabled={!okCode}>참여</button>
+        </div>
+        {busy && <small>{busy}</small>}
+      </form>
     </div>
   )
 }
@@ -162,56 +195,17 @@ function Invite({ g }: { g: TeamGroup }) {
   const copy = () => (isTauri ? void setClip(link) : void navigator.clipboard?.writeText(link).catch(() => {}), setCopied(true))
   return (
     <div className="invite">
-      <p>동료의 Hera 에서 <b>팀 → 코드로 참여</b>에 입력하면 들어와요.</p>
+      <p>동료가 Hera 의 <b>Team</b> 화면 맨 아래 초대 코드 칸에 이 숫자를 넣으면 들어와요.</p>
       <div className="code" aria-label={`초대 코드 ${code.split('').join(' ')}`}>
         {code.split('').map((c, i) => <span key={i}>{c}</span>)}
       </div>
-      <small className="ttl">10분 동안 유효 · 이후 대화는 그룹 키로 암호화</small>
+      <small className="ttl">10분 동안 쓸 수 있어요 · 그 뒤 주고받는 내용은 그룹 키로 암호화돼요</small>
       <div className="invite-link">
         <input readOnly value={link} aria-label="초대 문자열" onFocus={(e) => e.currentTarget.select()} />
-        <button className="primary" onClick={copy}>{copied ? '복사됨' : '복사'}</button>
+        <button className="primary" onClick={copy}>{copied ? '복사했어요' : '복사'}</button>
       </div>
-      <small>사내망 자동 발견이 막혀 있으면 상대가 <b>{code}@{ip}</b> 처럼 코드와 내 IP 를 함께 입력하면 돼요.</small>
+      <small>같은 네트워크에서 자동으로 못 찾으면 코드 뒤에 내 IP 를 붙여 <b>{code}@{ip}</b> 처럼 넣으면 돼요.</small>
     </div>
-  )
-}
-
-function Join({ onDone }: { onDone: () => void }) {
-  const [code, setCode] = useState('')
-  const [busy, setBusy] = useState<string | null>(null)
-  const ok = /^\d{6}(@[\d.]+)?$/.test(code) || code.startsWith('hera-team:')
-  const join = () => {
-    if (!isTauri) return onDone()
-    setBusy('찾는 중…')
-    teamJoin(code).then(() => (setBusy(null), onDone()), (e) => setBusy(String(e)))
-  }
-  return (
-    <form className="join" onSubmit={(e) => (e.preventDefault(), ok && join())}>
-      <p>초대받은 6자리 코드 또는 초대 문자열을 붙여 넣으세요.{busy && <><br /><small>{busy}</small></>}</p>
-      <input className="join-code" value={code} onChange={(e) => setCode(e.target.value.trim())} inputMode="numeric" placeholder="000000" aria-label="초대 코드" autoFocus />
-      <button className="primary" disabled={!ok}>참여</button>
-    </form>
-  )
-}
-
-function Create({ onDone }: { onDone: () => void }) {
-  const [name, setName] = useState('')
-  const [color, setColor] = useState(GROUP_COLORS[2])
-  const make = (e: FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-    if (isTauri) void teamCreate(name.trim(), color).then(refreshTeam)
-    else setTeam((s) => ({ groups: [...s.groups, { id: crypto.randomUUID(), name: name.trim(), color, alarms: true, news: true, members: [{ id: 'me', name: '나', online: true, me: true }] }] }))
-    onDone()
-  }
-  return (
-    <form className="create" onSubmit={make}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="그룹 이름 (예: 디자인팀)" aria-label="그룹 이름" autoFocus />
-      <div className="swatches" role="radiogroup" aria-label="그룹 색">
-        {GROUP_COLORS.map((c) => <button type="button" key={c} role="radio" aria-checked={color === c} style={{ '--g': c } as CSSProperties} onClick={() => setColor(c)} aria-label={c} />)}
-      </div>
-      <button className="primary" disabled={!name.trim()}>만들기</button>
-    </form>
   )
 }
 
@@ -228,8 +222,8 @@ function useGroupNotes(group: string): [TeamNote[], (text: string) => void] {
 function Board({ g }: { g: TeamGroup }) {
   const [notes, add] = useGroupNotes(g.id)
   return (
-    <div className="board">
-      <div className="board-who"><Avatars members={g.members} color={g.color} /><small>모두 편집할 수 있어요 · 지운 메모는 7일간 휴지통</small></div>
+    <div className="tboard">
+      <div className="board-who"><Avatars members={g.members} color={g.color} /><small>그룹원 모두 고칠 수 있어요 · 지운 메모는 7일 동안 휴지통에</small></div>
       <div className="board-grid">
         {notes.map((n) => {
           const m = g.members.find((x) => x.name === n.by) ?? { name: n.by, online: false }
@@ -240,7 +234,7 @@ function Board({ g }: { g: TeamGroup }) {
             </article>
           )
         })}
-        <button className="board-add" onClick={() => add('')}>＋ 새 메모</button>
+        <button className="tboard-add" onClick={() => add('')}>＋ 새 메모</button>
       </div>
     </div>
   )
@@ -394,7 +388,7 @@ function decodeHex(s: string) {
   }
 }
 
-function BoardButton({ g }: { g: TeamGroup }) {
+function BoardButton({ g, on, onClick }: { g: TeamGroup; on: boolean; onClick: () => void }) {
   const [notes] = useGroupNotes(g.id)
-  return <button onClick={() => setTeam({ sheet: { kind: 'board', group: g.id } })}>공유 메모판 · {notes.length}</button>
+  return <button aria-expanded={on} data-board onClick={onClick}>공유 메모판 · {notes.length}</button>
 }

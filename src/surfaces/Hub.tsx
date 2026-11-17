@@ -19,7 +19,7 @@ export const HUB: [HubKind, string, string][] = [
 export const NAME = Object.fromEntries(HUB.map(([k, l]) => [k, l])) as Record<HubKind, string>
 export const COLOR = Object.fromEntries(HUB.map(([k, , c]) => [k, c])) as Record<HubKind, string>
 /** 안의 화면 [폭, 최대 높이] (논리 px). 높이는 내용에 맞춘다 — 터미널·채팅만 고정 (안을 채우는 화면). 떼어내면 잰 크기로 창이 된다 */
-export const FIXED_H = new Set<ViewKind>(['term', 'chat', 'lp'])
+export const FIXED_H = new Set<ViewKind>(['term', 'chat', 'lp', 'team']) // (a8) Team: 펼치고 접어도 크기가 튀지 않게 고정, 안에서 스크롤
 export const VIEW_SIZE: Record<ViewKind, [number, number]> = {
   notes: [380, 560], todo: [380, 600], calendar: [480, 620], chat: [400, 480], term: [640, 300], clips: [380, 520], shelf: [360, 480],
   ocr: [360, 300], snippets: [380, 520], team: [400, 560], link: [420, 540], lp: [452, 612],

@@ -622,9 +622,9 @@ export function Desktop({ only }: { only?: string }) {
     : k === 'ocr' ? (
       <>
         <button className="ocr-cta" onClick={() => (setHub(false), isTauri ? void hubAction('ocr') : setV3({ ocr: true }))}>
-          <Ico k="ocr" /><div><b>화면 글자 복사</b><small>영역을 고르면 글자를 읽어 복사해요 · Ctrl Alt T</small></div>
+          <Ico k="ocr" /><div><b>화면 글자 복사</b><small>영역을 고르면 글자를 읽어 복사해요 · Ctrl+Alt+T</small></div>
         </button>
-        <div className="foot"><small>인식은 이 PC 에서만 (Windows OCR)</small></div>
+        <div className="foot"><small>글자 인식은 이 PC 안에서만 해요</small></div>
       </>
     )
     : k === 'team' ? <div className="view-team"><TeamSection /></div>
@@ -825,7 +825,7 @@ export function Desktop({ only }: { only?: string }) {
           onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
           clips={clips}
           onCopy={copyClip}
-          cmds={[...FX_RECORDS.filter((r) => star.fx?.includes(r.id)).map((r) => ({ key: r.id, title: `★ ${r.title}`, sub: r.kind === 'fx' ? 'LP · 화면 효과' : 'LP · 아스키 장면', run: () => (isTauri ? void (r.kind === 'fx' ? openFx(r.arg) : openAscii(null, r.arg === 'auto' ? undefined : r.arg)) : mockPlay(r)) })), ...(filesPeer && getShare('fx') ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: 'Hera Link · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : [])]}
+          cmds={[...FX_RECORDS.filter((r) => star.fx?.includes(r.id)).map((r) => ({ key: r.id, title: `★ ${r.title}`, sub: r.kind === 'fx' ? 'LP · 화면 효과' : 'LP · 아스키 장면', run: () => (isTauri ? void (r.kind === 'fx' ? openFx(r.arg) : openAscii(null, r.arg === 'auto' ? undefined : r.arg)) : mockPlay(r)) })), ...(filesPeer && getShare('fx') ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: '연결 · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : [])]}
         />
       )}
       {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}
@@ -891,7 +891,7 @@ function NotesView({ notes, onAttach, onBoard, onNotepad }: { notes: Note[]; onA
   return (
     <>
       <div className="quick" style={{ '--nc': NOTE_COLORS[color] } as CSSProperties}>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Enter = 보드에 붙이기 · Shift+Enter = 줄 바꿈)" rows={2} aria-label="빠른 메모"
+        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="빠른 메모… (Enter = 보드에 붙이기 · Shift+Enter = 줄 바꿈)" rows={2} aria-label="빠른 메모" autoFocus
           onKeyDown={(e) => enterCommits(e) && (e.preventDefault(), text.trim() && attach())} />
         <div className="qcolors" role="radiogroup" aria-label="메모 색">
           {NOTE_COLORS.map((c, i) => (

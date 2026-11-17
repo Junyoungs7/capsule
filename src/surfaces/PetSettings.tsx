@@ -163,13 +163,13 @@ export function PetImportView({ draft, setDraft, size, onSaved, onCancel }: { dr
         <button className="btn" data-imp="pick" onClick={() => add()}><Ico k="image" />이미지</button>
         <button className="btn ghost" data-imp="folder" onClick={() => add(undefined, true)}><Ico k="shelf" />폴더</button>
       </div>
-      <div className="field"><input value={draft.name} maxLength={12} placeholder="이름 (최대 12자)" aria-label="이름" onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></div>
+      <div className="field"><input value={draft.name} maxLength={12} placeholder="이름 (최대 12자)" aria-label="이름" onKeyDown={(e) => e.key === 'Enter' && c && void save()} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></div>
       <div className="seg">
-        {([['auto', `자동${draft.files.idle ? ` (${draft.detected === 'pixel' ? '픽셀' : '부드럽게'})` : ''}`], ['pixel', '픽셀 (정수 배율)'], ['smooth', '부드럽게']] as const).map(([k, l]) => (
+        {([['auto', `자동${draft.files.idle ? ` (${draft.detected === 'pixel' ? '픽셀' : '부드럽게'})` : ''}`], ['pixel', '픽셀 (또렷하게)'], ['smooth', '부드럽게']] as const).map(([k, l]) => (
           <button key={k} className={draft.mode === k ? 'on' : ''} onClick={() => setDraft({ ...draft, mode: k })}>{l}</button>
         ))}
       </div>
-      <div className="sect">상태별 이미지 (선택 · 비면 평소 이미지 + 효과)</div>
+      <div className="sect">상태별 이미지 (선택 · 비워 두면 평소 이미지로)</div>
       <div className={`slots ${c?.style === 'pixel' ? 'px' : ''}`}>
         {PET_STATES.map(([k, l]) => {
           const f = draft.files[k]
@@ -183,7 +183,7 @@ export function PetImportView({ draft, setDraft, size, onSaved, onCancel }: { dr
       </div>
       <label className="imp-sheet">
         <button className={`sw ${draft.sheetOn ? 'on' : ''}`} aria-label="스프라이트 시트" onClick={(e) => (e.preventDefault(), setDraft({ ...draft, sheetOn: !draft.sheetOn }))} />
-        <span>스프라이트 시트 (가로로 이어 붙인 프레임)</span>
+        <span>한 장에 여러 프레임 (가로로 이어 붙인 그림)</span>
         <input type="number" min={1} max={64} value={draft.frames} disabled={!draft.sheetOn} aria-label="프레임 수" onChange={(e) => setDraft({ ...draft, frames: +e.target.value })} /><small>프레임</small>
         <input type="number" min={1} max={30} value={draft.fps} disabled={!draft.sheetOn} aria-label="fps" onChange={(e) => setDraft({ ...draft, fps: +e.target.value })} /><small>fps</small>
       </label>

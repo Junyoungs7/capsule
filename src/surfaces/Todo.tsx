@@ -28,7 +28,7 @@ export function TodoTab({ todos, setTodos, onAdded }: { todos: Todo[]; setTodos:
   return (
     <>
       <form className="add" onSubmit={add}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="할 일 추가 · Enter" aria-label="할 일 제목" onFocus={() => !touched && setWhen(defaults())} />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="할 일 추가 · Enter" aria-label="할 일 제목" autoFocus onFocus={() => !touched && setWhen(defaults())} />
         <button className="primary" aria-label="추가">추가</button>
       </form>
       <WhenFields value={when} onChange={(w) => (setWhen(w), setTouched(true))} />

@@ -48,7 +48,7 @@ pub enum Gate {
 
 pub fn gate(p: &Perms, t: &Tool) -> Result<Gate, String> {
     if !p.enabled {
-        return Err("Hera 설정에서 'AI 연결(MCP)'이 꺼져 있어요 — 패널 → 설정에서 켜 주세요. (MCP is disabled in Hera settings)".into());
+        return Err("Hera 설정에서 'AI 연결(MCP)'이 꺼져 있어요 — 설정 → 터미널·아라 → AI 연결에서 켜 주세요. (MCP is disabled in Hera settings)".into());
     }
     if !p.on(t.group) {
         return Err(format!("Hera 설정에서 '{}' 권한이 꺼져 있어요. (permission group '{}' is off)", t.group.label(), t.group.key()));

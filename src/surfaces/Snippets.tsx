@@ -101,7 +101,7 @@ export function SnippetTab() {
           </li>
         ))}
       </ul>
-      <p className="snip-tip">팔레트(Ctrl K)에서 <kbd>;</kbd> 를 치면 상용구만 보여요</p>
+      <p className="snip-tip">검색(Ctrl+Alt+K)에서 <kbd>;</kbd> 를 치면 상용구만 보여요</p>
     </>
   )
 }

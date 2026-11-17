@@ -161,9 +161,9 @@ export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
   if (!group)
     return (
       <div className="chat-none">
-        <p>채팅방은 Hera Team 공유 그룹마다 하나씩 생겨요.</p>
+        <p>팀 그룹마다 채팅방이 하나씩 생겨요.</p>
         {/* (a4) 예전엔 패널 창(설정 › Team)을 띄웠다 → 아일랜드 안 Team 화면으로 */}
-        <button className="primary" data-team onClick={() => (onTeam ? onTeam() : isTauri && void islandOpen('team'))}>Team 에서 그룹 만들기 · 들어오기</button>
+        <button className="primary" data-team onClick={() => (onTeam ? onTeam() : isTauri && void islandOpen('team'))}>팀 그룹 만들기 · 초대 코드로 참여</button>
       </div>
     )
   return (
@@ -231,13 +231,13 @@ export function ChatWindow({ setEvents, onToast, onTeam }: Props) {
         onSubmit={(e) => (e.preventDefault(), send())}>
         <button type="button" className="chat-plus" aria-label="파일·사진 첨부" title="파일·사진 (최대 100MB)" onClick={() => file.current?.click()}>＋</button>
         <input type="file" ref={file} multiple hidden onChange={(e) => (e.target.files && attach(e.target.files), (e.target.value = ''))} />
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={over ? '놓으면 보내요' : `${group.name}에 메시지`} aria-label="메시지" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder={over ? '놓으면 보내요' : `${group.name}에 메시지`} aria-label="메시지" autoFocus />
         <button className="primary">보내기</button>
       </form>
       {big && (
-        <div className="chat-big" onClick={() => setBig(null)} role="dialog" aria-label={big.name}>
+        <div className="chat-big" onClick={() => setBig(null)} role="dialog" aria-label={big.name} tabIndex={-1} ref={(el) => el?.focus()} onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), setBig(null))}>
           <img src={big.img ?? fileSrc(pathOf(big) ?? '')} alt={big.name} />
-          <small>{big.name} · {fmtSize(big.size)} · 누르면 닫기</small>
+          <small>{big.name} · {fmtSize(big.size)} · 누르거나 Esc 로 닫기</small>
         </div>
       )}
       {toast && <div className="chat-toast" role="status">{toast}</div>}

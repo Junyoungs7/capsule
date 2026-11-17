@@ -156,11 +156,11 @@ pub fn parse_line(line: &str) -> Option<LogEv> {
         let msg = msg.trim().to_string();
         // 사람이 읽을 원인 (패널·Island 표시용)
         let human = if msg.contains("tls certificate") || msg.contains("could not use tls") {
-            "TLS 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 TLS 를 끄세요".to_string()
+            "암호화 인증서가 없어요 — 'Deskflow 설정 가져오기'로 가져오거나 연결 암호화를 끄세요".to_string()
         } else if msg.contains("failed to create event for windows event loop") {
             "다른 Deskflow 가 실행 중이에요 — Deskflow 앱을 먼저 종료하세요".to_string()
         } else if msg.contains("listen") || msg.contains("bind") || msg.contains("address already in use") {
-            format!("포트를 열 수 없어요 (다른 프로그램이 사용 중?) — {msg}")
+            format!("포트를 열 수 없어요 — 다른 프로그램이 쓰고 있을 수 있어요 ({msg})")
         } else {
             msg
         };
@@ -410,7 +410,7 @@ fn prepare(app: &AppHandle, c: &Cfg) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&tls).map_err(|e| e.to_string())?;
     let cert = tls.join("deskflow.pem");
     if c.tls {
-        ensure_cert(&cert, &c.me).map_err(|e| format!("TLS 인증서를 만들지 못했어요: {e}"))?;
+        ensure_cert(&cert, &c.me).map_err(|e| format!("암호화 인증서를 만들지 못했어요: {e}"))?;
     }
     std::fs::write(&conf, server_conf(c, &plan(app).1.segs)).map_err(|e| e.to_string())?;
     std::fs::write(d.join("settings").join("Deskflow.conf"), settings_ini(c, &conf, &cert)).map_err(|e| e.to_string())?;
@@ -540,7 +540,7 @@ fn on_log(app: &AppHandle, ev: LogEv) {
         LogEv::Fingerprint { fp } => STATUS.lock().unwrap().fingerprint = fp.clone(),
         LogEv::Untrusted => {
             let fp = STATUS.lock().unwrap().fingerprint.clone();
-            set(app, |s| (s.detail = "새 맥이 연결하려 해요 — 지문을 확인하고 신뢰하세요".into(), s.fingerprint = fp).1);
+            set(app, |s| (s.detail = "처음 보는 맥이 연결하려 해요 — 설정 → 연결에서 지문을 확인하고 신뢰를 눌러 주세요".into(), s.fingerprint = fp).1);
         }
         LogEv::Error { msg } => set(app, |s| (s.state = "error".into(), s.detail = msg.clone()).1),
     }
@@ -965,7 +965,7 @@ pub fn files_start(app: &AppHandle) {
     let listener = match std::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)) {
         Ok(l) => l,
         Err(e) => {
-            set(app, |s| s.detail = format!("파일 채널 포트 {port} 를 열 수 없어요: {e}"));
+            set(app, |s| s.detail = format!("파일을 주고받을 포트 {port} 를 열 수 없어요: {e}"));
             return;
         }
     };
@@ -1105,7 +1105,7 @@ mod tests {
         assert_eq!(p("[t] WARNING: fingerprint does not match trusted fingerprint"), Some(LogEv::Untrusted));
         assert_eq!(p("[t] INFO: peer fingerprint: SHA256:24:D2:CA"), Some(LogEv::Fingerprint { fp: "24d2ca".into() }));
         assert!(matches!(p("[t] FATAL: failed to create event for windows event loop"), Some(LogEv::Error { msg }) if msg.contains("Deskflow 앱을 먼저 종료")));
-        assert!(matches!(p("[t] ERROR: tls certificate doesn't exist: C:/x.pem"), Some(LogEv::Error { msg }) if msg.contains("TLS 인증서")));
+        assert!(matches!(p("[t] ERROR: tls certificate doesn't exist: C:/x.pem"), Some(LogEv::Error { msg }) if msg.contains("암호화 인증서")));
         assert_eq!(p("[t] INFO: local layouts: ko"), None);
         assert_eq!(p("[t] WARNING: failed to determine current keyboard layout"), None);
         assert_eq!(p("garbage"), None);

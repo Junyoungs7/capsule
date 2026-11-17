@@ -529,3 +529,31 @@ html.mx .hx .gp-pop { animation: gp-in var(--sp-pop-ms, 420ms) var(--sp-pop, eas
 html.mx .hx .gp-pop[data-up='true'] { animation-name: gp-in-up; }
 .hx .gp-pop[data-end='false'] { left: 0; right: auto; }
 .hx .gp-pop[data-end='true'] { left: auto; right: 0; }
+
+/* ═══ (a8) Team 한 화면: 카드 · 카드 안에서 펼치는 초대·메모판 · 맨 아래 새 그룹/참여 (Enter) — .hx 토큰 ═══ */
+.hx .team { display: flex; flex-direction: column; gap: 8px; }
+.hx .team h3 { margin: 0 0 2px; font-size: 14px; font-weight: 650; }
+.hx .team h3 small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; color: var(--t3); }
+.hx .team-card { padding: 10px 12px; border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .team-card small, .hx .team-tog small { color: var(--t3); }
+.hx .team-acts button { flex: 1; height: 28px; border-radius: 14px; font-size: 12px; font-weight: 600; color: var(--t1); background: var(--fill-2); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .team-acts button:hover, .hx .team-acts button[aria-expanded='true'] { background: color-mix(in srgb, var(--g) 22%, var(--fill-2)); }
+.hx .team-card .invite, .hx .team-card .tboard { margin-top: 8px; padding-top: 10px; border-top: 0.5px solid var(--hairline); }
+.hx .team-card .invite p, .hx .team-empty { margin: 0; font-size: 12.5px; color: var(--t2); }
+.hx .team-card .invite p b { color: var(--t1); }
+.hx .code span { background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline), inset 0 -2px 0 color-mix(in srgb, var(--g) 60%, transparent); }
+.hx .team-add { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .team-add .create, .hx .team-add .join { gap: 8px; }
+.hx .team-row { display: flex; align-items: center; gap: 8px; }
+.hx .team-row input, .hx .invite-link input { flex: 1; min-width: 0; height: 32px; padding: 0 12px; border-radius: 10px; font-size: 12.5px; color: var(--t1); background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .team-row input:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.hx .team .primary { flex: none; height: 32px; padding: 0 14px; border-radius: 16px; font-size: 12.5px; font-weight: 600; color: #fff; background: var(--accent); }
+.hx .team .primary:disabled { opacity: 0.4; cursor: default; }
+.hx .swatches { gap: 8px; padding-left: 18px; }
+.hx .swatches button { width: 18px; height: 18px; border-radius: 50%; background: var(--g); }
+.hx .swatches button[aria-checked='true'] { box-shadow: 0 0 0 2px #1c1c21, 0 0 0 3.5px var(--g); }
+.hx .team-add > small, .hx .team-add .join small { color: var(--t3); font-size: 11.5px; }
+.hx .tboard-add { min-height: 96px; border-radius: 12px; font-size: 12.5px; font-weight: 600; color: var(--t2); box-shadow: inset 0 0 0 1px var(--hairline); }
+.hx .board-note { background: color-mix(in srgb, var(--g) 14%, var(--fill-1)); box-shadow: inset 0 0 0 0.5px var(--hairline); }
+.hx .board-note p { color: var(--t1); }
+.hx .view[data-k='team'] .vbody { overflow-y: auto; }

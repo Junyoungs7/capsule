@@ -89,7 +89,7 @@ export function Ocr({ open, onClose, onToast }: { open: boolean; onClose: () => 
   return (
     <div ref={p.ref} className="ocr" data-phase={phase} onTransitionEnd={p.onTransitionEnd} onPointerDown={down} onPointerMove={move} onPointerUp={up} role="dialog" aria-label="화면 글자 복사">
       <div ref={dim} className="ocr-dim" style={rect ? { clipPath: hole(rect) } : undefined} />
-      {phase === 'select' && !rect && <div className="ocr-hint glass-card">드래그해서 글자를 읽을 영역을 고르세요 <kbd>Esc</kbd></div>}
+      {phase === 'select' && !rect && <div className="ocr-hint glass-card">글자를 읽을 영역을 끌어서 고르세요 <kbd>Esc</kbd></div>}
       <div ref={box} className="ocr-box" hidden={!rect} style={rect ? { transform: `translate(${rect.x}px, ${rect.y}px)`, width: rect.w, height: rect.h } : undefined}>
         <div ref={ants} className="ocr-ants" style={rect ? { clipPath: shape(0, 0, rect.w, rect.h, 3).ring } : undefined} />
         <span ref={size} className="ocr-size" />

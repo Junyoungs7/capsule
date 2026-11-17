@@ -124,7 +124,7 @@ export const WIN_LABEL: Record<Mod, string> = { ctrl: 'Ctrl', super: 'Win', alt:
 export const MAC_LABEL: Record<string, string> = { ctrl: '⌃ Control', super: '⌘ Command', alt: '⌥ Option', altgr: '⌥ 오른쪽', shift: '⇧ Shift', meta: 'Meta', none: '없음' }
 export const PRESETS = [
   ['habit', '윈도우 습관대로', 'Ctrl = ⌘, Win = Ctrl — Ctrl+C/V/Z 가 맥에서도 그대로'],
-  ['position', '키 위치대로', 'Win = ⌘, Alt = ⌥ (엔진 기본)'],
+  ['position', '키 위치대로', 'Win = ⌘, Alt = ⌥ (기본)'],
   ['shortcuts', '단축키만 바꾸기', 'Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q 만 ⌘ 로 (맥 Hera 가 처리), 나머지 Ctrl 은 Ctrl'],
   ['custom', '직접 정하기', '수식키마다 맥에서 어떤 키로 쓸지'],
 ] as const
@@ -165,7 +165,7 @@ export function KeyRows({ c, put }: { c: LinkCfg; put: (p: Partial<LinkCfg>) => 
           <button className="btn danger sm" onClick={() => put({ keyRows: rows.filter((_, j) => j !== i) })} aria-label="줄 삭제">삭제</button>
         </div>
       ))}
-      <div className="srow"><span className="tt"><small>엔진은 수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요</small></span><button className="btn ghost sm" onClick={() => put({ keyRows: [...rows, ['ctrl', 'super']] })}>줄 추가</button></div>
+      <div className="srow"><span className="tt"><small>수식키(Ctrl·Win·Alt·AltGr·Shift)만 바꿀 수 있어요</small></span><button className="btn ghost sm" onClick={() => put({ keyRows: [...rows, ['ctrl', 'super']] })}>줄 추가</button></div>
     </div>
   )
 }
