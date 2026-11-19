@@ -114,3 +114,6 @@
 ## a20 설치 (2026-11-19 13:15)
 - 5439ef3: 트레이 패널 최근 메모에 지우기(마우스 올리면 ✕, 5초 되돌리기). a16 때 capsule.css 와 함께 사라진 되돌리기 막대 스타일을 win.css 로 복구(메모 보드도 같이). panel-cdp ALL PASS, tsc OK.
 - 메모 저장 위치: %APPDATA%\dev.hera.dock\hera.json 의 note:<id>. 메모장으로 열기 사본 = %APPDATA%\Hera\notes\<id>.txt.
+
+## a21 설치 (2026-11-19 14:13)
+- b096838: 펫을 작업 표시줄 안(트레이 바로 왼쪽, 48×42)으로. 펫 누름 = 패널 효과 메뉴(눈·비·단풍·새벽·노을·달·별 / 아스키 성탄·도시·가을·고요, 손으로 연 아스키는 1.5초 뒤 입력 시 닫힘). 시안 pet-menu.html 사용자 승인. cargo 51 ok, clippy 깨끗, panel·pet-cdp ALL PASS, tsc OK.
