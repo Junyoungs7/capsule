@@ -91,3 +91,8 @@
 ## Island a11 설치 (2026-11-17 14:02)
 - bd9a5da: Island 안 LP 끌기 고스트가 커서 밑에 (조상 transform 기준점 보정). lp-cdp 에 Island·LP 창 두 곳 검사 — 고치기 전 코드는 212px 어긋나 FAIL, 수정 후 ALL PASS. tsc OK.
 - idle 80s: 8 processes, privateWS 92.7 MB. Deskflow 3개 실행 중 (deskflow-core 는 사용자 deskflow-daemon 이 14:03:46 에 스스로 새로 띄움 — 부모 = daemon, Hera 아님).
+
+## Island a12 설치 (2026-11-17 17:11)
+- eed563a: LP 효과·아스키를 모든 모니터에 (fx/fx-1.., 주 모니터 먼저, 마지막 창이 닫혀야 fx-closed · 아스키 Esc 한 번에 모두 닫힘). LP 끌기 고스트 = 매 이동마다 원점·배율 재측정 (캡슐 끌림 확대 scale 때문에 a11 수정으로도 어긋났음).
+- cargo test 76 ok · lp-cdp ALL PASS (scale 케이스 추가) · a7 ALL PASS · tsc OK. 멀티 모니터 창은 헤드리스로 못 봄 → 사용자 확인.
+- idle 80s: 8 processes, privateWS 74.9 MB. Deskflow 3개 실행 중 (core PID 는 사용자 daemon 이 다시 띄워 바뀜 — Hera·나 아님).
