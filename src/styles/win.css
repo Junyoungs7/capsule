@@ -203,3 +203,13 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 /* ── 작업 표시줄 펫 (52×46 창 아래쪽에 앉는다) ── */
 .petbar { all: unset; position: absolute; left: 4px; bottom: 2px; width: 44px; height: 40px; cursor: pointer; transform: scale(var(--pk, 1)); transform-origin: 50% 100%; }
 .petbar:focus-visible { outline: none; }
+/* 메모 지우기 (패널 최근 메모) — 마우스를 올리면 시각 자리에 */
+.memos li { position: relative; }
+.memos li .del { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; background: var(--solid); opacity: 0; transition: opacity 100ms; }
+.memos li:hover .del, .memos li:focus-within .del { opacity: 1; }
+/* 지우기 되돌리기 (5초) — 패널 · 메모 보드 창 아래 가운데 */
+.undo-toast { position: fixed; left: 50%; bottom: 14px; z-index: 50; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 6px 0 14px; border-radius: 18px;
+  transform: translateX(-50%); white-space: nowrap; font-size: 12.5px; font-weight: 600; color: var(--t1); background: var(--solid); border: 1px solid var(--stroke); box-shadow: 0 8px 24px rgba(0,0,0,.28); animation: undo-in 220ms var(--ease) both; }
+.undo-toast button { all: unset; cursor: pointer; height: 26px; padding: 0 12px; border-radius: 13px; font-weight: 650; color: var(--onacc); background: var(--accent); }
+@keyframes undo-in { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } }
+@media (prefers-reduced-motion: reduce) { .undo-toast { animation: none; } }

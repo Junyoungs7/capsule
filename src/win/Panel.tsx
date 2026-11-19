@@ -7,6 +7,7 @@ import { fetchWeather, geocode, type Weather } from '../surfaces/Fx'
 import { Ico } from './icons'
 import { linkLook, useLink, useShare } from './link'
 import { Sw } from './Settings'
+import { UndoToast, deleteWithUndo } from '../surfaces/Undo'
 
 /* 트레이 패널 (승인 시안 win-tray-v3 의 .panel). 창은 숨긴 채 살아 있다 — 트레이를 누르면 Rust 가 자리를 잡고 보인다.
    한 화면: 연결 · 타일 3개 · 선반 · 메모 · 꾸미기. 내용 높이가 바뀌면 panel_fit 으로 창 높이를 맞춘다 (모서리는 그대로). */
@@ -155,7 +156,8 @@ export function Panel() {
           onKeyDown={(e) => enterCommits(e) && (e.preventDefault(), save())} />
         {recent.length > 0 && (
           <ul className="memos">
-            {recent.map((n) => <li key={n.id} data-memo={n.id}><i style={{ background: NOTE_COLORS[n.color ?? 0] } as CSSProperties} /><span>{n.text || '(빈 메모)'}</span><small>{n.at ? when(n.at) : ''}</small></li>)}
+            {recent.map((n) => <li key={n.id} data-memo={n.id}><i style={{ background: NOTE_COLORS[n.color ?? 0] } as CSSProperties} /><span>{n.text || '(빈 메모)'}</span><small>{n.at ? when(n.at) : ''}</small>
+              <button className="ib del" data-memo-del={n.id} onClick={() => deleteWithUndo('메모를 지웠어요', setNotes, n)} aria-label="메모 지우기" title="지우기"><Ico k="x" /></button></li>)}
           </ul>
         )}
       </div>
@@ -165,6 +167,7 @@ export function Panel() {
         <Sw on={deco} set={setDeco} label="꾸미기" />
         <button className="ib" data-settings onClick={() => (void openSettings('general'), hide())} aria-label="설정" title="설정"><Ico k="gear" /></button>
       </div>
+      <UndoToast />
     </section>
   )
 }

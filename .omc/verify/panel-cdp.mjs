@@ -55,6 +55,12 @@ try {
   ok('Shift+Enter does not save', !(await sleep(150), [...h.store.keys()].some((k) => k.startsWith('note:') && h.store.get(k).text?.startsWith('첫 줄'))))
   await p.key('Enter')
   ok('Enter saves a note:<id> with at, input clears, shows on top', await until(() => [...h.store.values()].some((v) => v?.text === '첫 줄' && v.at > 0) && p.eval(`document.querySelector('.pn .memo-in').value === '' && document.querySelector('.pn .memos li span').textContent === '첫 줄'`)))
+  const firstKey = () => [...h.store.keys()].find((k) => k.startsWith('note:') && h.store.get(k)?.text === '첫 줄')
+  const fid = firstKey().slice(5)
+  await p.eval(`document.querySelector('[data-memo-del="${fid}"]').click()`)
+  ok('메모 지우기 → note removed + 되돌리기 bar', await until(() => !firstKey() && p.eval(`!document.querySelector('[data-memo="${fid}"]') && /메모를 지웠어요/.test(document.querySelector('.undo-toast')?.textContent ?? '')`)))
+  await p.eval(`document.querySelector('[data-undo]').click()`)
+  ok('되돌리기 → same note back, bar gone', await until(() => firstKey() === 'note:' + fid && p.eval(`!!document.querySelector('[data-memo="${fid}"]') && !document.querySelector('.undo-toast')`)))
   n = h.calls.length
   await p.eval(`document.querySelector('[data-board]').click()`)
   ok('모두 보기 → board_open + panel hides', await until(() => called('board_open', n) && called('panel_hide', n)))
