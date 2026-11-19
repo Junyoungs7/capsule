@@ -47,13 +47,6 @@
 .switch:checked { background: var(--accent); }
 .switch:checked::before { transform: translateX(16px); }
 
-/* ── 팔레트: 최근 복사 ── */
-.palette-list li.sect { padding: 8px 10px 4px; font-size: 11px; font-weight: 650; color: var(--text-3); }
-.palette-list li.clip { animation: clip-in 220ms var(--ease-out) both; }
-@keyframes clip-in { from { opacity: 0; transform: translateY(-4px); } }
-.palette-list li.clip b { font: 500 12.5px/1.45 'Cascadia Mono', Consolas, monospace; }
-.palette-list li[data-copied='true'] { background: var(--accent-soft); }
-.palette-list li[data-copied='true'] kbd { opacity: 1; color: var(--accent-text); }
 .clip-ico { position: relative; flex: none; width: 28px; height: 28px; border-radius: 8px; background: var(--fill-2); }
 .clip-ico::before, .clip-ico::after { content: ''; position: absolute; width: 10px; height: 12px; border: 1.5px solid var(--text-2); border-radius: 3px; }
 .clip-ico::before { left: 7px; top: 6px; opacity: 0.55; }
@@ -221,6 +214,5 @@
   .dock-slot[data-attention='true'] .icon-bounce { animation: none; }
   .folder-pop, .folder-pop[data-show='true'] { transform: translateX(-50%); }
   .ascii-full, .ascii-full[data-show='true'], .ascii-full[data-zoom='true'] { transform: none; clip-path: none; transition: opacity 240ms; }
-  .palette-list li.clip { animation: fade 160ms; }
   .island[data-mode='drop'] .tray svg { animation: none; }
 }

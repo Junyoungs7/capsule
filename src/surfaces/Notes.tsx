@@ -172,16 +172,7 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNotepad, onDelete }: 
 const Ico = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
 
 /* ── 데모 바 'v3' 묶음 (시안 전용) ── */
-export function V3Demo({ onPanel, onPalette }: { onPanel: (v: 'calendar' | 'snippets') => void; onPalette: () => void }) {
-  const snippets = () => {
-    onPalette()
-    requestAnimationFrame(() => {
-      const el = document.querySelector<HTMLInputElement>('.palette-input input')
-      if (!el) return
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, ';')
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-  }
+export function V3Demo({ onPanel }: { onPanel: (v: 'calendar' | 'snippets') => void }) {
   return (
     <>
       <header className="demo-sub">
@@ -191,8 +182,7 @@ export function V3Demo({ onPanel, onPalette }: { onPanel: (v: 'calendar' | 'snip
       <div className="demo-btns v3">
         <button onClick={() => onPanel('calendar')}>월간 달력</button>
         <button onClick={() => setV3({ ocr: true })}>글자 복사 <kbd>Ctrl Alt T</kbd></button>
-        <button onClick={snippets}>상용구 <kbd>;</kbd></button>
-        <button onClick={() => onPanel('snippets')}>상용구 편집</button>
+        <button onClick={() => onPanel('snippets')}>상용구</button>
       </div>
     </>
   )

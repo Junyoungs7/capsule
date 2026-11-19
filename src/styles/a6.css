@@ -258,12 +258,6 @@
 .a6 .sizes button.on { box-shadow: inset 0 0 0 1.5px var(--accent); background: rgba(10,132,255,.1); }
 .a6 .sizes button b { font-size: 13px; font-weight: 650; }
 .a6 .sizes button small { font-size: 11px; color: var(--t3); font-feature-settings: 'tnum' 1; }
-.a6 .places { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.a6 .places button { height: 72px; border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); position: relative; display: grid; align-content: start; padding: 10px 12px; text-align: left; transition: background 140ms, box-shadow 160ms; }
-.a6 .places button.on { box-shadow: inset 0 0 0 1.5px var(--accent); background: rgba(10,132,255,.1); }
-.a6 .places button b { font-size: 13px; font-weight: 650; }
-.a6 .places button .scr { position: absolute; right: 12px; bottom: 10px; width: 64px; height: 40px; border-radius: 5px; background: rgba(0,0,0,.3); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
-.a6 .places button .scr i { position: absolute; bottom: 5px; width: 12px; height: 9px; border-radius: 5px; background: var(--t1); }
 .a6 .togs { display: flex; flex-wrap: wrap; gap: 6px; }
 .a6 .tog { height: 30px; padding: 0 12px 0 10px; border-radius: 15px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--t2); background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); transition: background 160ms, color 160ms, box-shadow 160ms; }
 .a6 .tog .ico { width: 14px; height: 14px; stroke-width: 2; }

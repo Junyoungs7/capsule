@@ -27,6 +27,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 /// 창별 히트 rect: (라벨, [x, y, w, h] 클라이언트 기준 물리 px). JS `reportHitRects` 가 갱신.
 static HITS: Mutex<Vec<(String, Vec<[f64; 4]>)>> = Mutex::new(Vec::new());
 
+/// (a13) 설정이 바뀌었다 → 2s 블록(전체화면 숨김·화면보호기·효과·커서 찾기 설정 읽기)을 다음 틱에 바로 돈다
+pub static RECHECK: AtomicBool = AtomicBool::new(false);
+
 /// 클릭 통과·전체화면 숨김 대상 오버레이 창 (라벨, HWND as isize). dock/island 는 상시, 효과·메모 창은 있을 때만.
 /// 루프가 매 틱 읽는다(창 핸들 조회를 메인 스레드에 보내지 않도록 생성 시 등록).
 static OVERLAYS: Mutex<Vec<(&'static str, isize)>> = Mutex::new(Vec::new());
@@ -241,7 +244,7 @@ fn drag_near(x: f64, y: f64, cap: Option<[f64; 4]>, s: f64) -> bool {
     cap.is_some_and(|c| rect_dist(x, y, c) < 140.0 * s)
 }
 
-/// (a7) 작업 영역(l, t, r, b — 아일랜드가 사는 주 모니터) 안인가. 밖 = 작업 표시줄·트레이 띠 또는 다른 모니터 → 캡슐은 절대 받지 않는다.
+/// (a7) 작업 영역(l, t, r, b — 아일랜드가 사는 모니터, island::WA) 안인가. 밖 = 작업 표시줄·트레이 띠 또는 다른 모니터 → 캡슐은 절대 받지 않는다.
 fn in_work_area(x: i32, y: i32, wa: [i32; 4]) -> bool {
     x >= wa[0] && x < wa[2] && y >= wa[1] && y < wa[3]
 }
@@ -548,7 +551,7 @@ pub fn start(app: AppHandle) {
         let mut prev_fg = HWND::default(); // 마지막 외부(비 Hera) 포그라운드
         let mut hidden = false;
         let mut wall = (wallpaper_path(), wallpaper_style());
-        let mut wa = work_area();
+        let mut screens = (work_area(), monitors()); // 바뀌면(작업 표시줄·해상도·배율·모니터 추가/제거) 아일랜드 다시 배치
         let mut slow = Instant::now();
         let mut pow = power();
         let mut saver: Option<u32> = None; // 화면보호기로 연 아스키 창: 열 때의 마지막 입력 시각
@@ -586,6 +589,8 @@ pub fn start(app: AppHandle) {
                 })
                 .collect();
             let inside = |r: &RECT| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom;
+            let wa = *crate::island::WA.lock().unwrap(); // 아일랜드가 사는 모니터의 작업 영역 (a13: 캡슐은 어느 모니터에나)
+            let moving = crate::island::dragging(); // 캡슐을 끄는 동안은 창 전체가 입력을 받는다 (다른 모니터로 넘어가도 놓치지 않게)
             let pressed = lb && !prev_lb;
             if pressed {
                 press_at = (pt.x, pt.y);
@@ -611,7 +616,7 @@ pub fn start(app: AppHandle) {
 
             let hits = HITS.lock().unwrap().clone();
             // 캡슐·허브 밖을 누르면 알림 (펼쳐져 있으면 JS 가 접는다) — 아일랜드 창은 클릭 통과라 스스로 못 본다
-            if pressed {
+            if pressed && !moving {
                 if let (Some(i), Some((_, hr))) = (overlays.iter().position(|&(l, _)| l == "island"), hits.iter().find(|(l, _)| l == "island")) {
                     let r = &rects[i];
                     if !capsule_takes((pt.x, pt.y), wa, (r.left, r.top), hr, 0.0) {
@@ -625,7 +630,7 @@ pub fn start(app: AppHandle) {
                 let o = (r.left, r.top);
                 // 아일랜드는 작업 영역 밖(작업 표시줄)에서 절대 입력을 받지 않는다 — 다른 오버레이(효과 등)는 모양이 없어 늘 통과
                 let wa_ok = label != "island" || in_work_area(pt.x, pt.y, wa);
-                let p = !(wa_ok && (hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, 0.0) || (drag_out && hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, DRAG_MARGIN))));
+                let p = !(label == "island" && moving) && !(wa_ok && (hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, 0.0) || (drag_out && hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, DRAG_MARGIN))));
                 let hwnd = HWND(h as _);
                 let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                 let mut want = ex_style(cur, p);
@@ -669,8 +674,8 @@ pub fn start(app: AppHandle) {
                 }
             }
 
-            // ── 2s ──
-            if slow.elapsed() >= Duration::from_secs(2) {
+            // ── 2s (설정을 바꾸면 다음 틱에 바로 — RECHECK) ──
+            if slow.elapsed() >= Duration::from_secs(2) || RECHECK.swap(false, Ordering::Relaxed) {
                 slow = Instant::now();
                 let qs = SHQueryUserNotificationState().ok();
                 let full = qs.is_some_and(fullscreen);
@@ -756,9 +761,9 @@ pub fn start(app: AppHandle) {
                     wall = w;
                     let _ = app.emit("wallpaper", ());
                 }
-                let a = work_area();
-                if a != wa {
-                    wa = a;
+                let a = (work_area(), monitors());
+                if a != screens {
+                    screens = a;
                     crate::place(&app);
                 }
             }
@@ -780,7 +785,8 @@ mod tests {
         for (mon, s) in [([0, 0, 1920, 1080], 1.0), ([0, 0, 2560, 1440], 1.25), ([0, 0, 3840, 2160], 1.5), ([-1920, 4, 0, 1084], 1.0)] {
             let bar = (48.0 * s) as i32;
             let wa = [mon[0], mon[1], mon[2], mon[3] - bar];
-            let [wx, wy, ww, wh] = crate::island::bounds([wa[0], wa[1], wa[2] - wa[0], wa[3] - wa[1]], s, false, false);
+            let w4 = [wa[0], wa[1], wa[2] - wa[0], wa[3] - wa[1]];
+            let ([wx, wy, ww, wh], _) = crate::island::layout(w4, s, crate::island::home(w4, s), false);
             assert!(wy + wh <= wa[3], "아일랜드 창은 작업 영역 안 {mon:?}");
             // JS 히트 rect: 캡슐 80×60 · 오른쪽 16 · 아래 8 · 머묾 여유 16 (= 창 아래로 8 넘침) — 물리 px
             let (cw, ch, m) = (80.0 * s, 60.0 * s, 16.0 * s);

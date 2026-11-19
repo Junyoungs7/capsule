@@ -14,8 +14,8 @@ const until = async (f, ms = 5000) => {
   return false
 }
 
-const dock = await page('palette') // Island-only: 독 없음 — store·커맨드는 아무 창에서나
 const island = await page('island')
+const dock = island // Island-only: 독·팔레트 없음 — store·커맨드는 아무 창에서나
 
 ok('최근 복사 command reachable', Array.isArray(await dock.evaluate(inv('clips'))))
 

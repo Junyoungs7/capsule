@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { getVersion } from '@tauri-apps/api/app'
 import { appDataDir } from '@tauri-apps/api/path'
-import { autostart, closeSelf, isTauri, launch, linkAmbient, onEvent, petExport, petImport, useValue, type LinkCfg } from '../data/api'
+import { autostart, closeSelf, isTauri, launch, linkAmbient, onEvent, petExport, petImport, storeDelete, useValue, type LinkCfg } from '../data/api'
 import { rollNumber } from '../motion'
 import { barDrag } from './Float'
 import { Ico, type IcoKey } from './Icons'
@@ -25,12 +25,12 @@ const SECS: [Sec, string, IcoKey, string][] = [
 ]
 const SEC_WORDS: Record<Sec, string> = {
   general: '할 일 알림 날짜 시작 자동 실행 윈도우 트레이 상단 공간 메뉴막대 날씨 계절 효과 도시 화면보호기 자리 비움 아스키 폴더',
-  island: 'island 아일랜드 위치 오른쪽 왼쪽 아래 크기 작게 보통 크게 아주 전체화면 숨기기 알림 펫 캡슐',
+  island: 'island 아일랜드 위치 자리 끌기 옮기기 처음 크기 작게 보통 크게 아주 전체화면 숨기기 알림 펫 캡슐',
   pet: '펫 내 펫 추가 픽셀 플랫 클레이 라인 잠들기 이미지 zip 가져오기 내보내기',
   link: '연결 페어링 기기 맥 pc 마우스 키보드 클립보드 파일 동기화 모니터 배치 키 매핑 한/영 tls 포트 deskflow 코드 해제 함께',
   chat: '채팅 보관 기간 파일 크기 사진 팀 team 그룹 초대 코드 알림 소리',
   term: '터미널 아라 셸 powershell 시작 폴더 글꼴 명령 끝나면 알림 ai mcp claude',
-  keys: '단축키 키 검색 팔레트 터미널 ocr 허브',
+  keys: '단축키 키 터미널 ocr 허브',
   about: '정보 버전 업데이트 라이선스 로그 데이터 개인정보',
 }
 type LinkTab = 'devices' | 'share' | 'layout' | 'keyboard' | 'adv'
@@ -170,6 +170,7 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
   const [appbar, setAppbar] = useValue('appbar.on', false)
   const [quickAlarm, setQuickAlarm] = useValue('todo.quickAlarm', true)
   const [draft, setDraft] = useState(fx.city)
+  useEffect(() => setDraft(fx.city), [fx.city]) // 저장된 도시는 창이 열린 뒤에 읽힌다 (예전: '서울'이 남아 있다가 그대로 덮어씀)
   const save = () => draft.trim() && draft.trim() !== fx.city && fx.setCity(draft.trim())
   const folder = () => void appDataDir().then((d) => launch(d)).then(() => say('탐색기에서 열었어요'), (e) => say(String(e)))
   return (
@@ -177,7 +178,7 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
       <Head k="general" sub="Hera가 켜지는 방식과 바탕화면 효과" />
       <Grp h="시작"><div className="card">
         <Row t="Windows 시작 시 Hera 실행" s="기본은 꺼짐 — 켜면 로그인할 때 트레이로 조용히 시작해요"><Sw on={auto} label="Windows 시작 시 실행" set={(v) => (isTauri ? void autostart(v).then(setAuto) : setAuto(v))} /></Row>
-        <Row t="트레이 아이콘" s="알림 영역에서 효과 끄기·검색·종료 · 지금은 항상 켜져 있어요" soon><Sw on label="트레이 아이콘" set={() => {}} /></Row>
+        <Row t="트레이 아이콘" s="알림 영역에서 효과 끄기·종료 · 지금은 항상 켜져 있어요" soon><Sw on label="트레이 아이콘" set={() => {}} /></Row>
       </div></Grp>
       <Grp h="화면"><div className="card">
         <Row t="상단 공간 확보" s="맥 메뉴막대처럼 위쪽 28px 비우기 · 최대화한 창이 그 아래에서 시작해요. 기본 꺼짐"><Sw on={appbar} set={setAppbar} label="상단 공간 확보" /></Row>
@@ -205,25 +206,24 @@ function General({ fx, idleMin, setIdleMin, say }: SettingsProps & { say: (t: st
 /* ── Island ── */
 function IslandPane({ prefs, setPref }: SettingsProps) {
   const list = useCustomPets()
+  const [pos, setPos] = useValue<{ fx: number; fy: number } | null>('island.pos', null) // 캡슐을 끌어 놓은 자리 (Rust 가 저장)
   const [w, h] = SIZE_PX[prefs.size]
   const K = SIZES_CAP[prefs.size][1]
   const c = customOf(prefs.pet, list)
   const style = c ? 'custom' : PETS[prefs.pet]?.style ?? 'flat'
   return (
     <>
-      <Head k="island" sub="바탕화면 모서리의 캡슐 — 크기·위치는 캡슐과 펫만 바뀌어요 (허브·화면은 그대로)" />
+      <Head k="island" sub="바탕화면에 떠 있는 캡슐 — 크기는 캡슐과 펫만 바뀌어요 (허브·화면은 그대로)" />
       <div className="ipv">
-        <span className="lbl"><b>미리보기</b> · {SIZES_CAP[prefs.size][0]} {w}×{h} · {prefs.place === 'br' ? '오른쪽 아래' : '왼쪽 아래'}</span><i className="tbar" />
-        <span className="mcap" data-place={prefs.place} style={{ width: w * 0.62, height: h * 0.62, borderRadius: h * 0.31, ...(prefs.place === 'br' ? { right: 14 } : { left: 14 }) }}>
+        <span className="lbl"><b>미리보기</b> · {SIZES_CAP[prefs.size][0]} {w}×{h}</span><i className="tbar" />
+        <span className="mcap" data-pos={pos ? 'saved' : 'home'} style={{ width: w * 0.62, height: h * 0.62, borderRadius: h * 0.31, ...(pos ? { left: `${pos.fx * 100}%`, top: `calc(${pos.fy} * (100% - 18px))`, bottom: 'auto', translate: '-50% -50%' } : { right: 14 }) }}>
           <span className="petbox" style={{ '--pk': K * 0.62 } as CSSProperties}><Pet kind={c ? prefs.pet : prefs.pet in PETS ? prefs.pet : 'cat'} custom={c} state="idle" pk={c ? 0.62 : petScale(style as PetStyle, prefs.size) * 0.62} /></span>
         </span>
       </div>
-      <Grp h="위치"><div className="places">
-        {([['br', '오른쪽 아래', '기본 · 작업 표시줄 위'], ['bl', '왼쪽 아래', '시작 단추 쪽']] as const).map(([k, l, s]) => (
-          <button key={k} className={prefs.place === k ? 'on' : ''} data-place-set={k} onClick={() => setPref('place', k)}>
-            <b>{l}</b><small style={{ fontSize: 11.5, color: 'var(--t2)' }}>{s}</small><span className="scr"><i style={k === 'br' ? { right: 5 } : { left: 5 }} /></span>
-          </button>
-        ))}
+      <Grp h="위치"><div className="card">
+        <Row t="캡슐을 끌어서 원하는 곳에 두세요" s="놓은 자리를 기억해요 · 허브와 알림은 화면 안쪽으로 펼쳐져요">
+          <button className="btn ghost sm" data-pos-reset disabled={!pos} onClick={() => (isTauri ? storeDelete('island.pos') : setPos(null))}>처음 자리로</button>
+        </Row>
       </div></Grp>
       <Grp h="크기"><div className="sizes">
         {(Object.keys(SIZES_CAP) as CapSize[]).map((k) => (
@@ -341,7 +341,7 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           )}
           <Grp h="이 PC"><div className="card">
             <Row t="이 PC 이름" s={`포트 ${c.port} · 맥 Hera에 이 이름으로 보여요`} lead={<span className="well md" style={{ '--c': 'var(--teal)' } as CSSProperties}><Ico k="pc" /></span>}>
-              <input className="inp" defaultValue={c.me} placeholder="이 PC 이름" style={{ width: 140 }} aria-label="이 PC 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() !== c.me && put({ me: e.target.value.trim() })} />
+              <input className="inp" key={c.me} defaultValue={c.me} placeholder="이 PC 이름" style={{ width: 140 }} aria-label="이 PC 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() !== c.me && put({ me: e.target.value.trim() })} />
             </Row>
             <Row t="다른 기기에서 보이기" s="같은 네트워크의 Hera가 이 PC를 찾을 수 있어요 · 끄면 페어링한 기기만 찾아요" soon><Sw on label="보이기" set={() => {}} /></Row>
           </div></Grp>
@@ -411,9 +411,9 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           <Grp><div className="card">
             <Row t="연결 암호화" s="끄면 같은 네트워크의 누구나 입력을 볼 수 있어요 · 기본 켜짐" lead={<Ico k="lock" className="ico lead" />}><Sw on={c.tls} set={(v) => put({ tls: v })} label="TLS" /></Row>
             <Row t="맥 위치" s="이 PC 화면 기준 · 모니터마다 정하려면 화면 배치"><Sel value={c.side} set={(v) => put({ side: v })} label="맥 위치" opts={[['right', '오른쪽'], ['left', '왼쪽'], ['top', '위'], ['bottom', '아래']]} /></Row>
-            <Row t="맥 이름" s="맥 Hera에 적힌 이름과 같아야 해요"><input className="inp" defaultValue={c.peer} style={{ width: 140 }} aria-label="맥 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== c.peer && put({ peer: e.target.value.trim() })} /></Row>
-            <Row t="입력 포트" s="맥 Hera와 같아야 해요"><input className="inp mono" defaultValue={c.port} style={{ width: 90, textAlign: 'center' }} aria-label="입력 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.port && put({ port: Number(e.target.value) })} /></Row>
-            <Row t="파일 포트" s="파일·클립보드·동기화 채널 (암호화 · 페어링한 기기만)"><input className="inp mono" defaultValue={c.filePort} style={{ width: 90, textAlign: 'center' }} aria-label="파일 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.filePort && put({ filePort: Number(e.target.value) })} /></Row>
+            <Row t="맥 이름" s="맥 Hera에 적힌 이름과 같아야 해요"><input className="inp" key={c.peer} defaultValue={c.peer} style={{ width: 140 }} aria-label="맥 이름" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== c.peer && put({ peer: e.target.value.trim() })} /></Row>
+            <Row t="입력 포트" s="맥 Hera와 같아야 해요"><input className="inp mono" key={c.port} defaultValue={c.port} style={{ width: 90, textAlign: 'center' }} aria-label="입력 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.port && put({ port: Number(e.target.value) })} /></Row>
+            <Row t="파일 포트" s="파일·클립보드·동기화 채널 (암호화 · 페어링한 기기만)"><input className="inp mono" key={c.filePort} defaultValue={c.filePort} style={{ width: 90, textAlign: 'center' }} aria-label="파일 포트" onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== c.filePort && put({ filePort: Number(e.target.value) })} /></Row>
           </div></Grp>
           <Grp h="Deskflow를 쓰고 있다면"><div className="card">
             <Row t="Deskflow 설정 가져오기" s="이름·배치·인증서만 읽어 와요 (읽기 전용) — Hera는 Deskflow를 켜거나 끄거나 바꾸지 않아요">
@@ -471,7 +471,7 @@ function TermPane() {
 /* ── 단축키 ── */
 function KeysPane() {
   const [term] = useValue('term.hotkey', 'Ctrl+Backquote')
-  const K: [string, string, string][] = [[term, '터미널 드롭다운', 'Ctrl+` 기본'], ['Ctrl+Alt+K', '검색 · 실행 (팔레트)', 'Win+K는 Windows가 쓰고 있어 Ctrl+Alt+K예요'], ['Ctrl+Alt+T', '화면 글자 복사 (OCR)', '영역을 끌어서 글자만']]
+  const K: [string, string, string][] = [[term, '터미널 드롭다운', 'Ctrl+` 기본'], ['Ctrl+Alt+T', '화면 글자 복사 (OCR)', '영역을 끌어서 글자만']]
   return (
     <>
       <Head k="keys" sub="전역 단축키 · 바꾸기는 준비 중이에요" />

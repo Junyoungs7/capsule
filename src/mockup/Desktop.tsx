@@ -1,31 +1,27 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { AppGroup, Clip, LpRecord, Notification, RunningSession, ShelfFile } from '../data/types'
 import {
-  clipList, closePalette, closeSelf, coverCloseAll, isTauri, islandOpen, launch, openAscii, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
-  asciiStop, linkAmbient, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
-  chatSendPaths, isPicking, pickPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandPaste, islandTall, storeSet, startApps, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
+  clipList, closeSelf, coverCloseAll, isTauri, launch, lnkTarget, onAlarm, onEvent, onStore, openFx, openSettings, sendAlert, setClip,
+  asciiStop, linkApply, linkImport, linkPair, linkSend, linkStatus, linkTrust, linkUnpair, type LinkCfg, type LinkFilesEv, type LinkStatus,
+  chatSendPaths, isPicking, pickPaths, floatAbsorbed, floatOpen, floatPrepare, floatShow, fxStop, hubAction, islandFocus, noteNotepad, islandTall, snippetPaste, storeSet, titleOf, useItems, useValue, type AlertMsg, type FloatKind,
 } from '../data/api'
 import { COVERS, seedClips, seedEvents, seedGroups, seedRecords, seedShelf, seedTodos, STRESS } from '../data/mock'
-import { AMBIENT } from '../surfaces/LinkExtras'
 import { fmtWhen, Island, type Alert, type NextItem } from '../surfaces/Island'
 import { groupOf, setGroupCount, TeamDemo, TeamSection } from '../surfaces/Team'
 import { TodoTab } from '../surfaces/Todo'
 import { SettingsWin } from '../surfaces/Settings'
 import { ConnectHead, ConnectView, linkLook, useShare, type LinkBundle } from '../surfaces/Connect'
-import { FX_RECORDS, Launcher, useStar, type FxRec } from '../surfaces/Launcher'
-import { SnippetTab } from '../surfaces/Snippets'
+import { Launcher, useStar, type FxRec } from '../surfaces/Launcher'
+import { SnippetsView } from '../surfaces/Snippets'
 import { DETACHABLE, FIXED_H, GhostLayer, recordFrames, HubHome, ViewShell, VIEW_SIZE, VIEWS, WinChrome, type Ghost, type HubKind, type ViewKind } from '../surfaces/Hub'
 import { customOf, refreshPets, useCustomPets, type IslandPrefs } from '../surfaces/PetSettings'
 import { enterCommits, nextColor, NOTE_COLOR_NAMES, NOTE_COLORS } from '../surfaces/Notes'
 import { Ico } from '../surfaces/Icons'
 import type { CapSize } from '../surfaces/Pet'
-import { useSnippets } from '../surfaces/Snippets'
-import { expand } from '../data/snippets'
 import { ClipsList, FloatShell, FloatWin, ShelfList } from '../surfaces/Float'
 import { ChatWindow, type Msg as ChatMsg } from '../surfaces/Chat'
 import { TermPreview, TermWindow } from '../surfaces/Term'
 import { MonthCalendar } from '../surfaces/MonthCalendar'
-import { Palette } from '../surfaces/Palette'
 import { McpIsland } from '../surfaces/Mcp' // AI 연결(MCP)
 import { AsciiFull, pickScene, seasonOf, SCENES, type SceneId } from '../surfaces/Ascii'
 import { freeSlot, NoteBoard, seedNotes, setV3, useV3, V3Demo, type Note } from '../surfaces/Notes'
@@ -39,12 +35,12 @@ const hm = (t: string | number) => new Date(t).toLocaleTimeString('ko-KR', { hou
 export const SHELF_MAX = 4 // ponytail: 칸 4개, 넘치면 가장 오래된 것부터 뺀다 — 더 필요하면 목록
 
 // surface=all: 가짜 바탕화면 + 모든 표면 + 데모 컨트롤. 그 외: 해당 표면만 (Tauri 창 1개 = 표면 1개).
-// Island-only: 독 없음 — island(노치·알림·허브) · float(기능 창 1개, ?f=) · panel · palette · ascii · fx · notes* · ocr.
+// Island-only: 독 없음 — island(노치·알림·허브) · float(기능 창 1개, ?f=) · settings · ascii · fx · ocr.
 export function Desktop({ only }: { only?: string }) {
   const show = (s: string) => !only || only === s
   const [theme, setTheme] = useState(document.documentElement.dataset.theme)
   const [records, setRecords] = useItems<LpRecord>('record', seedRecords)
-  const [star, setStar] = useStar() // (a6) LP ★ = 상자 맨 앞 + 검색 맨 위
+  const [star, setStar] = useStar() // (a6) LP ★ = 상자 맨 앞
   const [todos, setTodos] = useItems('todo', seedTodos)
   const [events, setEvents] = useItems('event', seedEvents)
 
@@ -58,7 +54,7 @@ export function Desktop({ only }: { only?: string }) {
     setRecords((rs) => rs.filter((r) => r.id !== id))
     setStar({ ...star, app: (star.app ?? []).filter((x) => x !== id) })
   }
-  // C2: 세트 = 기존 단일 레코드 묶음 (독에는 고정하지 않음 — LP 크레이트·팔레트에서 쓴다)
+  // C2: 세트 = 기존 단일 레코드 묶음 (LP 크레이트에서 쓴다)
   const addSet = (title: string, targets: string[]) =>
     setRecords((rs) => [...rs, { id: crypto.randomUUID(), title, target: '', kind: 'set', targets, cover: COVERS[rs.length % COVERS.length], glyph: 'set' }])
 
@@ -85,11 +81,11 @@ export function Desktop({ only }: { only?: string }) {
   const [groups, setGroups] = useItems<AppGroup>('group', seedGroups)
   const saveGroup = (g: AppGroup) => setGroups((gs) => (gs.some((x) => x.id === g.id) ? gs.map((x) => (x.id === g.id ? g : x)) : [...gs, g]))
 
-  // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 팔레트 창 'clips' (폴링 없음)
+  // v2 클립보드 기록: 메모리에만 최근 20개. 실제 앱 = Rust AddClipboardFormatListener → 'clips' (폴링 없음)
   const [clips, setClips] = useState<Clip[]>(isTauri ? [] : seedClips)
   useEffect(() => {
-    // (a4) 최근 복사 화면은 이제 아일랜드 안 — 예전엔 팔레트·떠 있는 창만 받아서 아일랜드에서는 늘 비어 있었다
-    if (!isTauri || (only !== 'palette' && only !== 'float' && only !== 'island')) return
+    // (a4) 최근 복사 화면은 아일랜드 안 · 떠 있는 창
+    if (!isTauri || (only !== 'float' && only !== 'island')) return
     void clipList().then(setClips)
     return onEvent<Clip[]>('clips', setClips)
   }, [])
@@ -336,39 +332,9 @@ export function Desktop({ only }: { only?: string }) {
     return () => offs.forEach((off) => off())
   }, [])
 
-  // C3: 팔레트 창은 숨김 상주. 열릴 때('palette-open') 입력 포커스 + 시작 메뉴 앱(첫 열기 때 1회, Rust 캐시 ~1s),
-  // 닫을 때 다시 마운트해 검색어를 비운다 (다음 열기에 이전 내용이 비치지 않게).
-  const [apps, setApps] = useState<[string, string][]>([])
-  const [palN, setPalN] = useState(0)
-  const [palQ, setPalQ] = useState('') // 처음 검색어 (허브 '스니펫' = ';')
-  useEffect(() => {
-    if (!isTauri || only !== 'palette') return
-    let loaded = false
-    return onEvent<string | null>('palette-open', (q) => {
-      if (q != null) (setPalQ(q), setPalN((n) => n + 1)) // 다시 마운트해 그 검색어로
-      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.palette-input input')?.focus())
-      // 실패(타임아웃 등)하면 다음 열기에 다시 시도
-      if (!loaded) (loaded = true), void startApps().then(setApps, (e) => ((loaded = false), console.error('start_apps', e)))
-    })
-  }, [])
-
   // (a6) 설정 창: 실제 앱 = 별도 창(Rust 가 처음 열 때 생성), 시안 = 이 페이지 안 창
   const [mockSettings, setMockSettings] = useState<string | null>(null)
   const openSettingsWin = (sec = 'general') => (isTauri ? void openSettings(sec).catch((e) => showAlert({ title: '설정을 열 수 없어요', body: String(e) })) : setMockSettings(sec))
-  const [palette, setPalette] = useState(only === 'palette')
-
-  useEffect(() => {
-    if (isTauri) return // 실제 앱은 전역 단축키(Ctrl+Alt+K, Rust)
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        setPalette((p) => !p)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   const toggleTheme = () => {
     const t = theme === 'dark' ? 'light' : 'dark'
     document.documentElement.dataset.theme = t
@@ -426,19 +392,17 @@ export function Desktop({ only }: { only?: string }) {
   const [magnet, setMagnet] = useState<'near' | 'hot' | null>(null)
   const [gulp, setGulp] = useState(0)
   const nextView = useRef<ViewKind | null>(null) // 흡수한 화면 = 다음에 캡슐을 누르면 그 화면
-  const [snippets] = useSnippets()
   const [dragNear, setDragNear] = useState(false)
   const [mockFloats, setMockFloats] = useState<FloatKind[]>([])
   const v3 = useV3()
-  // 캡슐 설정 (설정 화면): 펫 · 크기 · 위치 · 전체화면 숨김 · 알림
+  // 캡슐 설정 (설정 화면): 펫 · 크기 · 전체화면 숨김 · 알림 (위치 = 캡슐을 끌어서, Rust island.pos)
   const [petKey, setPetKey] = useValue('island.pet', 'cat')
   const [capSize, setCapSize] = useValue<CapSize>('island.size', 'm')
-  const [place, setPlace] = useValue<'br' | 'bl'>('island.place', 'br')
   const [autohide, setAutohide] = useValue('island.autohide', true)
   const [petAlerts, setPetAlerts] = useValue('island.alerts', true)
-  const prefs: IslandPrefs = { pet: petKey, size: capSize, place, autohide, alerts: petAlerts }
+  const prefs: IslandPrefs = { pet: petKey, size: capSize, autohide, alerts: petAlerts }
   const setPref = <K extends keyof IslandPrefs>(k: K, v: IslandPrefs[K]) =>
-    void ({ pet: setPetKey, size: setCapSize, place: setPlace, autohide: setAutohide, alerts: setPetAlerts } as Record<keyof IslandPrefs, (x: unknown) => void>)[k](v)
+    void ({ pet: setPetKey, size: setCapSize, autohide: setAutohide, alerts: setPetAlerts } as Record<keyof IslandPrefs, (x: unknown) => void>)[k](v)
   const customs = useCustomPets()
   // (a6) 펫 추가·편집은 설정 창(다른 창)에서 → 모르는 내 펫이 고르면 목록을 다시 읽는다
   useEffect(() => void (petKey.startsWith('custom:') && !customOf(petKey, customs) && refreshPets()), [petKey])
@@ -535,7 +499,8 @@ export function Desktop({ only }: { only?: string }) {
     if (!isTauri) {
       const [w, h] = VIEW_SIZE[k]
       const r = skinRect()
-      const to = new DOMRect(Math.max(24, place === 'br' ? r.right - 360 - w - 104 : r.left + 464), Math.max(24, innerHeight - 72 - h - 40), w, h + 40)
+      const left = r.left + r.width / 2 < innerWidth / 2
+      const to = new DOMRect(Math.max(24, left ? r.left + 464 : r.right - 360 - w - 104), Math.max(24, innerHeight - 72 - h - 40), w, h + 40)
       setMockRects((m) => ({ ...m, [k]: to }))
       setGhost({ kind: k, mode: 'detach', rect: to, capsule: r })
       setHub(false)
@@ -599,7 +564,6 @@ export function Desktop({ only }: { only?: string }) {
   }
   const notepad = (id: string) => (isTauri ? void noteNotepad(id).catch((e) => showAlert({ title: '메모장으로 열지 못했어요', body: String(e) })) : undefined)
   const openTodos = todos.filter((t) => !t.done).length
-  const [snipEdit, setSnipEdit] = useState(false) // 스니펫 화면 안 '편집' (예전 패널 '상용구' 탭)
   // (a6) LP 런처: 아일랜드 안 화면 = 떼어낸 LP 창과 같은 것
   const lpBody = () => (
     <Launcher records={records} groups={groups} onRun={run} onAddRecord={(t, n) => void addRecord(t, n)} onRemoveRecord={removeRecord} onAddSet={addSet}
@@ -608,18 +572,7 @@ export function Desktop({ only }: { only?: string }) {
   const viewBody = (k: ViewKind, ghostOnly = false): ReactNode =>
     k === 'notes' ? <NotesView notes={boardNotes} onAttach={(text, color) => (addNote(text, color), say('보드에 붙였어요', 'ok'))} onBoard={() => (setHub(false), openFloat('notes'))} onNotepad={notepad} />
     : k === 'term' ? (ghostOnly ? <TermPreview /> : <TermWindow inIsland onEsc={() => setHub(false)} />)
-    : k === 'snippets' && snipEdit ? <div className="snip-edit"><SnippetTab /><div className="foot"><small>어디서든 ; 로 시작</small><button className="btn ghost" onClick={() => setSnipEdit(false)}>완료</button></div></div>
-    : k === 'snippets' ? (
-      <>
-        <div className="sect">어디서든 ; 로 시작 · 누르면 앞 앱에 붙여 넣기</div>
-        {snippets.map((sn) => (
-          <button key={sn.id} className="row" onClick={() => (setHub(false), isTauri ? void islandPaste(expand(sn.body)).catch((e) => showAlert({ title: '붙여넣지 못했어요', body: String(e) })) : undefined)}>
-            <span className="trig">;{sn.title.slice(0, 6)}</span><span className="tt"><b>{sn.title}</b><small>{sn.body.split('\n')[0]}</small></span>
-          </button>
-        ))}
-        <div className="foot"><small>상용구 {snippets.length}개</small><button className="btn ghost" data-snipedit onClick={() => setSnipEdit(true)}>편집</button></div>
-      </>
-    )
+    : k === 'snippets' ? <SnippetsView onPaste={(text) => (setHub(false), isTauri ? void snippetPaste(text).catch((e) => showAlert({ title: '붙여 넣지 못했어요', body: String(e) })) : void navigator.clipboard?.writeText(text).catch(() => {}))} />
     : k === 'ocr' ? (
       <>
         <button className="ocr-cta" onClick={() => (setHub(false), isTauri ? void hubAction('ocr') : setV3({ ocr: true }))}>
@@ -672,9 +625,9 @@ export function Desktop({ only }: { only?: string }) {
   const renderOpen = (k: string): ReactNode =>
     k === 'hub' ? (
       <HubHome next={next} events={events.filter((e) => e.start.slice(0, 10) === new Date().toISOString().slice(0, 10)).length} todos={{ left: openTodos, total: todos.length }} unread={chatUnread}
-        weather={weather ? { city, text: weather.text, temp: weather.temp } : null} onGo={go} link={linkLook(linkB)} onPalette={() => (setHub(false), isTauri ? void hubAction('palette') : setPalette(true))} />
+        weather={weather ? { city, text: weather.text, temp: weather.temp } : null} onGo={go} link={linkLook(linkB)} />
     ) : (
-      <ViewShell k={k as ViewKind} onBack={() => (setSnipEdit(false), setHubView(null))} onDetach={() => (k === 'lp' ? (setHub(false), openFloat('lp')) : void detach(k as ViewKind))}
+      <ViewShell k={k as ViewKind} onBack={() => setHubView(null)} onDetach={() => (k === 'lp' ? (setHub(false), openFloat('lp')) : void detach(k as ViewKind))}
         extra={k === 'todo' ? <span className="chp">{todos.length - openTodos} / {todos.length}</span> : k === 'notes' ? <button className="ib" aria-label="새 메모" onClick={() => addNote()}><Ico k="plus" /></button> : k === 'link' ? <ConnectHead b={linkB} /> : null}>
         {viewBody(k as ViewKind)}
         {toastMsg && <div key={toastMsg.n} className="vtoast on" role="status">{toastMsg.text}</div>}
@@ -703,10 +656,9 @@ export function Desktop({ only }: { only?: string }) {
               <button onClick={() => setHub((h) => !h)}>허브 열기</button>
               <button onClick={() => (setChatUnread((n) => n + 1), showMsg({ id: 'demo', group: 'tg-dev', by: '민수', kind: 'text', text: '내일 3시 회의 어때요? 배포 체크리스트 같이 봐요', at: Date.now() }))}>메시지 받기</button>
               <button onClick={() => (mockSettings ? setMockSettings(null) : openSettingsWin())}>설정 창</button>
-              <button onClick={() => setPalette(true)}>검색 <kbd>Ctrl K</kbd></button>
               <button onClick={toggleTheme} aria-label="테마 전환">{theme === 'dark' ? '라이트' : '다크'} 모드</button>
             </div>
-            <p>맨 위 가운데 얇은 노치를 누르거나 0.3초 올려 두면 허브가 펼쳐져요. 앱은 작업 표시줄·시작·Ctrl K.</p>
+            <p>캡슐을 누르면 허브가 펼쳐져요. 끌면 원하는 곳으로 옮겨져요.</p>
             <header className="demo-sub">
               <b>v2</b>
               <small>{clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} {clock.getHours()}시 · {seasonOf(clock)} · {city} {weather?.text}</small>
@@ -756,7 +708,7 @@ export function Desktop({ only }: { only?: string }) {
               onNews={fireNews}
               onAlarm={() => pushAlert({ title: '배포', body: '금 14:00 시작 · 민수님이 추가한 일정', key: 'event:t1', group: 'tg-dev' })}
             />
-            <V3Demo onPanel={(v) => (v === 'snippets' && setSnipEdit(true), openHub(v))} onPalette={() => setPalette(true)} />
+            <V3Demo onPanel={(v) => openHub(v)} />
           </aside>
           <Taskbar />
           <Ocr open={v3.ocr} onClose={() => setV3({ ocr: false })} onToast={(msg) => showAlert({ title: msg, body: '' })} />
@@ -766,7 +718,6 @@ export function Desktop({ only }: { only?: string }) {
       {show('island') && (
         <div onPointerDownCapture={() => isTauri && hub && void islandFocus(true)}>
           <Island
-            place={place}
             size={capSize}
             pet={customOf(petKey, customs) ? petKey : petKey.startsWith('custom:') ? 'cat' : petKey}
             custom={customOf(petKey, customs)}
@@ -811,23 +762,6 @@ export function Desktop({ only }: { only?: string }) {
           setIdleMin={setIdleMin}
           link={linkB}
           onClose={isTauri ? undefined : () => setMockSettings(null)}
-        />
-      )}
-      {palette && show('palette') && (
-        <Palette
-          key={palN}
-          initialQ={palQ}
-          records={records}
-          todos={todos}
-          apps={apps}
-          onRun={run}
-          onLaunch={(t) => void launch(t).catch((e) => showAlert({ title: '실행 실패', body: String(e) }))}
-          onOpenTodo={() => (isTauri ? void islandOpen('todo') : openHub('todo'))}
-          star={[...(star.app ?? []), ...(star.fx ?? [])]}
-          onClose={(restore) => (isTauri ? (void closePalette(restore), setPalN((n) => n + 1)) : setPalette(false))}
-          clips={clips}
-          onCopy={copyClip}
-          cmds={[...FX_RECORDS.filter((r) => star.fx?.includes(r.id)).map((r) => ({ key: r.id, title: `★ ${r.title}`, sub: r.kind === 'fx' ? 'LP · 화면 효과' : 'LP · 아스키 장면', run: () => (isTauri ? void (r.kind === 'fx' ? openFx(r.arg) : openAscii(null, r.arg === 'auto' ? undefined : r.arg)) : mockPlay(r)) })), ...(filesPeer && getShare('fx') ? AMBIENT.map(([label, a]) => ({ key: `amb-${label}`, title: `${filesPeer}에 ${label} 켜기`, sub: '연결 · 상대 PC 화면', run: () => void linkAmbient(a).catch((e) => showAlert({ title: '보내지 못했어요', body: String(e) })) })).concat([{ key: 'amb-off', title: `${filesPeer} 화면 효과 끄기`, sub: 'Hera Link', run: () => void (linkAmbient({ kind: 'ascii', action: 'stop' }), linkAmbient({ kind: 'fx', action: 'stop' })) }]) : [])]}
         />
       )}
       {only === 'ocr' && <Ocr open onClose={() => void closeSelf()} onToast={(msg) => showAlert({ title: msg, body: '' })} />}

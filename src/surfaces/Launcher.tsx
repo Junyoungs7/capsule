@@ -8,7 +8,7 @@ import { Tile } from './Tile'
 /* (a6) LP 런처 (승인 시안 lp-settings.html): 아일랜드 안 화면 452×612 · 떼어내면 떠 있는 LP.
    상자가 둘 — 앱 LP(앱 · URL · 세트 · 묶음) 와 효과·아스키 LP(화면 효과 5 + 아스키 5). 섞이지 않고, 고정(★)·순서도 따로.
    덱 = 판 하나: 마지막에 올린 판이 앞 판을 바꾼다. 앱 판을 꺼내도 앱은 닫히지 않는다. 효과·아스키는 화면 하나를 같이 쓰니 새 판이 앞 판을 멈춘다.
-   ★ = 그 상자 맨 앞 + Ctrl+Alt+K 검색 맨 위 (store lp.star = { app: [], fx: [] }). 판은 쉬는 동안 돌지 않는다. */
+   ★ = 그 상자 맨 앞 (store lp.star = { app: [], fx: [] }). 판은 쉬는 동안 돌지 않는다. */
 
 export type FxRec = { id: string; title: string; cover: string; glyph: string; kind: 'fx' | 'ascii'; arg: string }
 export const FX_RECORDS: FxRec[] = [
@@ -272,7 +272,7 @@ export function Launcher(p: Props) {
             <span className="stack">{x.recordIds.slice(0, 4).map(byId).filter((y): y is LpRecord => !!y).map((y) => <Disc key={y.id} d={19} cover={y.cover} kind="single" />)}</span><small>{x.title}</small>
             {starOf('app').includes(x.id) && <span className="star"><Ico k="star" /></span>}
             <span className="acts">
-              <button data-star={x.id} onClick={() => toggleStar('app', x.id)} aria-label={`${x.title} 고정`} title={starOf('app').includes(x.id) ? '고정 풀기' : '맨 앞에 고정 · 검색에서도 위로'}><Ico k="star" /></button>
+              <button data-star={x.id} onClick={() => toggleStar('app', x.id)} aria-label={`${x.title} 고정`} title={starOf('app').includes(x.id) ? '고정 풀기' : '맨 앞에 고정'}><Ico k="star" /></button>
               <button onClick={() => (setEditG({ id: x.id, title: x.title, recordIds: x.recordIds }), setSheet('group'))} aria-label={`${x.title} 묶음 편집`}><Ico k="edit" /></button>
               <button className="del" onClick={() => p.onRemoveGroup(x.id)} aria-label={`${x.title} 묶음 삭제`}><Ico k="close" /></button>
             </span>
@@ -282,7 +282,7 @@ export function Launcher(p: Props) {
             <Disc d={56} cover={x.cover} kind={x.kind} rec={x} set={setCovers(x)} /><small>{x.title}</small>
             {starOf('app').includes(x.id) && <span className="star"><Ico k="star" /></span>}
             <span className="acts">
-              <button data-star={x.id} onClick={() => toggleStar('app', x.id)} aria-label={`${x.title} 고정`} title={starOf('app').includes(x.id) ? '고정 풀기' : '맨 앞에 고정 · 검색에서도 위로'}><Ico k="star" /></button>
+              <button data-star={x.id} onClick={() => toggleStar('app', x.id)} aria-label={`${x.title} 고정`} title={starOf('app').includes(x.id) ? '고정 풀기' : '맨 앞에 고정'}><Ico k="star" /></button>
               <button className="del" data-del={x.id} onClick={() => (onDeck === x.id && setDeck(null), p.onRemoveRecord(x.id))} aria-label={`${x.title} 삭제`} title="삭제"><Ico k="close" /></button>
             </span>
           </div>
@@ -291,11 +291,11 @@ export function Launcher(p: Props) {
           <div key={x.id} className={`rec ${onDeck === x.id ? 'ondeck' : ''}`} data-rec={x.id} role="listitem" onPointerDown={(e) => drag({ kind: 'fx', rec: x }, e)} aria-label={`${x.title} ${KIND[x.kind]} — 끌어서 플래터에, 누르면 재생`}>
             <Disc d={56} cover={x.cover} kind={x.kind} glyph={x.glyph} /><small>{x.title}</small>
             {starOf('fx').includes(x.id) && <span className="star"><Ico k="star" /></span>}
-            <span className="acts"><button data-star={x.id} onClick={() => toggleStar('fx', x.id)} aria-label={`${x.title} 고정`} title={starOf('fx').includes(x.id) ? '고정 풀기' : '맨 앞에 고정 · 검색에서도 위로'}><Ico k="star" /></button></span>
+            <span className="acts"><button data-star={x.id} onClick={() => toggleStar('fx', x.id)} aria-label={`${x.title} 고정`} title={starOf('fx').includes(x.id) ? '고정 풀기' : '맨 앞에 고정'}><Ico k="star" /></button></span>
           </div>
         ))}
       </div>
-      <div className="lpfoot"><Ico k="search" /><span>Ctrl+Alt+K 검색에서도 이름으로 재생</span><span className="spacer" /><span>{crate === 'app' ? 'URL을 여기로 끌어 놓으면 추가' : '★ = 맨 앞 · 검색 맨 위'}</span></div>
+      <div className="lpfoot"><span>{crate === 'app' ? 'URL을 여기로 끌어 놓으면 추가' : '★ = 맨 앞'}</span></div>
       <Sheet mode={sheet} setMode={setSheet} {...p} apps={p.records.filter((x) => x.kind === 'single')} edit={editG} clearEdit={() => setEditG(null)} say={say} />
       {toast && <div key={toast.n} className="toast on" role="status">{toast.t}</div>}
     </div>

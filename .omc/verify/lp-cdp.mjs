@@ -1,6 +1,6 @@
 // (a6) LP launcher suite — HEADLESS only (headless.mjs). Hub LP icon → LP view inside the Island (452×612): deck + two crates
 // that never mix (앱 LP · 효과·아스키 LP) · tap = on the platter + play · eject an app = app stays open · effects: the newest replaces
-// the previous one · capsule 'LP 재생 중' + stop chip · ★ = first in its crate + top of Ctrl+Alt+K search · add sheet (URL · 세트 · 묶음)
+// the previous one · capsule 'LP 재생 중' + stop chip · ★ = first in its crate · add sheet (URL · 세트 · 묶음)
 // · Space = play/stop · detach → LP window with the same launcher.   node .omc/verify/lp-cdp.mjs
 import { start, sleep, suite } from './headless.mjs'
 
@@ -124,13 +124,6 @@ try {
   await isl.clickSel('.lpv [data-lpmake]')
   ok('세트 만들기 → a set record in that order', await until(() => [...h.store.values()].some((v) => v?.kind === 'set' && v.targets?.join() === 'gh,calc')))
   ok('sheet closes after making', await until(() => isl.eval(`!document.querySelector('.lpv .sheet').classList.contains('on')`)))
-
-  /* Ctrl+Alt+K: ★ 맨 위 */
-  const pal = await h.open('palette', { geo: { x: 600, y: 200, w: 596, h: 460 } })
-  await until(() => pal.eval(`/★/.test(document.querySelector('.palette-list')?.textContent ?? '')`), 8000)
-  const top = await pal.eval(`[...document.querySelectorAll('.palette li, .palette [role=option]')].slice(0, 6).map((e) => e.textContent)`)
-  ok('★ records are on top of the Ctrl+Alt+K search (app ★ then effect ★)', /★ GitHub/.test(top.join('|')) && /★ 달·별/.test(top.join('|')) && top.findIndex((t) => /GitHub/.test(t)) < top.findIndex((t) => /계산기/.test(t) || t === '') + 99, JSON.stringify(top))
-  await h.closePage('palette')
 
   /* 떼어내기 → LP 창 (같은 런처) */
   await isl.clickSel('.view[data-k=lp] [data-detach]')

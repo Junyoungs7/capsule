@@ -6,11 +6,10 @@ mod imp {
     use super::*;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowLongPtrW, IsWindow, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        GetForegroundWindow, IsWindow, SetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
     };
 
-    /// B0-5: 상주 웹뷰(독/아일랜드/턴테이블/숨긴 팔레트)는 상시 저메모리 모드
+    /// B0-5: 상주 웹뷰(아일랜드)는 상시 저메모리 모드
     pub fn low_memory(win: &WebviewWindow) -> tauri::Result<()> {
         win.with_webview(|wv| unsafe {
             use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW};
@@ -98,18 +97,11 @@ mod imp {
         unsafe { GetForegroundWindow() }.0 as isize
     }
 
-    /// 팔레트를 닫을 때 직전 앱으로 포커스 반환
+    /// 아일랜드가 접힐 때 직전 앱으로 포커스 반환
     pub fn restore_foreground(prev: isize) {
         let prev = HWND(prev as _);
         if unsafe { IsWindow(Some(prev)) }.as_bool() {
             let _ = unsafe { SetForegroundWindow(prev) };
-        }
-    }
-
-    /// Alt+Tab 제외 = TOOLWINDOW, APPWINDOW 없음 (포커스는 받음). tao 가 show 때 GWL_EXSTYLE 을 통째로 다시 쓰므로 show 뒤에 부를 것.
-    pub fn toolwindow(win: &WebviewWindow) {
-        if let Ok(h) = win.hwnd() {
-            unsafe { SetWindowLongPtrW(h, GWL_EXSTYLE, (GetWindowLongPtrW(h, GWL_EXSTYLE) | WS_EX_TOOLWINDOW.0 as isize) & !(WS_EX_APPWINDOW.0 as isize)) };
         }
     }
 }
@@ -148,7 +140,6 @@ mod imp {
         0
     }
     pub fn restore_foreground(_: isize) {}
-    pub fn toolwindow(_: &WebviewWindow) {}
 }
 
 pub use imp::*;

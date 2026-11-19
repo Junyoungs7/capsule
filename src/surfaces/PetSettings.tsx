@@ -24,7 +24,7 @@ export const useCustomPets = () => {
 }
 export const customOf = (key: string, list: CustomPet[]) => (key.startsWith('custom:') ? list.find((c) => `custom:${c.id}` === key) ?? null : null)
 
-export type IslandPrefs = { pet: string; size: CapSize; place: 'br' | 'bl'; autohide: boolean; alerts: boolean }
+export type IslandPrefs = { pet: string; size: CapSize; autohide: boolean; alerts: boolean }
 
 /** 내 펫 지우기 (실제 앱 = Rust, 시안 = 이 페이지 메모리) */
 export async function removePet(id: string) {

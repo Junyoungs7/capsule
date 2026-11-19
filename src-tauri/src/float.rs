@@ -136,7 +136,7 @@ fn create(app: &AppHandle, f: &str, fit: Option<(f64, f64)>, enter: bool) -> tau
             if let Ok(Some(m)) = app.primary_monitor() {
                 let (sc, wa) = (m.scale_factor(), *m.work_area());
                 let sz = ((size.0 * sc) as i32, (size.1 * sc) as i32);
-                let (x, y) = default_pos([wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32], sc, sz, crate::island::left(app));
+                let (x, y) = default_pos([wa.position.x, wa.position.y, wa.size.width as i32, wa.size.height as i32], sc, sz, !crate::island::island_anchor().right);
                 crate::ui::set_client_bounds(&win, x, y, sz.0, sz.1);
             }
         }

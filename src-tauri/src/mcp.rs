@@ -212,7 +212,7 @@ fn group_name(s: &Store, id: &str) -> String {
     s.get(format!("team.group:{id}")).and_then(|g| g["name"].as_str().map(String::from)).unwrap_or_else(|| id.to_string())
 }
 
-/// v3 메모 색 = 팔레트 번호 (Notes.tsx NOTE_COLORS: 노랑·분홍·파랑·초록·보라·주황)
+/// v3 메모 색 = 색 번호 (Notes.tsx NOTE_COLORS: 노랑·분홍·파랑·초록·보라·주황)
 fn note_color(c: &Value) -> Option<u64> {
     if let Some(n) = c.as_u64().filter(|n| *n < 6) {
         return Some(n);

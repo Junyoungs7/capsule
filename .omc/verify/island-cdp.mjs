@@ -1,7 +1,7 @@
 // (a3) Island suite — HEADLESS only (see headless.mjs: Vite + headless Chrome + mocked Tauri IPC). Never launches Hera, never moves the real mouse.
 //   node .omc/verify/island-cdp.mjs
 // Covers: corner capsule geometry + hit rect · hover intent (150ms dwell / 300ms grace / hysteresis, no restart) · tap → hub
-//   · all 13 hub icons give a visible response · 메모 view (bug 1) · Ctrl+` terminal 640×300 upward · capsule size live · place bl
+//   · all 13 hub icons give a visible response · 메모 view (bug 1) · Ctrl+` terminal 640×300 upward · capsule size live · anchor left
 //   · alerts drive the pet · sleep + paused animations · detach/absorb/close keep the capsule clickable (bug 5) · frame times (bug 2/4)
 //   · float drag = own pointer drag (no OS caption / no maximise on double-click) + absorb on the capsule (bug 3).
 import { start, sleep, suite, WA, ISL } from './headless.mjs'
@@ -184,11 +184,11 @@ try {
   ok('pixel pet: one art pixel = whole device pixels', Number.isInteger(+(pk * 2.5 * 1).toFixed(6)) && pk * 2.5 === 4, String(pk))
   ok('hub/views never scale with the capsule', (await (async () => { await isl.click(...(await capsuleCenter())); await until(hubOpen); await sleep(600); const s = await skin(); await isl.key('Escape'); await until(async () => !(await hubOpen())); return s[2] })()) === 432)
   await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.size', value: 'm' })`)
-  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.place', value: 'bl' })`)
+  await h.emitTo('island', 'island-anchor', { right: false, bottom: true, x: 56, y: 38 })
   await sleep(700)
   const bl = await skin()
-  ok('place = 왼쪽 아래 moves the capsule to the left corner', bl[0] === 16 && bl[1] + bl[3] === ISL.h - 8, JSON.stringify(bl))
-  await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.place', value: 'br' })`)
+  ok('anchor on the left (capsule dragged to the left half) → capsule hugs the left edge', bl[0] === 16 && bl[1] + bl[3] === ISL.h - 8, JSON.stringify(bl))
+  await h.emitTo('island', 'island-anchor', { right: true, bottom: true, x: 56, y: 38 })
   await isl.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.pet', value: 'cat' })`)
   await sleep(700)
 

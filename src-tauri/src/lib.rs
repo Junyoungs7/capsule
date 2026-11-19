@@ -42,15 +42,12 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Webview
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_store::StoreExt;
-use std::sync::atomic::{AtomicIsize, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 // 아일랜드 창 = 주 모니터 폭 × 600 (island.rs). 모양은 CSS (노치 120×6 · 알약 · 허브 · 안의 화면) — 클릭 통과는 watch 루프의 히트 rect.
 /// 터미널 드롭다운 단축키 기본값 (store `term.hotkey` 로 바꿈)
 const TERM_HOTKEY: &str = "Ctrl+Backquote";
 const SETTINGS: (f64, f64) = (940.0, 680.0); // (a6) 설정 창 (예전 패널 창 대신)
-const PALETTE: (f64, f64) = (596.0, 460.0);
-/// C3 팔레트 단축키 (Open Question 2 — Win+K 는 OS 예약, Alt+Space 는 PowerToys 와 충돌)
-const PALETTE_HOTKEY: &str = "Ctrl+Alt+K";
 
 fn builder<'a>(app: &'a AppHandle, label: &'a str, url: String, (w, h): (f64, f64)) -> WebviewWindowBuilder<'a, tauri::Wry, AppHandle> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
@@ -84,12 +81,9 @@ pub(crate) fn migrate_todo(v: &serde_json::Value) -> Option<serde_json::Value> {
     })
 }
 
-/// 배치: 아일랜드 = 주 모니터 작업 영역 오른쪽(왼쪽) 아래 모서리. DPI/작업 영역 변경 시 재호출.
+/// 배치: 아일랜드 = 저장된 자리(끌어 놓은 곳, 처음엔 주 모니터 오른쪽 아래). DPI/작업 영역/모니터 변경 시 재호출.
 pub(crate) fn place(app: &AppHandle) {
-    let Ok(Some(m)) = app.primary_monitor() else { return };
-    let (s, wa) = (m.scale_factor(), *m.work_area());
     island::place(app);
-    let _ = (s, wa);
 }
 
 /// (a6) 설정 창 940×680: 처음 열 때 만들고(평소 0), 닫으면 파괴. 열려 있으면 그 섹션으로 + 앞으로.
@@ -112,77 +106,13 @@ pub(crate) fn open_settings(app: &AppHandle, sec: &str) -> tauri::Result<()> {
     win.set_focus()
 }
 
-/// C3 팔레트: 시작 시 숨김 상태로 1회 생성해 두고 단축키마다 보이기/숨기기.
-/// 결정(측정): 단축키마다 생성하면 invoke→첫 페인트 p50 240 / p95 309ms 로 150ms 초과 → 숨김 유지(+~10MB, idle 합 ≤150MB 안).
-/// 열기 직전 포그라운드 창을 기억했다가 Esc 로 닫으면 돌려준다.
-static PALETTE_PREV: AtomicIsize = AtomicIsize::new(0);
 static TERM_KEY: std::sync::OnceLock<tauri_plugin_global_shortcut::Shortcut> = std::sync::OnceLock::new();
 
-fn palette_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let win = builder(app, "palette", "index.html?surface=palette".into(), PALETTE).shadow(false).build()?;
-    ui::low_memory(&win)?;
-    Ok(win)
-}
-
-fn toggle_palette(app: &AppHandle) -> tauri::Result<()> {
-    show_palette(app, None)
-}
-
-/// 팔레트 보이기. q = 처음 검색어 (허브 '스니펫' = ";"). 이미 보이면(q 없음) 닫기.
-fn show_palette(app: &AppHandle, q: Option<String>) -> tauri::Result<()> {
-    let win = match app.get_webview_window("palette") {
-        Some(w) if w.is_visible()? && q.is_none() => return close_palette_win(app, true),
-        Some(w) if w.is_visible()? => return app.emit_to("palette", "palette-open", q),
-        Some(w) => w,
-        None => palette_window(app)?,
-    };
-    PALETTE_PREV.store(ui::foreground(), Ordering::Relaxed);
-    if let Ok(Some(m)) = app.primary_monitor() {
-        let (s, wa) = (m.scale_factor(), *m.work_area());
-        let (x, w) = (wa.position.x as f64, wa.size.width as f64);
-        let y = wa.position.y as f64 + wa.size.height as f64 * 0.17 - 8.0 * s;
-        win.set_position(PhysicalPosition::new((x + (w - PALETTE.0 * s) / 2.0).round() as i32, y.round() as i32))?;
-    }
-    win.show()?;
-    // Alt+Tab 제외 = TOOLWINDOW, APPWINDOW 없음 (포커스는 받음 — NOACTIVATE 아님). tao 가 show 때 GWL_EXSTYLE 을 통째로 다시 쓰므로
-    // 보이기 처리 뒤(메인 스레드 큐에서 show 다음 순서)에 OR 한다.
-    let w = win.clone();
-    app.run_on_main_thread(move || ui::toolwindow(&w))?;
-    win.set_focus()?; // 전역 단축키(WM_HOTKEY)를 받은 직후라 전면 전환이 허용된다
-    app.emit_to("palette", "palette-open", q)
-}
-
-fn close_palette_win(app: &AppHandle, restore: bool) -> tauri::Result<()> {
-    if let Some(w) = app.get_webview_window("palette") {
-        w.hide()?;
-    }
-    if restore {
-        ui::restore_foreground(PALETTE_PREV.load(Ordering::Relaxed));
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn palette(app: AppHandle, q: Option<String>) -> Result<(), String> {
-    if q.is_some() {
-        return show_palette(&app, q).map_err(|e| e.to_string());
-    }
-    toggle_palette(&app).map_err(|e| e.to_string())
-}
-
-/// v3 상용구 붙여넣기: 팔레트를 숨기고 직전 앱으로 포커스를 돌려준 뒤 그 앱에 붙여넣는다 (클립보드는 잠깐 빌림)
+/// 상용구 붙여넣기 (아일랜드 '스니펫' 화면): 직전 앱으로 포커스를 돌려준 뒤 그 앱에 붙여넣는다 (클립보드는 잠깐 빌림)
 #[tauri::command]
 async fn snippet_paste(app: AppHandle, text: String) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("palette") {
-        let _ = w.hide();
-    }
-    tauri::async_runtime::spawn_blocking(move || clip::paste(&text, || ui::restore_foreground(PALETTE_PREV.load(Ordering::Relaxed)))).await.map_err(|e| e.to_string())?
-}
-
-/// 숨기기. restore = Esc/바깥 클릭(이전 앱으로 포커스 반환). 실행·포커스 잃음은 false.
-#[tauri::command]
-async fn close_palette(app: AppHandle, restore: bool) -> Result<(), String> {
-    close_palette_win(&app, restore).map_err(|e| e.to_string())
+    island::island_focus(app, false);
+    tauri::async_runtime::spawn_blocking(move || clip::paste(&text, || {})).await.map_err(|e| e.to_string())?
 }
 
 /// C1 플래터 클릭 → 레코드의 앱 창 전면 (keys = exe 경로 / shell:appsfolder\aumid, 소문자)
@@ -411,10 +341,6 @@ pub(crate) fn ocr_open(app: &AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("ocr") {
         return w.set_focus().map_err(|e| e.to_string());
     }
-    if let Some(p) = app.get_webview_window("palette").filter(|p| p.is_visible().unwrap_or(false)) {
-        let _ = p.hide(); // 팔레트가 찍히지 않게
-        std::thread::sleep(std::time::Duration::from_millis(120));
-    }
     let r = ocr::capture_at_cursor()?;
     let m = app.monitor_from_point(r[0] as f64 + 1.0, r[1] as f64 + 1.0).ok().flatten().or(app.primary_monitor().ok().flatten()).ok_or("모니터 없음")?;
     let sc = m.scale_factor();
@@ -569,11 +495,9 @@ async fn hub_action(app: AppHandle, kind: String) -> Result<(), String> {
     match kind.as_str() {
         "notes" => float::open(&app, "notes").map_err(e), // (a4) 메모 보드
         "ocr" => tauri::async_runtime::spawn_blocking(move || ocr_open(&app)).await.map_err(|e| e.to_string())?,
-        "snippets" => show_palette(&app, Some(";".into())).map_err(e),
         "team" => open_settings(&app, "chat").map_err(e),
         "link" => open_settings(&app, "link").map_err(e),
         "settings" => open_settings(&app, "general").map_err(e),
-        "palette" => show_palette(&app, Some(String::new())).map_err(e),
         _ => Err(format!("unknown hub action {kind}")),
     }
 }
@@ -802,8 +726,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, wallpaper, wallpaper_style, launch, icon, drag_out, start_apps, watch_state, alarms_ready, lnk_target,
-            ascii_stop, team_state, team_create, team_leave, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, palette, close_palette, activate, power, clips, set_clip, ascii, fx, fx_stop,
-            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_paste, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, pick_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
+            ascii_stop, team_state, team_create, team_leave, team_invite, team_join, team_flags, team_name, team_dial, snippet_paste, ocr_start, ocr_region, ocr_save, activate, power, clips, set_clip, ascii, fx, fx_stop,
+            float::float_open, float::float_close, float::float_pin, float::float_show, float::float_prepare, float::float_ready, float::float_drag, float::float_absorbed, island::island_tall, island::island_focus, island::island_anchor, island::island_drag, hub_action, appbar_set, chat_send_paths, chat_attach, clip_files, pick_files, shelf_add, term_start, term_write, term_resize, term_kill, term_state, term_to_ara, link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, link_ambient,
             notes::note_notepad, pets::pet_list, pets::pet_save, pets::pet_delete, pets::pet_import, pets::pet_export,
             mcp::mcp_log, mcp::mcp_info, mcp::mcp_confirm // AI 연결(MCP)
         ])
@@ -840,6 +764,15 @@ pub fn run() {
             if s.get("appbar.on").and_then(|v| v.as_bool()).unwrap_or(false) {
                 appbar::set(h, true);
             }
+            // (a13) 예전 '왼쪽 아래' 설정은 처음 자리로 한 번만 옮겨 온다 (이제 캡슐을 끌어 둔다)
+            if s.get("island.place").is_some_and(|v| v == "bl") && !s.has("island.pos") {
+                if let Ok(Some(m)) = app.primary_monitor() {
+                    let (wa, sc) = (m.work_area(), m.scale_factor());
+                    let (w, hh) = (wa.size.width.max(1) as f64, wa.size.height.max(1) as f64);
+                    s.set("island.pos", serde_json::json!({ "mon": m.name(), "fx": 56.0 * sc / w, "fy": 1.0 - 38.0 * sc / hh }));
+                }
+            }
+            s.delete("island.place");
             let island = overlay(h, "island", "", (island::WIDTH, island::HEIGHT))?;
             place(h);
             {
@@ -860,16 +793,12 @@ pub fn run() {
             team::app::start(h); // 그룹이 있을 때만 포트·비콘
             link::files_start(h);
             mcp::start(h.clone()); // AI 연결(MCP): 파이프 대기 (꺼져 있으면 호출을 거절)
-            // 팔레트는 부가 기능 — 실패해도 시작은 계속 (첫 단축키 때 다시 만든다)
-            if let Err(e) = palette_window(h) {
-                eprintln!("palette window: {e}");
-            }
             // v3: 턴테이블 창 제거 → 남은 설정 정리
             for k in ["turntable.open", "turntable.pos"] {
                 s.delete(k);
             }
 
-            // C3: 전역 단축키 → 팔레트 (창 생성은 비동기 스레드에서 — toggle_panel 과 같은 경로)
+            // 전역 단축키: 터미널 드롭다운 · 화면 글자 복사
             h.plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(|app, sc, e| {
@@ -885,13 +814,10 @@ pub fn run() {
                             let _ = h.emit_to("island", "island-open", "term");
                         } else if ocr {
                             tauri::async_runtime::spawn_blocking(move || ocr_open(&h).map_err(|e| eprintln!("ocr: {e}")));
-                        } else {
-                            tauri::async_runtime::spawn(async move { toggle_palette(&h) });
                         }
                     })
                     .build(),
             )?;
-            let _ = h.global_shortcut().register(PALETTE_HOTKEY); // 다른 앱이 선점하면 실패 → 트레이 '검색' 으로 연다
             let _ = h.global_shortcut().register(OCR_HOTKEY); // v3 화면 글자 복사 (⌘K 에도 있음)
             // 터미널 드롭다운 (기본 Ctrl+`, store `term.hotkey` 로 바꿀 수 있음 — 다음 실행부터)
             let tk = s.get("term.hotkey").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| TERM_HOTKEY.into());
@@ -904,8 +830,11 @@ pub fn run() {
             {
                 let a = h.clone();
                 listen_store(h, move |k, v| {
-                    if k == "island.place" {
-                        island::place(&a); // 오른쪽 아래 ↔ 왼쪽 아래
+                    if k == "island.pos" {
+                        island::place(&a); // 끌어 놓음 · 설정 '처음 자리로'(지움)
+                    }
+                    if matches!(k, "island.autohide" | "ascii.idleMin" | "fx.enabled" | "locator.enabled") {
+                        watch::RECHECK.store(true, Ordering::Relaxed); // 2초 기다리지 않고 바로 적용
                     }
                     if k == "appbar.on" {
                         appbar::set(&a, v.and_then(|v| v.as_bool()).unwrap_or(false));
@@ -924,7 +853,6 @@ pub fn run() {
                 app,
                 &[
                     &MenuItem::with_id(app, "settings", "설정 열기", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "palette", format!("검색 ({PALETTE_HOTKEY})"), true, None::<&str>)?,
                     &fx_item,
                     &auto,
                     &MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?,
@@ -937,10 +865,6 @@ pub fn run() {
                 .on_menu_event(move |app, e| match e.id().as_ref() {
                     "settings" => {
                         let _ = open_settings(app, "general");
-                    }
-                    "palette" => {
-                        let h = app.clone();
-                        tauri::async_runtime::spawn(async move { toggle_palette(&h) });
                     }
                     "fx" => {
                         // 체크 표시는 메뉴가 이미 뒤집었다 → 그 값을 저장 (패널 스위치는 store 변경 이벤트로 따라온다)
@@ -980,6 +904,22 @@ pub fn run() {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// (a13) 설정 창이 권한 목록(capability)에 없어서 store·이벤트 호출이 모두 거절됐다 (설정이 하나도 저장·반영되지 않던 원인).
+    /// Rust 가 만드는 창 라벨은 모두 기본 권한 목록에 들어 있어야 한다.
+    #[test]
+    fn every_window_label_has_the_capability() {
+        let cap: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let pats: Vec<&str> = cap["windows"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+        let covered = |l: &str| pats.iter().any(|p| p.strip_suffix('*').map_or(*p == l, |pre| l.starts_with(pre)));
+        let mut labels = vec!["island".to_string(), "settings".into(), "ocr".into(), "float-chat".into(), "float-lp".into()];
+        labels.extend(FX_LABELS.iter().map(|s| s.to_string()));
+        let mons: Vec<Mon> = (0..3).map(|i| ((i * 1920, 0), (1920, 1080), 1.0)).collect();
+        labels.extend(cover_rects(&mons).into_iter().map(|c| c.0));
+        for l in labels {
+            assert!(covered(&l), "권한 목록에 창 {l} 없음 → store·이벤트 호출이 거절된다");
+        }
+    }
 
     #[test]
     fn todo_range_migration() {

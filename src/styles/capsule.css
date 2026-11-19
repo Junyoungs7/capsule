@@ -1,5 +1,5 @@
 /* ═══════════ Hera Island (a3) — 펫 캡슐 · 허브 · 화면 · 떼어낸 창. 승인 시안 prototype.html · 00-spec.png 그대로 ═══════════
-   .hx = 이 디자인 범위 (아일랜드 창 · 떠 있는 창). 다른 표면(패널·팔레트)의 토큰과 섞이지 않게 여기에만 둔다. 1px = 논리 1px, 8px 격자. */
+   .hx = 이 디자인 범위 (아일랜드 창 · 떠 있는 창). 다른 표면(패널)의 토큰과 섞이지 않게 여기에만 둔다. 1px = 논리 1px, 8px 격자. */
 @import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css'; /* OFL — public/licenses/Pretendard-OFL.txt, CDN 없음 */
 
 .hx {
@@ -35,10 +35,10 @@
 .hx input, .hx textarea { font: inherit; color: inherit; border: 0; background: none; outline: 0; user-select: text; }
 .hx .ico { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-/* ───────── 캡슐: 한 표면이 알약 · 허브 · 화면으로 바뀐다 (모서리 기준, 위·안쪽으로) ───────── */
-.isl { position: fixed; z-index: 50; bottom: 8px; }
-.isl[data-place='br'] { right: 16px; }
-.isl[data-place='bl'] { left: 16px; }
+/* ───────── 캡슐: 한 표면이 알약 · 허브 · 화면으로 바뀐다 (a13: 캡슐이 있는 절반의 반대 = 화면 안쪽으로) ─────────
+   data-h = 붙는 가로 가장자리 (r: 왼쪽으로 펼침 · l: 오른쪽으로), data-v = 세로 (b: 위로 · t: 아래로). 자리(right/left·bottom/top)는 Island.tsx 인라인 */
+.isl { position: fixed; z-index: 50; }
+.isl[data-drag='true'], .isl[data-drag='true'] * { cursor: grabbing !important; }
 .isl .skin {
   position: relative; overflow: hidden; color: var(--t1);
   width: 64px; height: 48px; border-radius: 24px;
@@ -46,12 +46,14 @@
   background: var(--sheen), rgba(14, 14, 18, 0.94); box-shadow: var(--rim), var(--lift);
   transition: width var(--morph) var(--spring), height var(--morph) var(--spring), border-radius var(--morph) var(--spring), transform 320ms var(--ease-calm), box-shadow 320ms var(--ease-calm);
 }
-.isl[data-place='br'] .skin { margin-left: auto; transform-origin: 100% 100%; }
-.isl[data-place='bl'] .skin { transform-origin: 0 100%; }
+.isl .skin { transform-origin: var(--ox) var(--oy); }
+.isl[data-h='r'] .skin { margin-left: auto; }
 .isl[data-open='true'] .skin { background: var(--sheen), var(--glass-strong); backdrop-filter: var(--blur); }
-.isl .content { position: absolute; bottom: 0; opacity: 1; transition: opacity var(--fade) ease-out; }
-.isl[data-place='br'] .content { right: 0; }
-.isl[data-place='bl'] .content { left: 0; }
+.isl .content { position: absolute; opacity: 1; transition: opacity var(--fade) ease-out; }
+.isl[data-h='r'] .content { right: 0; }
+.isl[data-h='l'] .content { left: 0; }
+.isl[data-v='b'] .content { bottom: 0; }
+.isl[data-v='t'] .content { top: 0; }
 .isl .content.out { opacity: 0; transition-duration: 90ms; }
 .isl[data-open='false'] .content { opacity: 0; pointer-events: none; }
 
@@ -64,16 +66,18 @@
 .isl[data-magnet='near'] .skin { transform: scale(1.08); }
 .isl[data-magnet='hot'] .skin { transform: scale(1.16); box-shadow: var(--rim), 0 0 0 2px var(--accent), 0 0 24px 6px rgba(10, 132, 255, 0.45), var(--lift); }
 
-/* 캡슐 줄: [글 알약][펫] (오른쪽 아래) · [펫][글 알약] (왼쪽 아래) */
-.isl .cap { position: absolute; bottom: 0; height: calc(48px * var(--k, 1)); display: flex; align-items: center; transition: opacity 120ms; }
-.isl[data-place='br'] .cap { right: 0; flex-direction: row; }
-.isl[data-place='bl'] .cap { left: 0; flex-direction: row-reverse; }
+/* 캡슐 줄: [글 알약][펫] (오른쪽 절반) · [펫][글 알약] (왼쪽 절반) */
+.isl .cap { position: absolute; height: calc(48px * var(--k, 1)); display: flex; align-items: center; transition: opacity 120ms; }
+.isl[data-v='b'] .cap { bottom: 0; }
+.isl[data-v='t'] .cap { top: 0; }
+.isl[data-h='r'] .cap { right: 0; flex-direction: row; }
+.isl[data-h='l'] .cap { left: 0; flex-direction: row-reverse; }
 .isl[data-open='true'] .cap { opacity: 0; pointer-events: none; }
 .isl .petbox { width: calc(64px * var(--k, 1)); height: calc(48px * var(--k, 1)); display: grid; place-items: center; padding-top: calc(2px * var(--k, 1)); flex: none; transition: transform 320ms var(--ease-calm); cursor: pointer; }
 .isl .petbox .pet { transform: scale(var(--pk, 1)); }
 .isl .ptext { overflow: hidden; display: flex; flex-direction: column; justify-content: center; min-width: 0; opacity: 0; transform: translateX(10px); transition: opacity 160ms, transform 360ms var(--ease-calm); white-space: nowrap; cursor: pointer; }
-.isl[data-place='br'] .ptext { padding-left: calc(18px * var(--k, 1)); text-align: left; }
-.isl[data-place='bl'] .ptext { padding-right: calc(18px * var(--k, 1)); transform: translateX(-10px); }
+.isl[data-h='r'] .ptext { padding-left: calc(18px * var(--k, 1)); text-align: left; }
+.isl[data-h='l'] .ptext { padding-right: calc(18px * var(--k, 1)); transform: translateX(-10px); }
 .isl[data-mode='alert'] .ptext { opacity: 1; transform: none; transition-delay: 140ms, 100ms; }
 .isl .ptext b { font-size: calc(13px * var(--k, 1)); font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
 .isl .ptext small { font-size: calc(11.5px * var(--k, 1)); color: var(--t2); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; }
@@ -116,9 +120,6 @@
 .hx .well .badge { position: absolute; top: -5px; right: -6px; box-shadow: 0 0 0 2px #19191d; }
 .hx .well.sm { width: 24px; height: 24px; border-radius: 7px; }
 .hx .well.sm .ico { width: 14px; height: 14px; stroke-width: 2; }
-.hx .search { height: 40px; width: 100%; border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); display: flex; align-items: center; gap: 10px; padding: 0 12px; color: var(--t3); font-size: 13px; text-align: left; }
-.hx .search .ico { width: 16px; height: 16px; }
-.hx .search span { flex: 1; }
 .hx kbd { font: 600 11px/1 var(--font); color: var(--t2); padding: 4px 6px; border-radius: 6px; background: var(--fill-2); }
 
 /* ───────── 화면 ───────── */
@@ -151,6 +152,8 @@
 .hx .row .tt b { display: block; font-size: 13px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hx .row .tt small { display: block; font-size: 11.5px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hx .row .side { flex: none; font-size: 11.5px; color: var(--t3); }
+.hx .row.snip { gap: 4px; padding-right: 4px; }
+.hx .row.snip .tt { align-self: stretch; text-align: left; display: flex; flex-direction: column; justify-content: center; }
 .hx .sq { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; background: var(--fill-2); color: var(--t2); font: 700 10px/1 var(--font); }
 .hx .sq .ico { width: 16px; height: 16px; }
 .hx .empty { color: var(--t3); font-size: 12.5px; text-align: center; padding: 12px; }
@@ -175,7 +178,7 @@
 .hx .memo small { margin-top: auto; font-size: 11px; color: var(--t3); }
 .hx .quick { border-radius: 12px; background: var(--fill-1); box-shadow: inset 0 0 0 0.5px var(--hairline); padding: 10px 12px; flex: none; }
 .hx .quick textarea { width: 100%; resize: none; font-size: 13px; line-height: 1.45; color: var(--t1); }
-/* (a7) 빠른 메모 색 줄 (보드와 같은 팔레트) — 왼쪽 띠 = 고른 색 */
+/* (a7) 빠른 메모 색 줄 (보드와 같은 색 묶음) — 왼쪽 띠 = 고른 색 */
 .hx .quick { box-shadow: inset 3px 0 0 var(--nc, transparent), inset 0 0 0 0.5px var(--hairline); }
 .hx .qcolors { display: flex; gap: 8px; margin-top: 8px; }
 .hx .qcolors button { width: 18px; height: 18px; padding: 0; border-radius: 50%; background: var(--nc); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18); transition: transform 160ms var(--ease-out), box-shadow 160ms; }

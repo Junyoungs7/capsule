@@ -241,28 +241,11 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
 .mc-add input:first-child { grid-column: auto; }
 .ev-time.todo { color: #d97706; }
 
-/* ── 팔레트: 명령·상용구 ── */
+/* ── 상용구 ── */
 .x-ico { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 8px; color: var(--accent-text); background: var(--accent-soft); }
 .x-ico svg { width: 16px; height: 16px; }
-.x-ocr { color: #7c5cff; background: rgba(124, 92, 255, 0.14); }
-.snip-pv {
-  display: block;
-  margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  color: var(--text);
-  background: var(--field);
-  box-shadow: inset 0 0 0 1px var(--line);
-  animation: snip-pv var(--dur-smooth) var(--spring-smooth);
-  transform-origin: 50% 0;
-}
-.palette-list li:has(.snip-pv) { align-items: flex-start; }
 @keyframes snip-pv { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
 
-/* ── 패널: 상용구 편집 ── */
 .snip-list li { cursor: pointer; }
 .snip-tip { margin: 0; font-size: 11.5px; color: var(--text-3); text-align: center; }
 .snip-ed { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; animation: snip-pv var(--dur-smooth) var(--spring-smooth); }
@@ -366,5 +349,5 @@ textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
   .mc-sheet.in, .mc-sheet.out { animation-name: fade; animation-duration: 160ms; }
   .mc-sheet.out { animation-direction: reverse; }
   .ocr-ants::before { animation: none; }
-  .note-pop, .snip-pv, .snip-ed, .ocr-hint, .ocr-card { animation: fade 160ms; }
+  .note-pop, .snip-ed, .ocr-hint, .ocr-card { animation: fade 160ms; }
 }

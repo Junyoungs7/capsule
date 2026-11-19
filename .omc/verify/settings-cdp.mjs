@@ -53,13 +53,15 @@ try {
   /* Island */
   await sw.clickSel('.swin .nav [data-sec=island]')
   await until(async () => (await sec()) === 'island')
-  await sw.clickSel('.swin [data-place-set=bl]')
-  ok('위치 왼쪽 아래 → island.place = bl (preview moves)', await until(() => h.store.get('island.place') === 'bl' && sw.eval(`document.querySelector('.swin .ipv .mcap').dataset.place === 'bl'`)))
+  ok('위치: one line "캡슐을 끌어서…" + 처음 자리로 (no corner buttons)', await sw.eval(`!document.querySelector('.swin [data-place-set]') && /캡슐을 끌어서 원하는 곳에 두세요/.test(document.querySelector('.swin .pin').textContent) && document.querySelector('.swin [data-pos-reset]').disabled`))
+  await sw.eval(`window.__TAURI_INTERNALS__.invoke('plugin:store|set', { rid: 1, key: 'island.pos', value: { mon: 'D1', fx: 0.2, fy: 0.3 } })`)
+  ok('a dragged capsule shows in the preview live (top-left area)', await until(() => sw.eval(`(() => { const m = document.querySelector('.swin .ipv .mcap'), p = document.querySelector('.swin .ipv').getBoundingClientRect(), r = m.getBoundingClientRect(); return m.dataset.pos === 'saved' && r.left + r.width / 2 < p.left + p.width / 2 && r.top + r.height / 2 < p.top + p.height / 2 })()`)))
+  await sw.clickSel('.swin [data-pos-reset]')
+  ok('처음 자리로 → island.pos removed (Rust puts it back bottom-right)', await until(() => !h.store.has('island.pos') && sw.eval(`document.querySelector('.swin .ipv .mcap').dataset.pos === 'home'`)))
   await sw.clickSel('.swin [data-size-set=xl]')
   ok('크기 아주 크게 → island.size = xl', await until(() => h.store.get('island.size') === 'xl'))
   await press('전체화면 앱에서')
   ok('전체화면 숨기기 → island.autohide = false', await until(() => h.store.get('island.autohide') === false))
-  await sw.clickSel('.swin [data-place-set=br]')
   await sw.clickSel('.swin [data-size-set=m]')
 
   /* 연결 */
@@ -113,7 +115,7 @@ try {
   ok('아라 명령 넘기기 → term.araCmd', await until(() => h.store.get('term.araCmd') === true))
   ok('MCP lives under 터미널 · 아라', await sw.eval(`!!document.querySelector('.swin .mcpcard')`))
   await sw.clickSel('.swin .nav [data-sec=keys]')
-  ok('단축키 shows the real hotkeys (Ctrl+Alt+K · Ctrl+`)', await until(() => sw.eval(`/CtrlAltK/.test(document.querySelector('.swin .pin').textContent.replace(/\\s/g, '')) && /Ctrl\`/.test(document.querySelector('.swin .pin').textContent.replace(/\\s/g, ''))`)))
+  ok('단축키 shows the real hotkeys (Ctrl+` · Ctrl+Alt+T) and no search palette', await until(() => sw.eval(`(() => { const t = document.querySelector('.swin .pin').textContent.replace(/\\s/g, ''); return /Ctrl\`/.test(t) && /CtrlAltT/.test(t) && !/CtrlAltK|팔레트/.test(t) })()`)))
   await sw.clickSel('.swin .nav [data-sec=about]')
   ok('정보 shows the version', await until(() => sw.eval(`/Hera/.test(document.querySelector('.swin .about').textContent)`)))
   const soon = await sw.eval(`[...document.querySelectorAll('.swin [data-soon]')].length`)

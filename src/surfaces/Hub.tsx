@@ -5,7 +5,7 @@ import { reducedMotion } from './Tile'
 import { Ico, type IcoKey } from './Icons'
 
 /* 허브 (a3, 승인 시안): 캡슐을 누르면 모서리에서 위·안쪽으로 펼쳐진다.
-   위 = 오늘 (날짜 · 날씨 · 다음 일정 · 할 일 고리), 가운데 = 이름 붙은 아이콘 13개 (색 우물), 아래 = '앱 실행 · 검색'.
+   위 = 오늘 (날짜 · 날씨 · 다음 일정 · 할 일 고리), 가운데 = 이름 붙은 아이콘 13개 (색 우물).
    아이콘 = 그 화면을 아일랜드 안에서 (‹ 뒤로). 떠 있는 창은 '떼어낼' 때만 (↗). LP = 바탕화면 소품 (떠 있는 플레이어). */
 
 // (a6) 설정 = 별도 설정 창 (아일랜드 안 화면 아님) · LP = 아일랜드 안 런처 화면 · Link → '연결'
@@ -47,11 +47,10 @@ type HomeProps = {
   unread: number
   weather?: { city: string; text: string; temp: number } | null
   onGo: (k: HubKind) => void
-  onPalette: () => void
   link?: { cls: string; label: string; title: string; sub: string } | null // (a6) 연결 아이콘 점 + 한 줄
 }
 
-export function HubHome({ next, events, todos, unread, weather, onGo, onPalette, link }: HomeProps) {
+export function HubHome({ next, events, todos, unread, weather, onGo, link }: HomeProps) {
   return (
     <div className="hub" role="dialog" aria-label="Hera 허브">
       <div className="today">
@@ -95,11 +94,6 @@ export function HubHome({ next, events, todos, unread, weather, onGo, onPalette,
           <span className={`chp lchip ${link.cls}`}><i />{link.label}</span>
         </button>
       )}
-      <button className="search" onClick={onPalette}>
-        <Ico k="search" />
-        <span>앱 실행 · 검색</span>
-        <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>K</kbd>
-      </button>
     </div>
   )
 }

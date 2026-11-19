@@ -34,7 +34,7 @@ export function usePresence<T extends HTMLElement>(open: boolean) {
   return { mounted, ref, onTransitionEnd }
 }
 
-/* ── 레코드 타일 (독·크레이트·라이브러리·팔레트 공용) ── */
+/* ── 레코드 타일 (크레이트·라이브러리 공용) ── */
 export function Tile({ rec, size }: { rec: LpRecord; size?: number }) {
   const g = rec.glyph
   // 실제 앱: 추출 아이콘(app) / favicon(fav). 실패하면 아래 글리프·이니셜로 폴백.

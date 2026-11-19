@@ -1,5 +1,5 @@
 // v2 클립보드 기록: 메시지 전용 창 + AddClipboardFormatListener (폴링 없음).
-// 최근 텍스트 20개를 메모리에만 둔다 (디스크에 쓰지 않음 — 재시작하면 사라짐). 변화는 팔레트 창에 'clips' 로.
+// 최근 텍스트 20개를 메모리에만 둔다 (디스크에 쓰지 않음 — 재시작하면 사라짐). 변화는 'clips' 이벤트로.
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicIsize, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -191,7 +191,7 @@ pub fn paste(text: &str, focus: impl FnOnce()) -> Result<(), String> {
     Ok(())
 }
 
-/// 팔레트에서 고른 기록을 다시 클립보드에 (소유 창 = 메시지 전용 창 — NULL 소유자면 SetClipboardData 가 실패한다)
+/// 최근 복사에서 고른 기록을 다시 클립보드에 (소유 창 = 메시지 전용 창 — NULL 소유자면 SetClipboardData 가 실패한다)
 pub fn set(text: &str) -> Result<(), String> {
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {

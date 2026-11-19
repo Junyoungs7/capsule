@@ -11,7 +11,7 @@ import './styles/a6.css'
 import { Desktop } from './mockup/Desktop'
 import { installMotion } from './motion'
 
-// ?surface=dock|island|panel|palette|ascii|fx|all (fx: &fx=snow|rain|leaves|sunset|moon)
+// ?surface=island|float|settings|ascii|fx|ocr|all (fx: &fx=snow|rain|leaves|sunset|moon)
 const surface = new URLSearchParams(location.search).get('surface') ?? 'all'
 document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 

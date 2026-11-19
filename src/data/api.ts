@@ -32,6 +32,7 @@ function saveLocal(key: string, value: unknown) {
 /** 단일 키 읽기/쓰기 (훅 밖 — 여러 창이 함께 보는 작은 상태: notes.shown 등) */
 export const storeGet = <T,>(key: string) => store().then((s) => s.get<T>(key))
 export const storeSet = (key: string, value: unknown) => void store().then((s) => s.set(key, value))
+export const storeDelete = (key: string) => void store().then((s) => s.delete(key))
 
 export function onStore(cb: (key: string, value: unknown) => void) {
   const off = store().then((s) => s.onChange(cb))
@@ -138,8 +139,6 @@ export const lnkTarget = (path: string) => invoke<string>('lnk_target', { path }
 export const setTurntable = (show: boolean, play?: string) => invoke('turntable', { show, play })
 // 플래터 클릭 → 레코드 앱 창 전면 (keys = 실행 집합 키)
 export const activate = (keys: string[]) => invoke('activate', { keys })
-// 팔레트 창 숨기기(창은 숨김 상주, 파괴 안 함). restore = 이전 앱으로 포커스 반환
-export const closePalette = (restore: boolean) => invoke('close_palette', { restore })
 // 배터리 [잔량 %, 충전 중] — 배터리 없으면 null
 export const power = () => invoke<[number, boolean] | null>('power')
 
@@ -198,7 +197,7 @@ export function onEvent<T = unknown>(name: string, cb: (payload: T) => void) {
 export const dragOut = (path: string) => invoke('drag_out', { path })
 
 /* ── v2 ── */
-// 클립보드 기록 (Rust 메모리에만, 변화는 팔레트 창에 'clips') / 고른 항목을 다시 클립보드에
+// 클립보드 기록 (Rust 메모리에만, 변화는 'clips' 이벤트) / 고른 항목을 다시 클립보드에
 export const clipList = () => invoke<Clip[]>('clips')
 export const setClip = (text: string) => invoke('set_clip', { text })
 // 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
@@ -223,11 +222,10 @@ export const floatReady = () => invoke('float_ready')
 // 아일랜드 창: 애니메이션 동안 화면 높이로 · 글자 입력용 포커스 · 스니펫 붙여넣기(직전 앱으로)
 export const islandTall = (on: boolean) => invoke('island_tall', { on })
 export const islandFocus = (on: boolean) => invoke('island_focus', { on })
-export const islandPaste = (text: string) => invoke('island_paste', { text })
 export const floatClose = () => invoke('float_close')
 export const floatPin = (on: boolean) => invoke('float_pin', { on })
-// 떠 있는 창이 아닌 허브 아이콘: 메모(펼침 토글) · OCR · 스니펫(팔레트 ';') · Team/Link/설정(패널 섹션) · 팔레트
-export const hubAction = (kind: 'notes' | 'ocr' | 'snippets' | 'team' | 'link' | 'settings' | 'palette') => invoke('hub_action', { kind })
+// 떠 있는 창이 아닌 허브 동작: 메모 보드 · OCR · Team/Link/설정(설정 창 섹션)
+export const hubAction = (kind: 'notes' | 'ocr' | 'team' | 'link' | 'settings') => invoke('hub_action', { kind })
 export const appbarSet = (on: boolean) => invoke('appbar_set', { on })
 export const fxStop = () => invoke('fx_stop')
 

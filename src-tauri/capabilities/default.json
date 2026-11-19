@@ -3,10 +3,12 @@
   "identifier": "default",
   "windows": [
     "island",
+    "settings",
     "panel",
-    "palette",
     "ascii",
+    "ascii-*",
     "fx",
+    "fx-*",
     "notes0",
     "notes1",
     "notes2",

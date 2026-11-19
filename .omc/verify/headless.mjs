@@ -99,6 +99,27 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
   let cursor = { x: 0, y: 0 } // 가짜 화면 커서 (float 머리줄 끌기용)
   const handlers = {} // 시험이 덮어쓰는 커맨드
 
+  // (a13) 떠 있는 캡슐: Rust island::layout 과 같은 규칙 (배율 1, 작업 영역 = WA). 자리 = store island.pos (없으면 오른쪽 아래)
+  const PAD = 96, cl = (v, a, b) => Math.min(Math.max(v, a), b)
+  let tall = false, igrab = null
+  const spot = () => { const p = store.get('island.pos'); return p ? [p.fx * WA.w, p.fy * WA.h] : [WA.w - 56, WA.h - 38] }
+  function layout(c, t) {
+    const cx = cl(c[0], 24, WA.w - 24), cy = cl(c[1], 24, WA.h - 24), right = cx >= WA.w / 2, bottom = cy >= WA.h / 2
+    const g = t ? { x: 0, y: 1, w: WA.w, h: WA.h - 1 } : { x: cl(right ? Math.round(cx + PAD) - ISL.w : Math.round(cx - PAD), 0, WA.w - ISL.w), y: cl(bottom ? Math.round(cy + PAD) - ISL.h : Math.round(cy - PAD), 1, WA.h - ISL.h), w: ISL.w, h: ISL.h }
+    return [g, { right, bottom, x: right ? g.x + g.w - cx : cx - g.x, y: bottom ? g.y + g.h - cy : cy - g.y }]
+  }
+  let anchor = layout(spot(), false)[1]
+  async function place() {
+    const isl = pages.get('island')
+    const [g, a] = layout(spot(), tall)
+    anchor = a
+    if (!isl) return
+    const old = { ...isl.geo }
+    // Rust island::place → watch::shift_rects (창 원점이 바뀌어도 히트 rect 는 화면 같은 자리)
+    hits.set('island', (hits.get('island') ?? []).map((r) => [r[0] + old.x - g.x, r[1] + old.y - g.y, r[2], r[3]]))
+    await setGeo(isl, g)
+    await emitTo('island', 'island-anchor', a)
+  }
   const islandOrigin = () => pages.get('island')?.geo ?? { x: WA.w - ISL.w, y: WA.h - ISL.h, w: ISL.w, h: ISL.h }
   async function emitTo(label, event, payload) {
     const p = pages.get(label)
@@ -116,7 +137,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     if (pages.has(label)) return pages.get(label)
     // Rust float::fit_size: 떼어낸 화면의 잰 크기 (MIN 300×220, 기본의 1.5배까지)
     const [w, hh] = fit ? [Math.round(Math.min(Math.max(fit[0], 300), FEAT[f][0] * 1.5)), Math.round(Math.min(Math.max(fit[1], 220), FEAT[f][1] * 1.5))] : FEAT[f]
-    const left = store.get('island.place') === 'bl'
+    const left = !anchor.right
     const g = { x: left ? 464 : WA.w - 464 - w, y: WA.h - 72 - hh, w, h: hh }
     const p = await open(`float&f=${f}${fit ? '&enter=1' : ''}`, { label, geo: g })
     p.shown = show
@@ -135,10 +156,12 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       case 'plugin:store|set':
         store.set(a.key, a.value)
         await emit('store://change', { path: 'hera.json', resourceId: 1, key: a.key, value: a.value, exists: true })
+        if (a.key === 'island.pos') await place() // Rust 스토어 리스너
         return null
       case 'plugin:store|delete': {
         const had = store.delete(a.key)
         await emit('store://change', { path: 'hera.json', resourceId: 1, key: a.key, value: null, exists: false })
+        if (a.key === 'island.pos') await place()
         return had
       }
       case 'plugin:store|entries': return [...store.entries()]
@@ -150,15 +173,17 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       case 'plugin:event|emit': await emit(a.event, a.payload); return null
       case 'plugin:event|emit_to': await emitTo(a.target?.label ?? a.target, a.event, a.payload); return null
       case 'report_hit_rects': hits.set(p.label, a.rects); return null
-      case 'island_tall': {
-        const isl = pages.get('island'), old = { ...isl.geo }
-        const g = a.on ? { x: 0, y: 1, w: WA.w, h: WA.h - 1 } : { x: WA.w - ISL.w, y: WA.h - ISL.h, w: ISL.w, h: ISL.h }
-        if (store.get('island.place') === 'bl' && !a.on) g.x = 0
-        if (old.x === g.x && old.y === g.y && old.w === g.w) return null
-        // Rust island::place → watch::shift_rects (창 원점이 바뀌어도 히트 rect 는 화면 같은 자리)
-        hits.set('island', (hits.get('island') ?? []).map((r) => [r[0] + old.x - g.x, r[1] + old.y - g.y, r[2], r[3]]))
-        await setGeo(isl, g)
-        return null
+      case 'island_tall': if (tall !== a.on) (tall = a.on), await place(); return null
+      case 'island_anchor': return anchor
+      case 'island_drag': {
+        // Rust island_drag: 창이 가짜 화면 커서를 따라간다 · 놓으면 캡슐 가운데를 작업 영역 비율로 저장 → place
+        const isl = pages.get('island')
+        if (a.phase === 'start') return (igrab = { x: cursor.x - isl.geo.x, y: cursor.y - isl.geo.y }), null
+        if (a.phase === 'move' && igrab) return await setGeo(isl, { ...isl.geo, x: cursor.x - igrab.x, y: cursor.y - igrab.y }), null
+        if (!igrab) return null
+        igrab = null
+        const g = isl.geo, cx = anchor.right ? g.x + g.w - anchor.x : g.x + anchor.x, cy = anchor.bottom ? g.y + g.h - anchor.y : g.y + anchor.y
+        return handle(p, { cmd: 'plugin:store|set', args: { rid: 1, key: 'island.pos', value: { mon: 'D1', fx: cl(cx / WA.w, 0, 1), fy: cl(cy / WA.h, 0, 1) } } })
       }
       case 'float_prepare': { const fp = await floatPage(a.f, false, a.fit); if (fp.ready) await emitTo('island', 'float-ready', a.f); return rect(fp) }
       case 'float_ready': p.ready = true; await emitTo('island', 'float-ready', p.label.slice(6)); return null
@@ -265,7 +290,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     await s.send('Runtime.enable')
     await s.send('Page.enable')
     await s.send('Runtime.addBinding', { name: '__heraIPC' })
-    const g0 = geo ?? (surface === 'island' ? { x: store.get('island.place') === 'bl' ? 0 : WA.w - ISL.w, y: WA.h - ISL.h, w: ISL.w, h: ISL.h } : { x: 0, y: 0, w: 800, h: 600 })
+    const g0 = geo ?? (surface === 'island' ? layout(spot(), tall)[0] : { x: 0, y: 0, w: 800, h: 600 })
     await s.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__heraGeo = ${JSON.stringify({ x: g0.x, y: g0.y })};${init};\n${MOCK}` })
     await s.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }, { name: 'prefers-color-scheme', value: 'dark' }] })
     await s.send('Emulation.setFocusEmulationEnabled', { enabled: true })

@@ -55,7 +55,7 @@
   --blur: blur(9px) saturate(180%) brightness(1.04);
   /* 시안 데모 카드 전용: 뒤의 표면이 얕은 블러로 번져 보이지 않게 짙게 */
   --glass-dense: rgba(244, 247, 252, 0.88);
-  /* 큰 표면(패널·팔레트): 아주 맑은 유리 + 테두리 렌즈 띠, 글자는 안쪽 판(--glass-plate)이 받친다 */
+  /* 큰 표면(패널): 아주 맑은 유리 + 테두리 렌즈 띠, 글자는 안쪽 판(--glass-plate)이 받친다 */
   --glass-clear: rgba(250, 252, 255, 0.1);
   --glass-plate: rgba(246, 248, 252, 0.76);
   --sheen-strong:
@@ -162,7 +162,7 @@ kbd {
   background: var(--fill-2);
 }
 
-/* ── 공용 글라스 카드 (panel, palette, demo, 팝오버) ── */
+/* ── 공용 글라스 카드 (panel, demo, 팝오버) ── */
 .glass-card {
   background: var(--glass-sheen), var(--glass-strong);
   backdrop-filter: var(--blur);
@@ -172,7 +172,7 @@ kbd {
 }
 /* 포인터를 따라가는 림 하이라이트: 1px 링(마스크)만 다시 그린다. --mx/--my 는 호버 중 pointermove 에서만 갱신(GlassDefs).
    기본 위치 = 왼쪽 위 → 림이 왼쪽 위에서 가장 밝다. */
-:is(.palette, .demo, .note)::before {
+:is(.demo, .note)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -185,29 +185,10 @@ kbd {
   pointer-events: none;
   transition: opacity 320ms var(--ease-out);
 }
-[data-theme='dark'] :is(.palette, .demo, .note)::before { opacity: 0.28; }
-:is(.palette, .demo, .note)[data-hl='true']::before { opacity: 1; }
-[data-theme='dark'] :is(.palette, .demo, .note)[data-hl='true']::before { opacity: 0.6; }
+[data-theme='dark'] :is(.demo, .note)::before { opacity: 0.28; }
+:is(.demo, .note)[data-hl='true']::before { opacity: 1; }
+[data-theme='dark'] :is(.demo, .note)[data-hl='true']::before { opacity: 0.6; }
 
-/* 큰 표면(패널·팔레트): 아주 맑은 유리(채움 0.10, 블러 6px) + 테두리 ~10px 렌즈 띠(SVG 변위, 가운데 변위 0) — 정적.
-   렌즈·블러·채움·림은 ::after 한 겹에 몰아 둔다 — 표면 자체에 backdrop-filter 를 두면 그 표면이 backdrop root 가 되어
-   안쪽 레이어가 바탕화면을 못 본다. 글자가 빽빽한 곳은 안쪽 판(--glass-plate)이 받친다 → 대비 AA. */
-:is(.palette) { background: none; backdrop-filter: none; box-shadow: var(--shadow-float); }
-.palette { --rim-lens: url(#hera-rim-palette); }
-:is(.palette)::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--sheen-strong), var(--glass-clear);
-  box-shadow: var(--spec-strong);
-  backdrop-filter: blur(6px) var(--rim-lens) saturate(190%) brightness(1.06);
-  pointer-events: none;
-}
-/* 실제 앱(단일 표면 창): 창 뒤는 OS Acrylic 이 블러·틴트 — 웹뷰는 창 밖을 굴절시킬 수 없으니 렌즈를 뺀다.
-   림 빛·광택·안쪽 판·동심원 모서리가 그대로 남아 같은 재질로 읽힌다. data-real = isTauri (?surface=… 미리보기도 같은 모습). */
-:is(.desktop[data-real='true'], .desktop:not([data-only='all'])) :is(.palette)::after { backdrop-filter: none; }
 :is(.desktop[data-real='true'], .desktop:not([data-only='all'])) .note { backdrop-filter: none; }
 /* 실제 앱(투명 창): 창 밖은 블러할 수 없으니 backdrop-filter 를 끈다 (합성 비용 0, 틴트만) */
 .desktop:not([data-only='all']) .glass-card { backdrop-filter: none; }
@@ -518,38 +499,9 @@ kbd {
 .day i { position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; opacity: 0.7; }
 .ev-time { flex: none; width: 42px; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent-text); }
 
-/* ── Palette ── */
-.palette-scrim { position: fixed; inset: 0; z-index: 60; background: rgba(4, 12, 24, 0.1); animation: fade 160ms ease-out; }
-.palette {
-  position: absolute;
-  top: 17vh;
-  left: 50%;
-  width: 580px;
-  max-width: calc(100vw - 32px);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  transform: translateX(-50%);
-  animation: pop var(--dur-smooth) var(--spring-smooth);
-}
-.desktop[data-only='palette'] .palette { top: 8px; }
-/* 팔레트 창: 창 크기 = 카드 영역뿐이라 화면 어둡게 하기(scrim) 없음 */
-.desktop[data-only='palette'] .palette-scrim { background: none; animation: none; }
 .app-ico { border-radius: 8px; }
 @keyframes pop { from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.97); } }
 @keyframes fade { from { opacity: 0; } }
-.palette-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
-:is(.palette-input, .palette-list) { border-radius: 20px; background: var(--glass-plate); box-shadow: inset 0 0 0 0.5px var(--line); }
-.palette-input svg { width: 20px; height: 20px; flex: none; color: var(--text-2); }
-.palette-input input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 17px; }
-.palette-list { max-height: 360px; margin: 0; padding: 6px; list-style: none; overflow-y: auto; scrollbar-width: thin; }
-.palette-list li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; /* 판 20 − 여백 6 */ }
-.palette-list li[aria-selected='true'] { background: var(--fill-2); }
-.palette-list li kbd { opacity: 0; }
-.palette-list li[aria-selected='true'] kbd { opacity: 1; }
-.palette-list .empty { justify-content: center; color: var(--text-3); padding: 20px; }
 .todo-ico { width: 28px; height: 28px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* ── island: 아스키 재생 중 (전체화면 아스키 위에 떠 있어야 정지 버튼을 누를 수 있다) ── */
@@ -619,7 +571,6 @@ kbd {
   .dock-row { transform: translate(-50%, 0); }
 
   .island-layer { transform: translate(-50%, 0); }
-  .palette { animation: fade 160ms; }
   .tab-ind { transition: none; }
   .island-shape::after, .isl-eq i { animation: none !important; }
   :is(.primary, .demo-btns button, .demo-seg button, .alert .actions button, .mc-today, .mc-seg button, .icon-btn, .tabs button, .snip-vars button):active { transform: none; }
