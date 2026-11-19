@@ -838,8 +838,8 @@ export function Desktop({ only }: { only?: string }) {
           from={ascii.from}
           saver={ascii.saver}
           caption={`${clock.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(clock)}`}
-          // (a7) 덮개는 모니터마다 창 하나 — 한 곳에서 닫으면 모두 닫는다
-          onClose={() => (setAscii((a) => ({ ...a, open: false })), isTauri && ascii.saver && void coverCloseAll())}
+          // (a7) 덮개·LP 아스키는 모니터마다 창 하나 — 한 곳에서 닫으면 모두 닫는다
+          onClose={() => (setAscii((a) => ({ ...a, open: false })), isTauri && void coverCloseAll())}
           onClosed={isTauri ? () => void closeSelf() : undefined}
         />
       )}

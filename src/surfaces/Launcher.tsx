@@ -168,7 +168,6 @@ export function Launcher(p: Props) {
     const el = e.currentTarget
     const [x0, y0] = [e.clientX, e.clientY]
     let ghost: HTMLElement | null = null
-    let o = { x: 0, y: 0, h: 28 } // 고스트의 실제 원점·반지름 — 조상에 transform 이 있으면 fixed 가 화면 기준이 아니다
     let hit = false
     el.setPointerCapture(e.pointerId)
     const move = (ev: PointerEvent) => {
@@ -178,11 +177,15 @@ export function Launcher(p: Props) {
         ghost.classList.add('dragghost')
         ghost.style.position = 'fixed'
         el.closest('.lpv')!.append(ghost)
-        const b = ghost.getBoundingClientRect()
-        o = { x: b.left, y: b.top, h: b.width / 2 }
         el.classList.add('lifted')
       }
-      ghost.style.transform = `translate(${ev.clientX - o.x - o.h}px, ${ev.clientY - o.y - o.h}px)`
+      // 조상에 transform(허브 열림 애니메이션 · 캡슐 끌림 확대 scale)이 있으면 fixed 가 화면 기준이 아니다 →
+      // 고스트의 실제 원점·배율을 매번 잰다 (끄는 동안 배율이 바뀔 수 있다). 레이아웃 2번, 짧은 끌기라 괜찮다
+      ghost.style.transform = 'none'
+      const b = ghost.getBoundingClientRect()
+      ghost.style.transform = 'translate(100px, 0)'
+      const k = (ghost.getBoundingClientRect().left - b.left) / 100 || 1
+      ghost.style.transform = `translate(${(ev.clientX - b.left - b.width / 2) / k}px, ${(ev.clientY - b.top - b.height / 2) / k}px)`
       const r = platter.current!.getBoundingClientRect()
       hit = Math.hypot(ev.clientX - (r.left + r.width / 2), ev.clientY - (r.top + r.height / 2)) < r.width / 2 + 16
       setOver(hit)

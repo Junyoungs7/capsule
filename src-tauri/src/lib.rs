@@ -65,7 +65,8 @@ fn builder<'a>(app: &'a AppHandle, label: &'a str, url: String, (w, h): (f64, f6
 }
 
 fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) -> tauri::Result<WebviewWindow> {
-    let win = builder(app, label, format!("index.html?surface={label}{query}"), size)
+    let surface = label.split('-').next().unwrap_or(label); // "fx-1" → surface=fx
+    let win = builder(app, label, format!("index.html?surface={surface}{query}"), size)
         .shadow(false)
         .focusable(false) // tao: WS_EX_NOACTIVATE (TOOLWINDOW 은 watch 루프가 유지)
         .build()?;
@@ -239,6 +240,14 @@ pub(crate) fn cover_rects(mons: &[Mon]) -> Vec<Cover> {
         .collect()
 }
 
+/// 모든 모니터, 주 모니터가 맨 앞 (첫 창 = 기존 이름 "ascii"/"fx", LP 판 좌표도 주 모니터 기준)
+fn monitors_primary_first(app: &AppHandle) -> tauri::Result<Vec<tauri::Monitor>> {
+    let prim = app.primary_monitor()?.map(|m| *m.position());
+    let mut v = app.available_monitors()?;
+    v.sort_by_key(|m| Some(*m.position()) != prim);
+    Ok(v)
+}
+
 /// 열려 있는 아스키/덮개 창 전부
 pub(crate) fn ascii_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows().into_iter().filter(|(l, _)| l == "ascii" || l.starts_with("ascii-")).map(|(_, w)| w).collect()
@@ -257,11 +266,7 @@ pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 
     if !ascii_windows(app).is_empty() {
         return Ok(());
     }
-    let mons: Vec<_> = if saver {
-        app.available_monitors()?
-    } else {
-        app.primary_monitor()?.into_iter().collect()
-    };
+    let mons = monitors_primary_first(app)?; // LP 로 튼 아스키도 화면보호기처럼 모든 모니터에
     let mons: Vec<_> = mons.iter().map(|m| ((m.position().x, m.position().y), (m.size().width, m.size().height), m.scale_factor())).collect();
     // ponytail: 모든 모니터에 같은 장면 — 무게는 다른 장면과 같고(창 = 웹뷰 하나씩), 고르기·직전 피하기가 한 번이면 된다
     let picked = match scene {
@@ -274,9 +279,12 @@ pub(crate) fn open_ascii_scene(app: &AppHandle, saver: bool, from: Option<[f64; 
         }
         s => s,
     };
-    let q = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default() + &picked.map(|s| format!("&scene={s}")).unwrap_or_default();
-    for (label, pos, size, logical) in cover_rects(&mons) {
-        let win = builder(app, &label, format!("index.html?surface=ascii&saver={}{q}", saver as u8), logical)
+    let q = picked.map(|s| format!("&scene={s}")).unwrap_or_default();
+    let from = from.map(|f| format!("&from={},{},{},{}", f[0], f[1], f[2], f[3])).unwrap_or_default();
+    for (i, (label, pos, size, logical)) in cover_rects(&mons).into_iter().enumerate() {
+        // LP 판 자리에서 커지는 효과는 주 모니터 창만 (다른 모니터엔 그 좌표가 없다)
+        let from = if i == 0 { from.as_str() } else { "" };
+        let win = builder(app, &label, format!("index.html?surface=ascii&saver={}{q}{from}", saver as u8), logical)
             .shadow(false)
             .focusable(!saver)
             .disable_drag_drop_handler()
@@ -324,30 +332,42 @@ fn ascii_stop(app: AppHandle) {
 
 const FX_KINDS: [&str; 6] = ["snow", "rain", "leaves", "dawn", "sunset", "moon"];
 static FX_GEN: AtomicU32 = AtomicU32::new(0);
+// ponytail: 효과 창 라벨은 &'static (watch 오버레이 목록) — 모니터 4개까지, 더 필요하면 늘린다
+const FX_LABELS: [&str; 4] = ["fx", "fx-1", "fx-2", "fx-3"];
+
+/// 열려 있는 효과 창 전부
+pub(crate) fn fx_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    FX_LABELS.iter().filter_map(|l| app.get_webview_window(l)).collect()
+}
 
 /// v2 전체화면 효과 창: 투명·클릭 통과 오버레이(watch 루프가 TRANSPARENT|LAYERED|NOACTIVATE|TOOLWINDOW 유지)를 그때만 만들고
 /// 25초 효과가 끝나면 JS 가 파괴. 독·아일랜드·턴테이블은 다시 맨 위로 올려 효과가 그 아래에 깔리게 한다. 전체화면 앱 중엔 안 만든다.
 pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
     let Some(kind) = FX_KINDS.iter().find(|k| **k == kind) else { return Ok(()) };
-    if watch::FULLSCREEN.load(Ordering::Relaxed) || app.get_webview_window("fx").is_some() {
+    if watch::FULLSCREEN.load(Ordering::Relaxed) || !fx_windows(app).is_empty() {
         return Ok(());
     }
-    let Some(m) = app.primary_monitor()? else { return Ok(()) };
-    let (pos, size, s) = (*m.position(), *m.size(), m.scale_factor());
-    // 높이 -1px: 모니터를 꽉 채운 최상위 창은 셸이 '전체화면 앱'으로 판정해(QUNS_BUSY) 독을 숨기게 된다
-    let size = PhysicalSize::new(size.width, size.height.saturating_sub(1));
-    let win = overlay(app, "fx", &format!("&fx={kind}"), (size.width as f64 / s, size.height as f64 / s))?;
-    let h = app.clone();
-    win.on_window_event(move |e| {
-        if let WindowEvent::Destroyed = e {
-            watch::remove_overlay("fx");
-            let _ = h.emit("fx-closed", ()); // LP 플레이어 판 돌아옴 · Island 재생 중 알약 끔
+    // 모니터마다 효과 창 하나 (듀얼 모니터 = 양쪽 다)
+    for (m, label) in monitors_primary_first(app)?.iter().zip(FX_LABELS) {
+        let (pos, size, s) = (*m.position(), *m.size(), m.scale_factor());
+        // 높이 -1px: 모니터를 꽉 채운 최상위 창은 셸이 '전체화면 앱'으로 판정해(QUNS_BUSY) 독을 숨기게 된다
+        let size = PhysicalSize::new(size.width, size.height.saturating_sub(1));
+        let win = overlay(app, label, &format!("&fx={kind}"), (size.width as f64 / s, size.height as f64 / s))?;
+        let h = app.clone();
+        win.on_window_event(move |e| {
+            if let WindowEvent::Destroyed = e {
+                watch::remove_overlay(label);
+                // LP 플레이어 판 돌아옴 · Island 재생 중 알약 끔 — 마지막 창이 닫힐 때만 (그래야 다음 효과가 바로 열린다)
+                if fx_windows(&h).iter().all(|w| w.label() == label) {
+                    let _ = h.emit("fx-closed", ());
+                }
+            }
+        });
+        let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
+        if r.is_err() {
+            let _ = win.destroy();
+            return r;
         }
-    });
-    let r = win.set_position(pos).and_then(|_| win.set_size(size)).and_then(|_| win.show());
-    if r.is_err() {
-        let _ = win.destroy();
-        return r;
     }
     if let Some(w) = app.get_webview_window("island") {
         ui::raise(&w);
@@ -358,9 +378,7 @@ pub(crate) fn open_fx(app: &AppHandle, kind: &str) -> tauri::Result<()> {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(40));
         if FX_GEN.load(Ordering::Relaxed) == gen {
-            if let Some(w) = h.get_webview_window("fx") {
-                let _ = w.destroy();
-            }
+            fx_windows(&h).into_iter().for_each(|w| drop(w.destroy()));
         }
     });
     Ok(())
@@ -665,13 +683,13 @@ fn appbar_set(app: AppHandle, on: bool) {
 /// LP 플레이어: 효과 레코드를 내림 → 효과 창 닫기 (JS 가 사라짐 애니메이션 후 파괴, 3초 안전망)
 #[tauri::command]
 fn fx_stop(app: AppHandle) {
-    let _ = app.emit_to("fx", "fx-close", ());
+    for l in FX_LABELS {
+        let _ = app.emit_to(l, "fx-close", ());
+    }
     let h = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(3));
-        if let Some(w) = h.get_webview_window("fx") {
-            let _ = w.destroy();
-        }
+        fx_windows(&h).into_iter().for_each(|w| drop(w.destroy()));
     });
 }
 

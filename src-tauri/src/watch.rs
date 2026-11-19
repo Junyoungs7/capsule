@@ -720,7 +720,7 @@ pub fn start(app: AppHandle) {
                     let today = (lt.wMonth, lt.wDay);
                     let season = season_fx(lt.wMonth, lt.wDay).filter(|_| season_shown != today);
                     if let Some(kind) = fx_trigger(sky, cur, season) {
-                        if on && !full && !away && app.get_webview_window("fx").is_none() {
+                        if on && !full && !away && crate::fx_windows(&app).is_empty() {
                             if season == Some(kind) {
                                 season_shown = today;
                             }

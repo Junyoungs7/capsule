@@ -47,6 +47,20 @@ try {
     ok('Island LP: dragged record sits under the cursor (±6px)', !!gc && Math.abs(gc[0] - (rx + 50)) <= 6 && Math.abs(gc[1] - (ry + 40)) <= 6, JSON.stringify({ gc, at: [rx + 50, ry + 40] }))
     await sleep(300)
   }
+  {
+    // 캡슐 끌림 확대(scale 1.16)가 걸려 있어도
+    await isl.eval(`document.querySelector('.isl').dataset.magnet = 'hot'`)
+    await sleep(600) // 확대 전환이 끝난 뒤
+    const [rx, ry] = await isl.eval(`(() => { const r = document.querySelector('.lpv .crate [data-rec] .disc').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+    await isl.mouse('mousePressed', rx, ry)
+    await isl.mouse('mouseMoved', rx + 30, ry + 20, { buttons: 1 })
+    await isl.mouse('mouseMoved', rx + 90, ry + 60, { buttons: 1 })
+    const gc = await isl.eval(`(() => { const g = document.querySelector('.dragghost'); if (!g) return null; const r = g.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })()`)
+    await isl.mouse('mouseReleased', rx + 90, ry + 60)
+    await isl.eval(`delete document.querySelector('.isl').dataset.magnet`)
+    ok('Island LP scaled (magnet hot): dragged record under the cursor (±6px)', !!gc && Math.abs(gc[0] - (rx + 90)) <= 6 && Math.abs(gc[1] - (ry + 60)) <= 6, JSON.stringify({ gc, at: [rx + 90, ry + 60] }))
+    await sleep(300)
+  }
 
   /* 효과: 누르기 = 판 · 재생 · 새 판이 앞 판을 바꾼다 */
   let n = h.calls.length
