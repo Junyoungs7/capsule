@@ -110,3 +110,7 @@
 ## Hera for Windows a16~a19 설치 (2026-11-19 12:54)
 - 889ec69 a16 정리(연결·클립보드·선반·메모·물결·꾸미기만), 36b2793 a17 트레이 패널+알림 카드, 7c83e97 a18 흔들기 받침+맥 가장자리 포탈, 976bcd4 a19 작업 표시줄 펫(꾸미기 켰을 때) + docs/spec.md. b47d62c docs/mac-design.md(맥판 명세, 저장 키는 spec.md 기준으로 맞춤).
 - 설치 파일 10:25(a19 커밋 10:21 이후) 확인 후 /S 설치. idle: 8 processes, privateWS 55.6 MB.
+
+## a20 설치 (2026-11-19 13:15)
+- 5439ef3: 트레이 패널 최근 메모에 지우기(마우스 올리면 ✕, 5초 되돌리기). a16 때 capsule.css 와 함께 사라진 되돌리기 막대 스타일을 win.css 로 복구(메모 보드도 같이). panel-cdp ALL PASS, tsc OK.
+- 메모 저장 위치: %APPDATA%\dev.hera.dock\hera.json 의 note:<id>. 메모장으로 열기 사본 = %APPDATA%\Hera\notes\<id>.txt.
