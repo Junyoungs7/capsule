@@ -470,14 +470,35 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
 
 /* ── 발견: 윈도우가 3초마다 UDP 브로드캐스트 {"hera":1,"name","port"}. 맥은 듣다가 보낸 주소:port 로 접속 ── */
 pub fn beacon(name: &str, port: u16, stop: &AtomicBool, busy: &dyn Fn() -> bool) {
-    let Ok(sock) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else { return };
-    let _ = sock.set_broadcast(true);
     let msg = json!({ "hera": VERSION, "name": name, "port": port }).to_string();
     while !stop.load(Ordering::Relaxed) {
         if !busy() {
-            let _ = sock.send_to(msg.as_bytes(), (Ipv4Addr::BROADCAST, BEACON_PORT));
+            broadcast(msg.as_bytes(), BEACON_PORT);
         }
         std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+/// 기본 경로(인터넷으로 나가는) 랜카드의 내 주소. UDP connect 는 패킷을 보내지 않고 OS 가 고른 출발 주소만 정한다.
+pub fn lan_ip() -> Option<Ipv4Addr> {
+    let s = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+    s.connect((Ipv4Addr::new(8, 8, 8, 8), 9)).ok()?;
+    match s.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
+        _ => None,
+    }
+}
+
+/// 255.255.255.255 브로드캐스트. ⚠ 0.0.0.0 에 묶은 소켓이면 Windows 는 인터페이스 metric 이 가장 낮은 어댑터(VPN·가상 스위치일 수 있음)
+/// 하나로만 내보낸다 → 같은 공유기의 맥이 못 듣는다. 그래서 기본 경로 랜카드 주소에 묶은 소켓으로도 보낸다.
+pub fn broadcast(msg: &[u8], port: u16) {
+    let mut from = vec![Ipv4Addr::UNSPECIFIED];
+    from.extend(lan_ip());
+    for ip in from {
+        if let Ok(sock) = UdpSocket::bind((ip, 0)) {
+            let _ = sock.set_broadcast(true);
+            let _ = sock.send_to(msg, (Ipv4Addr::BROADCAST, port));
+        }
     }
 }
 
@@ -520,6 +541,16 @@ pub fn connect(addr: SocketAddr, cfg: &Config, sink: Sink, on_conn: &dyn Fn(Opti
 #[cfg(test)]
 mod tests {
     #![allow(clippy::type_complexity)]
+
+    /// 비콘이 나갈 랜카드 주소: 기본 경로 주소가 잡히고 그 주소에 묶어 브로드캐스트할 수 있어야 한다 (VPN metric 문제)
+    #[test]
+    fn beacon_binds_the_lan_interface() {
+        let Some(ip) = lan_ip() else { return }; // 네트워크 없는 CI
+        let s = UdpSocket::bind((ip, 0)).expect("bind lan ip");
+        s.set_broadcast(true).unwrap();
+        s.send_to(b"{}", (Ipv4Addr::BROADCAST, 9)).expect("broadcast from lan ip");
+        broadcast(b"{}", 9);
+    }
     use super::*;
 
     #[test]

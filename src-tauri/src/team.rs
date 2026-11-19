@@ -797,11 +797,9 @@ pub mod app {
     }
 
     fn beacon(n: Arc<Node>) {
-        let Ok(sock) = std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)) else { return };
-        let _ = sock.set_broadcast(true);
         loop {
             let msg = json!({ "hera-team": 1, "pk": n.pk, "port": PORT, "inv": n.has_open_invite() }).to_string();
-            let _ = sock.send_to(msg.as_bytes(), (std::net::Ipv4Addr::BROADCAST, BEACON_PORT));
+            lf::broadcast(msg.as_bytes(), BEACON_PORT);
             std::thread::sleep(Duration::from_secs(5));
         }
     }
@@ -895,16 +893,8 @@ pub mod app {
     }
 
     fn local_addrs() -> Vec<String> {
-        // 기본 경로 쪽 출발 주소 (UDP connect 는 패킷을 보내지 않고 OS 가 고른 주소만 알려 준다)
-        let mut v = vec![];
-        if let Ok(s) = std::net::UdpSocket::bind("0.0.0.0:0") {
-            if s.connect("10.255.255.255:9").is_ok() {
-                if let Ok(a) = s.local_addr() {
-                    v.push(format!("{}:{PORT}", a.ip()));
-                }
-            }
-        }
-        v
+        // 기본 경로 랜카드 주소 (예전 10.255.255.255 기준은 10.x VPN 어댑터 주소를 고를 수 있었다)
+        lf::lan_ip().map(|ip| format!("{ip}:{PORT}")).into_iter().collect()
     }
 
     /// 들어오기: 초대 문자열(주소 포함) · "코드@IP" · 6자리 코드(비콘에서 초대 열린 호스트에 차례로)
