@@ -4,14 +4,12 @@
   --t1: #fff; --t2: rgba(255, 255, 255, .79); --t3: rgba(255, 255, 255, .55); --accent: #60cdff; --onacc: #003049;
   --panel: rgba(32, 32, 32, .86); --solid: #2b2b2b; --danger: #ff99a4; --ok: #6ccb5f;
   --ease: cubic-bezier(.1, .9, .2, 1); --spring: cubic-bezier(.34, 1.56, .64, 1);
-  color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f3f3f3; --card: rgba(255, 255, 255, .7); --card2: rgba(255, 255, 255, .95); --stroke: rgba(0, 0, 0, .07);
     --t1: #1b1b1b; --t2: rgba(0, 0, 0, .72); --t3: rgba(0, 0, 0, .5); --accent: #005fb8; --onacc: #fff;
     --panel: rgba(243, 243, 243, .88); --solid: #fbfbfb; --danger: #c42b1c; --ok: #0f7b0f;
-    color-scheme: light;
   }
 }
 * { box-sizing: border-box; }
@@ -111,7 +109,10 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .toast b { display: block; margin-bottom: 1px; font-weight: 600; }
 .toast small { display: block; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ── 설정 창 (보통 Windows 창) ── */
+/* ── 설정 창 (보통 Windows 창) ──
+   color-scheme 은 불투명한 보통 창에만 (루트에 두면 투명 창 바탕이 어둡게 칠해진다) */
+.set, .boardwin { color-scheme: dark; }
+@media (prefers-color-scheme: light) { .set, .boardwin { color-scheme: light; } }
 .set { display: flex; height: 100%; background: var(--bg); }
 .set nav { width: 200px; flex: none; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
 .set nav button { all: unset; height: 36px; padding: 0 12px; border-radius: 4px; display: flex; align-items: center; gap: 12px; cursor: pointer; position: relative; font-size: 14px; }
@@ -163,3 +164,38 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 
 /* ── 메모 보드 창 ── */
 .boardwin { height: 100%; overflow: auto; background: var(--bg); }
+
+/* ── 끌기 오버레이: 흔들면 뜨는 받침 · 가장자리 포탈 (시안 v3) ── */
+.pad { position: fixed; z-index: 30; display: grid; gap: 8px; padding: 10px; border-radius: 16px; background: var(--bg); border: 1px solid var(--stroke);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 24px 60px rgba(0, 0, 0, .45), 0 4px 14px rgba(0, 0, 0, .25);
+  transform: translate(-50%, -100%) translateY(-22px); transform-origin: 50% 110%; animation: pad-in 420ms var(--spring) both; }
+@keyframes pad-in { from { transform: translate(-50%, -100%) translateY(-6px) scale(.55); opacity: 0; } }
+.pad .ph { display: flex; justify-content: center; font-size: 11px; color: var(--t3); letter-spacing: .02em; }
+.pad .row2 { display: flex; gap: 8px; }
+.pad::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 14px; height: 14px; transform: translateX(-50%) rotate(45deg); background: var(--bg); border-right: 1px solid var(--stroke); border-bottom: 1px solid var(--stroke); }
+.pz { position: relative; width: 148px; height: 112px; border-radius: 12px; display: grid; place-items: center; align-content: center; gap: 8px; color: var(--t2); font-size: 13px; font-weight: 600; text-align: center;
+  background: var(--card); border: 1px solid var(--stroke); transition: transform 260ms var(--spring), background 160ms, box-shadow 200ms, color 160ms; }
+.pz small { display: block; font-size: 11px; font-weight: 400; color: var(--t3); margin-top: 2px; }
+.pz .orb { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; position: relative; transition: transform 300ms var(--spring); }
+.pz .orb svg { width: 22px; height: 22px; position: relative; z-index: 1; }
+.pz[data-z='shelf'] .orb { background: linear-gradient(160deg, #ffd66b, #f59f00); color: #3d2600; box-shadow: 0 6px 16px rgba(245, 159, 0, .35); }
+.pz[data-z='mac'] .orb { background: radial-gradient(circle at 50% 50%, #0b1a3a 35%, #1d5fc4 70%, #59c3ff 100%); color: #e6f6ff; box-shadow: 0 6px 18px rgba(60, 154, 255, .45); }
+.pz[data-z='mac'] .orb::before { content: ''; position: absolute; inset: -3px; border-radius: 50%; background: conic-gradient(from 0deg, transparent, #9be3ff, transparent 35%, #4aa8ff 60%, transparent 75%, #d9f4ff 92%, transparent);
+  -webkit-mask: radial-gradient(closest-side, transparent 78%, #000 80%); mask: radial-gradient(closest-side, transparent 78%, #000 80%); animation: spin 2.4s linear infinite; }
+.pz[aria-disabled='true'] { opacity: .5; }
+.pz[aria-disabled='true'] .orb { filter: grayscale(1); }
+.pz[aria-disabled='true'] .orb::before { animation: none; display: none; }
+.pz.over { transform: translateY(-4px) scale(1.06); color: var(--t1); }
+.pz.over .orb { transform: scale(1.14); }
+.pz[data-z='shelf'].over { background: color-mix(in srgb, #f5a700 16%, var(--card)); box-shadow: 0 0 0 2px #f5b329, 0 12px 28px rgba(245, 159, 0, .28); }
+.pz[data-z='mac'].over { background: color-mix(in srgb, #3c9aff 18%, var(--card)); box-shadow: 0 0 0 2px #5cb6ff, 0 12px 30px rgba(60, 154, 255, .4); }
+.pz[data-z='mac'].over .orb::before { animation-duration: .8s; }
+.pz.done .orb { animation: gulp 420ms var(--spring); }
+@keyframes gulp { 0% { transform: scale(1.14); } 40% { transform: scale(.82); } 100% { transform: scale(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.portal { position: fixed; width: 380px; height: 640px; transform-origin: 380px 320px; pointer-events: none; z-index: 25; }
+.portal-hint { position: fixed; z-index: 26; transform: translate(-50%, -50%); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 14px; background: rgba(8, 24, 52, .78); color: #d6f0ff; border: 1px solid rgba(140, 210, 255, .35);
+  opacity: 0; transition: opacity 160ms; pointer-events: none; white-space: nowrap; }
+.portal-hint.on { opacity: 1; }
+.suck { position: fixed; z-index: 27; width: 44px; height: 54px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; pointer-events: none; box-shadow: 0 0 18px rgba(120, 200, 255, .6); }
+@media (prefers-reduced-motion: reduce) { .pad { animation: pn-fade 140ms; } .pz[data-z='mac'] .orb::before { animation: none; } }

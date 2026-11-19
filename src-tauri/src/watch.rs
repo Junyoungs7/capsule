@@ -259,9 +259,21 @@ fn dragged(from: (i32, i32), to: (i32, i32), s: f64) -> bool {
     (((to.0 - from.0) as f64).hypot((to.1 - from.1) as f64)) >= 8.0 * s
 }
 
+type Mons = Vec<(String, [f64; 4], f64, bool)>;
+
+/// 그 점의 모니터 (rect, 배율)
+fn mon_at(mons: &Mons, x: i32, y: i32) -> Option<([f64; 4], f64)> {
+    mons.iter().find(|(_, r, _, _)| (x as f64) >= r[0] && (x as f64) < r[0] + r[2] && (y as f64) >= r[1] && (y as f64) < r[1] + r[3]).map(|m| (m.1, m.2))
+}
+
 /// 그 점의 모니터 배율 (없으면 1)
-fn scale_at(x: i32, y: i32) -> f64 {
-    monitors().iter().find(|(_, r, _, _)| (x as f64) >= r[0] && (x as f64) < r[0] + r[2] && (y as f64) >= r[1] && (y as f64) < r[1] + r[3]).map_or(1.0, |m| m.2)
+pub fn scale_at(x: i32, y: i32) -> f64 {
+    mon_at(&monitors(), x, y).map_or(1.0, |m| m.1)
+}
+
+/// 왼쪽 단추가 눌려 있나
+pub fn left_down() -> bool {
+    unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 }
 }
 
 pub fn start(app: AppHandle) {
@@ -277,6 +289,8 @@ pub fn start(app: AppHandle) {
         let mut shake = Shake::default();
         let mut locator = true;
         let mut full = false;
+        let mut mons = monitors(); // 2초마다 (모니터·배율 변경)
+        let mut drag = crate::drag::Drag::default();
         let t0 = Instant::now();
 
         loop {
@@ -292,7 +306,7 @@ pub fn start(app: AppHandle) {
             }
             let lb = GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0;
             // 커서 찾기: 단추를 누르지 않고 흔들 때만 (커서가 맥에 있으면 엔진이 붙잡아 둔다)
-            if locator && !lb && !full && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, (50.0 * scale_at(pt.x, pt.y)) as i32) {
+            if locator && !lb && !full && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, (50.0 * mon_at(&mons, pt.x, pt.y).map_or(1.0, |m| m.1)) as i32) {
                 crate::ripple::show(pt.x, pt.y, None, crate::ripple::Kind::Locate);
             }
             let overlays = OVERLAYS.lock().unwrap().clone();
@@ -305,10 +319,13 @@ pub fn start(app: AppHandle) {
                 })
                 .collect();
             let hits = HITS.lock().unwrap().clone();
+            let probe = drag.probe();
             let on_shape = |i: usize, m: f64| {
                 let r = &rects[i];
                 let shape = hits.iter().find(|(l, _)| l == overlays[i].0).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
-                hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, shape, m)
+                let (x, y) = ((pt.x - r.left) as f64, (pt.y - r.top) as f64);
+                // 끌기 오버레이: 파일 끌기인지 시험하는 동안은 커서 둘레 칸도 받는다
+                hit(x, y, shape, m) || (overlays[i].0 == "drag" && probe.is_some_and(|p| hit(x, y, &[p], 0.0)))
             };
             if lb && !prev_lb {
                 press_at = (pt.x, pt.y);
@@ -317,8 +334,10 @@ pub fn start(app: AppHandle) {
                 drag_out = false;
             }
             prev_lb = lb;
-            let s = scale_at(pt.x, pt.y);
-            let file_drag = drag_out && dragged(press_at, (pt.x, pt.y), s);
+            let here = mon_at(&mons, pt.x, pt.y);
+            let file_drag = drag_out && dragged(press_at, (pt.x, pt.y), here.map_or(1.0, |m| m.1));
+            // 흔들면 받침 · 가장자리 포탈 (drag.rs)
+            drag.tick(&app, (pt.x, pt.y), lb, file_drag, t0.elapsed().as_millis() as u64, here);
             // Hera Link: 바깥에서 끌어오는 중이면 가장자리 띠를 받기 모드로 (근처일 때만)
             crate::edge::tick(pt.x, pt.y, file_drag);
             for (i, &(_, h)) in overlays.iter().enumerate() {
@@ -344,6 +363,7 @@ pub fn start(app: AppHandle) {
             // ── 2s (설정을 바꾸면 다음 틱에 바로 — RECHECK) ──
             if slow.elapsed() >= Duration::from_secs(2) || RECHECK.swap(false, Ordering::Relaxed) {
                 slow = Instant::now();
+                mons = monitors();
                 let qs = SHQueryUserNotificationState().ok();
                 full = qs.is_some_and(fullscreen);
                 let away = qs == Some(QUNS_NOT_PRESENT); // 잠금·화면보호기·사용자 전환

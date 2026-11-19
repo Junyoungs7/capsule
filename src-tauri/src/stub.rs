@@ -26,6 +26,15 @@ pub mod watch {
     }
 }
 
+pub mod drag {
+    pub fn set_hwnd(_: isize) {}
+    pub fn set_segs(_: Vec<(String, [f64; 4])>) {}
+    #[tauri::command]
+    pub fn drag_file() {}
+    #[tauri::command]
+    pub fn drag_hide() {}
+}
+
 pub mod launch {
     pub fn sta<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
         f()

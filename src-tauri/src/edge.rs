@@ -1,6 +1,6 @@
 // 화면 가장자리로 파일 끌어 보내기 (Hera Link). 입력 엔진은 OLE 드래그를 실어 나르지 못하므로 Hera 가 받는다:
 // 맥과 이어진 가장자리 구간마다 얇은 띠 창(4px, 평소엔 클릭 통과 + 거의 투명). watch 루프가 '바깥에서 누른 채 끄는 중' 이고
-// 커서가 띠 근처면 통과를 풀어 OLE 드롭 대상이 되게 한다 → DragEnter 에서 파랗게 빛남 → Drop 이면 파일 채널로 맥에 보냄 + 물결.
+// 커서가 띠 근처면 통과를 풀어 OLE 드롭 대상이 되게 한다 → Drop 이면 포탈이 빨아들이고(drag.rs) 파일 채널로 맥에 보냄.
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -87,16 +87,13 @@ pub fn tick(x: i32, y: i32, drag: bool) {
             let cur = GetWindowLongPtrW(h, GWL_EXSTYLE);
             let t = WS_EX_TRANSPARENT.0 as isize;
             SetWindowLongPtrW(h, GWL_EXSTYLE, if want { cur & !t } else { cur | t });
-            if !want {
-                glow(h, false);
-            }
         }
     }
 }
 
-unsafe fn glow(h: HWND, on: bool) {
-    // 꺼짐 = 알파 1 (안 보이지만 드롭 대상은 됨), 켜짐 = 파란 띠
-    let _ = SetLayeredWindowAttributes(h, COLORREF(0), if on { 220 } else { 1 }, LWA_ALPHA);
+/// 띠는 늘 알파 1 (안 보이지만 드롭 대상은 됨) — 보이는 것은 오버레이의 포탈 (drag.rs)
+unsafe fn faint(h: HWND) {
+    let _ = SetLayeredWindowAttributes(h, COLORREF(0), 1, LWA_ALPHA);
 }
 
 #[implement(IDropTarget)]
@@ -126,10 +123,7 @@ impl IDropTarget_Impl for Target_Impl {
         let fmt = FORMATETC { cfFormat: CF_HDROP.0, ptd: std::ptr::null_mut(), dwAspect: DVASPECT_CONTENT.0, lindex: -1, tymed: TYMED_HGLOBAL.0 as u32 };
         let ok = data.as_ref().is_some_and(|d| unsafe { d.QueryGetData(&fmt) }.is_ok());
         self.ok.set(ok);
-        unsafe {
-            *effect = if ok { DROPEFFECT_COPY } else { DROPEFFECT_NONE };
-            glow(HWND(self.hwnd as _), ok);
-        }
+        unsafe { *effect = if ok { DROPEFFECT_COPY } else { DROPEFFECT_NONE } };
         Ok(())
     }
     fn DragOver(&self, _: MODIFIERKEYS_FLAGS, _: &POINTL, effect: *mut DROPEFFECT) -> windows::core::Result<()> {
@@ -137,14 +131,10 @@ impl IDropTarget_Impl for Target_Impl {
         Ok(())
     }
     fn DragLeave(&self) -> windows::core::Result<()> {
-        unsafe { glow(HWND(self.hwnd as _), false) };
         Ok(())
     }
     fn Drop(&self, data: Ref<IDataObject>, _: MODIFIERKEYS_FLAGS, pt: &POINTL, effect: *mut DROPEFFECT) -> windows::core::Result<()> {
-        unsafe {
-            glow(HWND(self.hwnd as _), false);
-            *effect = DROPEFFECT_COPY;
-        }
+        unsafe { *effect = DROPEFFECT_COPY };
         let files = data.as_ref().map(|d| unsafe { paths(d) }).unwrap_or_default();
         let strip = STRIPS.lock().unwrap().iter().find(|s| s.hwnd == self.hwnd).cloned();
         if let (Some(s), Some(cb), false) = (strip, ON_DROP.get(), files.is_empty()) {
@@ -175,7 +165,7 @@ unsafe fn rebuild(host: HWND) {
     for (side, r, mac) in want {
         let ex = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
         let Ok(h) = CreateWindowExW(ex, w!("HeraEdge"), w!(""), WS_POPUP, r[0], r[1], r[2] - r[0], r[3] - r[1], None, None, Some(inst.into()), None) else { continue };
-        glow(h, false);
+        faint(h);
         let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
         let target: IDropTarget = Target { hwnd: h.0 as isize, ok: false.into() }.into();
         let _ = RegisterDragDrop(h, &target);

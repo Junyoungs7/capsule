@@ -1,6 +1,8 @@
 // Hera for Windows: 트레이 + 설정 창 + (필요할 때만) 메모 보드 · 화면 효과 · 자리 비움 화면. 기능 목록·키·이벤트는 docs/spec.md.
 // Windows 전용 모듈 — 맥 등에서는 stub.rs 의 같은 이름 모듈(빈 구현)로 컴파일만 된다 (docs/mac-port.md)
 #[cfg(windows)]
+mod drag;
+#[cfg(windows)]
 mod edge;
 #[cfg(windows)]
 mod launch;
@@ -13,7 +15,7 @@ mod watch;
 #[cfg(not(windows))]
 mod stub;
 #[cfg(not(windows))]
-use stub::{launch, shell, watch};
+use stub::{drag, launch, shell, watch};
 mod crossing; // Hera Link 넘어감: 벽 · 자리 · 한 번만
 mod link;
 mod link_files;
@@ -355,9 +357,10 @@ fn link_unpair(app: AppHandle) {
     link::unpair(&app);
 }
 
+/// edge·pos = 가장자리 포탈로 보냄 (맥이 그 자리에 물결)
 #[tauri::command]
-async fn link_send(app: AppHandle, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || link::send_file(&app, &path)).await.map_err(|e| e.to_string())?
+async fn link_send(app: AppHandle, path: String, edge: Option<String>, pos: Option<f64>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || link::send_file(&app, &path, edge.zip(pos))).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -406,7 +409,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
-            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click,
+            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide,
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -430,6 +433,9 @@ pub fn run() {
             }
             let h = app.handle();
             tray::create_panel(h)?;
+            // 끌기 오버레이 (받침 · 포탈): 숨겨 두고 파일을 끌 때만 그 모니터를 덮는다 (drag.rs)
+            let d = overlay(h, "drag", "", (800.0, 600.0))?;
+            drag::set_hwnd(ui::hwnd(&d));
             watch::start(h.clone());
             shell::start(h.clone());
             // Hera Link: 기본 꺼짐. 켜져 있을 때만 엔진·파일 채널이 뜬다 (꺼져 있으면 스레드 1개가 대기만)

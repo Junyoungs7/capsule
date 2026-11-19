@@ -142,7 +142,8 @@ export const linkImport = () => invoke<LinkCfg>('link_import')
 export const linkTrust = (fp: string) => invoke('link_trust', { fp })
 export const linkPair = (ok: boolean) => invoke('link_pair', { ok })
 export const linkUnpair = () => invoke('link_unpair')
-export const linkSend = (path: string) => invoke('link_send', { path })
+/** edge·pos = 가장자리 포탈로 보냄 (맥이 그 자리에 물결) */
+export const linkSend = (path: string, edge?: string, pos?: number) => invoke('link_send', { path, edge: edge ?? null, pos: pos ?? null })
 export type LinkMon = { id: string; mac: boolean; rect: [number, number, number, number]; at: [number, number, number, number] }
 export type LinkSeg = { side: 'left' | 'right' | 'up' | 'down'; win: [number, number]; mac: [number, number]; edge: [number, number, number, number] }
 export const linkPlan = () => invoke<[LinkMon[], { segs: LinkSeg[]; limits: string[] }]>('link_plan')

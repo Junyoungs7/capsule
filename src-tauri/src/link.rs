@@ -659,7 +659,8 @@ fn on_msg(app: &AppHandle, m: &Value) {
 pub fn update_edges(app: &AppHandle) {
     #[cfg(windows)]
     {
-        let segs = if files_connected().is_some() { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
+        let segs: Vec<_> = if files_connected().is_some() { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
+        crate::drag::set_segs(segs.iter().map(|(s, e, _)| (s.clone(), *e)).collect());
         crate::edge::set(segs);
     }
     let _ = app;
@@ -668,6 +669,10 @@ pub fn update_edges(app: &AppHandle) {
 /// 가장자리 띠에 놓은 파일 → 맥으로 (via edge) + 그 자리에 물결
 #[cfg(windows)]
 fn edge_drop(app: &AppHandle, files: Vec<String>, mac_side: String, pos: f64, pt: (i32, i32)) {
+    // 포탈이 보이면 빨려 들어가는 애니메이션 뒤 JS 가 보낸다 (link_send + edge/pos)
+    if crate::drag::portal_drop(app, &files, &mac_side, pos, pt) {
+        return;
+    }
     let side = ll::nearest_side(desk_bbox(), pt.0 as f64, pt.1 as f64);
     crate::ripple::show(pt.0, pt.1, Some(side), crate::ripple::Kind::Leave);
     let app = app.clone();
@@ -927,10 +932,13 @@ pub fn unpair(app: &AppHandle) {
     }
 }
 
-/// 파일을 맥으로 (블로킹 — spawn_blocking 에서)
-pub fn send_file(app: &AppHandle, path: &str) -> Result<(), String> {
+/// 파일을 맥으로 (블로킹 — spawn_blocking 에서). edge = 가장자리 포탈로 보냄 (맥 쪽 방향, 그 가장자리 위 0..1) → 맥이 그 자리에 물결
+pub fn send_file(app: &AppHandle, path: &str, edge: Option<(String, f64)>) -> Result<(), String> {
     let c = CONN.lock().unwrap().clone().filter(|c| c.is_ready()).ok_or("맥과 연결되어 있지 않아요")?;
-    c.send_file(Path::new(path), &sink(app))
+    match edge {
+        Some((side, pos)) => c.send_file_meta(Path::new(path), &sink(app), json!({ "via": "edge", "edge": side, "pos": pos })),
+        None => c.send_file(Path::new(path), &sink(app)),
+    }
 }
 
 /// 맥에서 `mac` 수식키(ctrl/super …)가 되는 윈도우 키 이름 — 키 매핑(윈도우 습관 = Ctrl↔Win)을 거꾸로 따라간다
