@@ -6,12 +6,14 @@ import './styles/kept.css'
 import './styles/board.css'
 import { closeSelf, coverCloseAll, isTauri, noteNotepad, onEvent } from './data/api'
 import { SettingsWin } from './win/Settings'
+import { Panel } from './win/Panel'
+import { Toast } from './win/Toast'
 import { NoteBoard } from './surfaces/Notes'
 import { UndoToast } from './surfaces/Undo'
 import { AsciiFull, SCENES, seasonOf, type SceneId } from './surfaces/Ascii'
 import { FX_LABEL, Fx, type FxKind } from './surfaces/Fx'
 
-/* 창 1개 = 표면 1개 (?surface=). settings · notes(메모 보드) · ascii(자리 비움 화면) · fx(화면 효과) */
+/* 창 1개 = 표면 1개 (?surface=). panel(트레이 패널) · toast(알림 카드) · settings · notes(메모 보드) · ascii(자리 비움 화면) · fx(화면 효과) */
 const q = new URLSearchParams(location.search)
 const surface = q.get('surface') ?? 'settings'
 const dark = matchMedia('(prefers-color-scheme: dark)')
@@ -32,6 +34,8 @@ function Cover() {
 }
 
 function App() {
+  if (surface === 'panel') return <Panel />
+  if (surface === 'toast') return <Toast />
   if (surface === 'notes')
     return (
       <div className="hx boardwin">

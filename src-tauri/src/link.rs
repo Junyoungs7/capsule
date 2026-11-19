@@ -283,6 +283,7 @@ fn set(app: &AppHandle, f: impl FnOnce(&mut Status)) {
         f(&mut st);
         st.clone()
     };
+    crate::tray::set_connected(app, s.state == "connected");
     let _ = app.emit("link-status", s);
 }
 
@@ -529,8 +530,21 @@ fn spawn(app: &AppHandle, d: &Path) -> Result<Child, String> {
 fn on_log(app: &AppHandle, ev: LogEv) {
     let me = read_cfg(app).1.me;
     match &ev {
-        LogEv::Connected { name } => set(app, |s| (s.state = "connected".into(), s.peer = if name.is_empty() { s.peer.clone() } else { name.clone() }, s.detail.clear()).2),
-        LogEv::Disconnected { .. } => set(app, |s| (s.state = "waiting".into(), s.on_peer = false).1),
+        LogEv::Connected { name } => {
+            let was = status().state == "connected";
+            set(app, |s| (s.state = "connected".into(), s.peer = if name.is_empty() { s.peer.clone() } else { name.clone() }, s.detail.clear()).2);
+            if !was {
+                let st = status();
+                crate::tray::toast(app, "link", &format!("{} 연결됨", st.peer), "가장자리로 마우스를 밀면 넘어가요");
+            }
+        }
+        LogEv::Disconnected { .. } => {
+            let was = status();
+            set(app, |s| (s.state = "waiting".into(), s.on_peer = false).1);
+            if was.state == "connected" {
+                crate::tray::toast(app, "link", &format!("{} 연결 끊김", was.peer), "다시 켜지면 자동으로 이어져요");
+            }
+        }
         LogEv::Switch { to, at, .. } => {
             let on_peer = *to != me;
             set(app, |s| (s.on_peer = on_peer, s.state = "connected".into()).1);
@@ -781,10 +795,33 @@ fn files_cfg(app: &AppHandle) -> lf::Config {
     }
 }
 
+/// 보내는 파일 이름 (전송 id → 이름) — '보냈어요' 알림에 쓴다
+static OUT_NAMES: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
+
 fn sink(app: &AppHandle) -> lf::Sink {
     let app = app.clone();
     Arc::new(move |e: lf::Event| {
         match &e {
+            lf::Event::Peer { state, name, code } if state == "pairing" => {
+                crate::tray::toast(&app, "pair", &format!("{name} 연결 확인"), &format!("숫자 {} {} · 눌러서 확인", &code[..code.len().min(3)], &code[code.len().min(3)..]));
+            }
+            lf::Event::Xfer { dir, id, name, .. } if dir == "out" => {
+                let mut n = OUT_NAMES.lock().unwrap();
+                if !n.iter().any(|(i, _)| i == id) {
+                    n.push((*id, name.clone()));
+                }
+            }
+            lf::Event::Sent { id, ok, error } => {
+                let name = {
+                    let mut n = OUT_NAMES.lock().unwrap();
+                    n.iter().position(|(i, _)| i == id).map(|i| n.remove(i).1).unwrap_or_default()
+                };
+                if *ok {
+                    crate::tray::toast(&app, "sent", "맥으로 보냈어요", &format!(r"{name} · 맥 다운로드\Hera"));
+                } else {
+                    crate::tray::toast(&app, "fail", "보내지 못했어요", error);
+                }
+            }
             lf::Event::Paired { pk, name, fp } => {
                 if let Ok(s) = app.store("hera.json") {
                     s.set("link.peerPk", pk.clone());
@@ -797,6 +834,8 @@ fn sink(app: &AppHandle) -> lf::Sink {
             }
             lf::Event::Received { path, meta, .. } => {
                 crate::shelve(&app, std::slice::from_ref(path), "mac"); // 받은 파일 → 선반 (다운로드\Hera 에도 있음)
+                let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                crate::tray::toast(&app, "recv", "맥에서 파일을 받았어요", &format!(r"{name} · 선반과 다운로드\Hera에 있어요"));
                 // 맥 가장자리로 끌어 보낸 파일: 이어진 PC 가장자리 그 자리에 진한 물결
                 #[cfg(windows)]
                 if meta["via"] == "edge" {

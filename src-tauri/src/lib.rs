@@ -19,10 +19,11 @@ mod link;
 mod link_files;
 mod link_layout;
 mod notes; // 메모 보드 · 메모장으로 열기
+mod tray; // 트레이 아이콘 · 패널 · 알림 카드
 mod ui;
 
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_store::StoreExt;
@@ -398,13 +399,14 @@ pub fn old_key(k: &str) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            let _ = open_settings(app, "general"); // 두 번째 실행 = 설정 창
+            tray::show(app, None); // 두 번째 실행 = 패널
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
+            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click,
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -427,6 +429,7 @@ pub fn run() {
                 }
             }
             let h = app.handle();
+            tray::create_panel(h)?;
             watch::start(h.clone());
             shell::start(h.clone());
             // Hera Link: 기본 꺼짐. 켜져 있을 때만 엔진·파일 채널이 뜬다 (꺼져 있으면 스레드 1개가 대기만)
@@ -445,6 +448,11 @@ pub fn run() {
                 .tooltip("Hera")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
+                .on_tray_icon_event(|t, e| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, position, .. } = e {
+                        tray::toggle(t.app_handle(), Some((position.x, position.y)));
+                    }
+                })
                 .on_menu_event(|app, e| match e.id().as_ref() {
                     "settings" => {
                         let _ = open_settings(app, "general");
