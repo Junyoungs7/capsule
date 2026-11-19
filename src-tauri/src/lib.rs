@@ -7,6 +7,8 @@ mod edge;
 #[cfg(windows)]
 mod launch;
 #[cfg(windows)]
+mod pet; // 작업 표시줄 펫 (꾸미기)
+#[cfg(windows)]
 mod ripple;
 #[cfg(windows)]
 mod shell;
@@ -15,7 +17,7 @@ mod watch;
 #[cfg(not(windows))]
 mod stub;
 #[cfg(not(windows))]
-use stub::{drag, launch, shell, watch};
+use stub::{drag, launch, pet, shell, watch};
 mod crossing; // Hera Link 넘어감: 벽 · 자리 · 한 번만
 mod link;
 mod link_files;
@@ -48,7 +50,7 @@ fn builder<'a>(app: &'a AppHandle, label: &'a str, url: String, (w, h): (f64, f6
 }
 
 /// 클릭 통과 오버레이 (watch 루프가 히트 rect 밖은 통과 · NOACTIVATE · TOOLWINDOW 를 유지)
-fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) -> tauri::Result<WebviewWindow> {
+pub(crate) fn overlay(app: &AppHandle, label: &'static str, query: &str, size: (f64, f64)) -> tauri::Result<WebviewWindow> {
     let surface = label.split('-').next().unwrap_or(label); // "fx-1" → surface=fx
     let win = builder(app, label, format!("index.html?surface={surface}{query}"), size)
         .shadow(false)
@@ -409,7 +411,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
-            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide,
+            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, pet::pet_click,
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -442,9 +444,14 @@ pub fn run() {
             link::start(h.clone());
             link::files_start(h);
             notes::migrate(h);
-            listen_store(h, |k, _| {
+            pet::sync(h); // 꾸미기가 켜져 있으면 작업 표시줄 펫
+            let a = h.clone();
+            listen_store(h, move |k, _| {
                 if matches!(k, "ascii.idleMin" | "deco.enabled" | "locator.enabled") {
                     watch::RECHECK.store(true, Ordering::Relaxed); // 2초 기다리지 않고 바로 적용
+                }
+                if k == "deco.enabled" {
+                    pet::sync(&a);
                 }
             });
 
@@ -491,7 +498,7 @@ mod tests {
         let cap: serde_json::Value = serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
         let pats: Vec<&str> = cap["windows"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
         let covered = |l: &str| pats.iter().any(|p| p.strip_suffix('*').map_or(*p == l, |pre| l.starts_with(pre)));
-        let mut labels = vec!["settings".to_string(), "notes".into()];
+        let mut labels = vec!["settings".to_string(), "notes".into(), "panel".into(), "toast".into(), "drag".into(), "pet".into()];
         labels.extend(FX_LABELS.iter().map(|s| s.to_string()));
         let mons: Vec<Mon> = (0..3).map(|i| ((i * 1920, 0), (1920, 1080), 1.0)).collect();
         labels.extend(cover_rects(&mons).into_iter().map(|c| c.0));

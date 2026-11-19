@@ -126,7 +126,7 @@ export const DEFAULT_PET = 'cat'
 /** --pk: 펫 상자 배율. 벡터 = k, 픽셀 = 아트 한 칸(2.5px)이 장치 픽셀 정수배가 되게 (흐려지지 않게) */
 export function petScale(style: PetStyle, k: number, dpr = devicePixelRatio || 1) {
   if (style !== 'pixel') return k
-  return Math.max(1, Math.round(2.5 * k * dpr)) / dpr / 2.5
+  return Math.max(1, Math.floor(2.5 * k * dpr)) / dpr / 2.5
 }
 
 const BELL = '<svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6v4l-1.8 3h15.6L18 13V9a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M9.8 18.5a2.2 2.2 0 0 0 4.4 0" fill="currentColor"/></svg>'

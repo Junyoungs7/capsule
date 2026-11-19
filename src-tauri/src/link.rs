@@ -822,6 +822,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
                     n.iter().position(|(i, _)| i == id).map(|i| n.remove(i).1).unwrap_or_default()
                 };
                 if *ok {
+                    let _ = app.emit_to("pet", "pet-react", "sent");
                     crate::tray::toast(&app, "sent", "맥으로 보냈어요", &format!(r"{name} · 맥 다운로드\Hera"));
                 } else {
                     crate::tray::toast(&app, "fail", "보내지 못했어요", error);
@@ -840,6 +841,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
             lf::Event::Received { path, meta, .. } => {
                 crate::shelve(&app, std::slice::from_ref(path), "mac"); // 받은 파일 → 선반 (다운로드\Hera 에도 있음)
                 let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let _ = app.emit_to("pet", "pet-react", "recv");
                 crate::tray::toast(&app, "recv", "맥에서 파일을 받았어요", &format!(r"{name} · 선반과 다운로드\Hera에 있어요"));
                 // 맥 가장자리로 끌어 보낸 파일: 이어진 PC 가장자리 그 자리에 진한 물결
                 #[cfg(windows)]

@@ -105,6 +105,11 @@ pub static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 
 /// v2 자리 비움 화면보호기: 입력 없이 idle_min 분 지남 + 막힘(전체화면·잠금) 아님 + 아스키 창 없음. 0분 = 끔.
 /// 재무장은 따로 없다 — 닫힘은 입력으로만 일어나고 입력이 idle 을 0 으로 되돌린다.
+/// 자리 비움 화면 대기 분: 꾸미기가 꺼져 있으면 0 (= 안 뜸), 켜져 있으면 설정값(기본 10분)
+fn cover_wait(deco: bool, min: Option<u64>) -> u64 {
+    if deco { min.unwrap_or(10) } else { 0 }
+}
+
 fn saver_due(idle_ms: u32, idle_min: u64, blocked: bool, open: bool) -> bool {
     idle_min > 0 && !blocked && !open && idle_ms as u64 >= idle_min * 60_000
 }
@@ -291,6 +296,7 @@ pub fn start(app: AppHandle) {
         let mut full = false;
         let mut mons = monitors(); // 2초마다 (모니터·배율 변경)
         let mut drag = crate::drag::Drag::default();
+        let mut n = 0u32;
         let t0 = Instant::now();
 
         loop {
@@ -351,6 +357,12 @@ pub fn start(app: AppHandle) {
                 }
             }
 
+            // 작업 표시줄 펫 (꾸미기): 0.3초마다 자리 · 숨김 (전체화면 · 자동 숨김 작업 표시줄)
+            n = n.wrapping_add(1);
+            if n.is_multiple_of(10) {
+                crate::pet::tick(full);
+            }
+
             // 자리 비움 화면: 열린 뒤 입력(마우스·키)이 있으면 닫기 — 창이 포커스가 없어도 키를 잡는다. JS 가 닫힘 애니메이션 후 파괴.
             if let Some(at) = saver {
                 if last_input() != at {
@@ -383,7 +395,7 @@ pub fn start(app: AppHandle) {
                 } else {
                     saver_closing = None;
                     saver = None;
-                    let idle_min = if deco { get("ascii.idleMin").and_then(|v| v.as_u64()).unwrap_or(10) } else { 0 };
+                    let idle_min = cover_wait(deco, get("ascii.idleMin").and_then(|v| v.as_u64()));
                     let li = last_input();
                     if saver_due(GetTickCount().wrapping_sub(li), idle_min, full || away, false) {
                         saver = Some(li);
@@ -483,6 +495,16 @@ mod tests {
         assert!(shake_at(&mut s, 0, 120, 70));
         assert!(!shake_at(&mut s, 400, 120, 70)); // 400~1357ms: 쉬는 중
         assert!(shake_at(&mut s, 3000, 120, 70));
+    }
+
+    /// 꾸미기 꺼짐(기본) = 자리 비움 화면 없음 · 켜짐 = 설정한 분(기본 10)
+    #[test]
+    fn cover_needs_deco() {
+        assert_eq!(cover_wait(false, Some(10)), 0);
+        assert!(!saver_due(u32::MAX, cover_wait(false, None), false, false));
+        assert_eq!(cover_wait(true, None), 10);
+        assert_eq!(cover_wait(true, Some(3)), 3);
+        assert!(saver_due(3 * 60_000, cover_wait(true, Some(3)), false, false));
     }
 
     #[test]

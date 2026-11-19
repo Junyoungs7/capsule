@@ -35,6 +35,13 @@ pub mod drag {
     pub fn drag_hide() {}
 }
 
+pub mod pet {
+    use tauri::AppHandle;
+    pub fn sync(_: &AppHandle) {}
+    #[tauri::command]
+    pub fn pet_click() {}
+}
+
 pub mod launch {
     pub fn sta<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
         f()

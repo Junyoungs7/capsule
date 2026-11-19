@@ -84,15 +84,12 @@ code  = HKDF-Expand(prk, info = "code" || T, 4) → u32(빅엔디안) % 1_000_00
 | `offer` | 보내는 쪽 | `id`(u32, 보내는 쪽에서 1부터), `name`, `size`(u64 바이트), `sha256`(hex 소문자) | 파일 시작 |
 | `done` | 보내는 쪽 | `id` | 조각 끝 |
 | `ack` | 받는 쪽 | `id`, `ok`(bool), `error`(실패 시 문자열) | 크기·해시 확인 결과 |
-| `clip` | 양쪽 | `text` (≤ 64K 글자) | 클립보드 **기록** 항목 — 받는 쪽은 기록 목록에만 넣고 클립보드는 건드리지 않는다 |
 | `ping` | 양쪽 | — | 무시해도 됨 (유지용) |
 | `bye` | 양쪽 | — | 곧 닫음 — 받으면 읽기 루프를 끝낸다 (닫는 쪽은 그 뒤 shutdown) |
 | `monitors` | 양쪽 | `list: [{id, rect:[x,y,w,h], scale, primary}]` | 내 모니터 (rect = 내 OS 가상 데스크톱 좌표: 윈도우 물리 px, 맥 포인트). 받는 쪽은 배치 캔버스에 상대 모니터로 쓴다 (윈도우: store `link.macMonitors` → 엔진 링크 다시 생성) |
 | `crossed` | 양쪽 | `enter`(bool), `x`,`y`(enter=true 일 때, **받는 쪽 좌표**) | 커서가 넘어감. enter=true: 받는 쪽 화면에 (x,y) 로 들어왔음 → 그 가장자리에 진한 파란 물결. enter=false: 받는 쪽 화면에서 떠났음 → 받는 쪽은 자기 커서 위치에 옅은 물결 |
-| `ambient` | 양쪽 | `kind`: ascii \| saver \| fx, `fx`: snow\|rain\|leaves\|sunset\|dawn\|moon (kind=fx), `action`: start \| stop | 받는 쪽 화면에 아스키 전체화면·화면보호기·효과를 켜거나 끈다 (받는 쪽 입력이 생기면 원래 규칙대로 꺼짐) |
-| `sync` | 양쪽 | `items: [{key, value\|null, at, scope}]` | 할 일·일정 동기화 (7장) |
 | `keymap` | 윈도우→맥 | `preset`: habit\|position\|shortcuts\|custom, `rows`: [[윈도우키, 맥키]…], `ime`: hera\|capslock\|ctrl-space\|cmd-space\|off | 키 매핑 설정 알림. 수식키 바꾸기는 **엔진**이 이미 한다 (윈도우가 엔진 설정에 넣음). 맥 Hera 는 `shortcuts` 일 때만 직접 처리: Ctrl+C/V/X/Z/A/S/F/T/W/R/L/Q(+Shift) → ⌘+같은 키 (CGEventTap, 손쉬운 사용 권한) |
-| `ime` | 윈도우→맥 / 맥→윈도우 | `action`: toggle \| set \| state, `source`: "ko"\|"en" (set·state) | 윈도우→맥 toggle: 커서가 맥에 있을 때 윈도우 키보드의 한/영 → 맥 Hera 가 입력 소스 전환(TISSelectInputSource) 후 `{"t":"ime","action":"state","source":…}` 로 답한다 → 윈도우 Island 에 "한"/"A" 칩 |
+| `ime` | 윈도우→맥 / 맥→윈도우 | `action`: toggle \| set \| state, `source`: "ko"\|"en" (set·state) | 윈도우→맥 toggle: 커서가 맥에 있을 때 윈도우 키보드의 한/영 → 맥 Hera 가 입력 소스 전환(TISSelectInputSource) 후 `{"t":"ime","action":"state","source":…}` 로 답한다 (윈도우는 이 회신을 지금 표시하지 않는다 — 무시해도 된다) |
 
 모르는 `t` 는 무시한다 (앞으로의 확장).
 
@@ -111,41 +108,15 @@ code  = HKDF-Expand(prk, info = "code" || T, 4) → u32(빅엔디안) % 1_000_00
            done: 크기 == size && 해시 == sha256 → 이름 정리 후 이동, ack ok=true
                  아니면 임시 파일 삭제, ack ok=false error="hash mismatch"
 ```
-- 받는 위치: 윈도우 `%USERPROFILE%\Downloads\Hera\`, 맥 `~/Downloads/Hera/`. 받은 뒤 독 선반에 올린다.
+- 받는 위치: 윈도우 `%USERPROFILE%\Downloads\Hera\`, 맥 `~/Downloads/Hera/`. 받은 뒤 선반에 올린다.
 - 이름 정리: `\ / : * ? " < > |` 와 제어 문자 → `_`, 앞뒤 `.`·공백 제거, 비면 `file`, 같은 이름이 있으면 `이름 (2).확장자`…
 - 한 연결에서 파일은 한 번에 하나씩 (받는 쪽은 진행 중인 offer 1개만 기억).
 
-## 7. 할 일·일정 동기화 (`sync`)
-- 대상 store 키: `todo:<id>`, `event:<id>`. 항목마다 `at` = 마지막 변경 시각(epoch ms), 지움 = `value: null`(묘비).
-- **마지막에 쓴 쪽이 이김 (LWW)**: 받은 항목의 `at` 이 내 기록보다 **클 때만** 적용(같으면 무시 → 왕복 없음). 묘비도 같은 규칙 — 지운 뒤의 옛 수정은 되살리지 않는다.
-- 접속 직후 양쪽이 전체(살아 있는 항목 + 묘비)를 한 번 보내고, 이후 바뀔 때마다 그 항목만 보낸다. 받은 변경을 적용할 때 생기는 내 변경 알림은 다시 보내지 않는다.
-- 묘비는 30일 뒤 정리. 메타(키 → 시각·지움)는 store `sync.meta`.
-- `scope`: "personal" (두 PC 사이) | "group:<id>" (Hera Team — 나중에 그룹 채널로. 이 채널은 personal 만 주고받는다).
-- **알림은 커서가 있는 PC 에서만** 울린다: 윈도우는 엔진의 화면 전환 상태로, 맥은 `crossed` 로 판단. 커서가 없는 쪽은 그 알림을 '울림'으로 표시만 해서 나중에 중복으로 울리지 않는다. 완료·다시 알림은 할 일 항목 변경(done / snooze)이라 동기화로 전파된다.
-
 ## 8. 화면 표시 (참고)
-- 진행: 100ms 마다 `bytes/size` → Island 진행 바.
-- 보내기 끝: Island 이 접혔다 펴짐(삼킴). 받기 끝: 튀어나오고 파일이 선반으로 날아감.
+- 받은 파일 → 선반 (`from: "mac"`, '맥에서 받음') + 알림 카드 '맥에서 파일을 받았어요'. 보냄 → 알림 카드 '맥으로 보냈어요' (실패면 '보내지 못했어요').
+- 지금 규격에서 뺀 메시지: `clip`(최근 복사 기록) · `ambient`(상대 화면 효과) · `sync`(할 일·일정) · Hera Team. 받으면 모르는 `t` 처럼 무시한다.
 
 ## 9. 보안 메모
 - 비밀키는 각 기기 사용자 프로필 안 (윈도우: `%APPDATA%\dev.hera.dock\hera.json`).
 - 페어링 해제 = 저장한 상대 pk 삭제 → 다음 접속에서 다시 코드 확인.
 - 회사 방화벽이 24810/24811 을 막으면 연결이 안 된다 → 패널에 "파일 채널" 상태로 보인다.
-
-## 10. Hera Team (동료 PC — 그룹 공유)
-같은 전송·암호(2–3장)를 쓰되 포트·비콘이 따로이고(**TCP 24820, UDP 비콘 24821**), 숫자 비교 페어링 대신 **그룹원 공개키 + 초대 코드**로 신원을 확인한다.
-참조 구현: `src-tauri/src/team.rs` (시험: 그룹원 3명 + 외부인 루프백 `cargo test --lib team`).
-
-- 핸드셰이크 뒤 바로 준비 상태(`state.paired` 무시). 이후 모든 그룹 메시지는 **보낸 쪽 공개키가 그 그룹의 그룹원일 때만** 처리한다.
-- 비콘: `{"hera-team":1,"pk":"<hex>","port":24820,"inv":<열린 초대 있음>}` 5초마다. 그룹원이면 접속 — 공개키(hex)가 더 **큰** 쪽이 건다(중복 연결 방지).
-- 초대: 그룹원이 6자리 코드를 만든다(10분, 틀린 시도 5번이면 폐기). 초대 문자열 = `hera-team:` + hex(JSON `{"c":코드,"a":["ip:port"…],"n":그룹 이름}`). 코드만 있으면 `inv:true` 비콘을 낸 호스트들에 차례로 시도, 또는 `코드@IP`.
-
-| t | 필드 | 뜻 |
-|---|---|---|
-| `join` | `code`, `name` | 들어오기 요청 → 맞으면 호스트가 그룹원에 추가하고 `tgroup` + 전체 `tsync` |
-| `join-no` | `error` | 거부 |
-| `tgroup` | `group: {id, name, color, members:[{pk,name}], rev}` | 그룹 정보. `rev` 가 더 크고 보낸 쪽이 기존 그룹원이면 교체(알림·소식 켜기/끄기는 각자 설정). 처음 받는 그룹은 새 목록에 나와 보낸 쪽이 모두 있어야 받음. 받은 쪽은 다른 그룹원에게 전달 |
-| `tsync` | `group`, `items:[{key,value\|null,at,scope}]`, `by` | 7장과 같은 LWW + 묘비. 대상 키 `event:` · `note:` (그 값의 `group` 이 메시지 그룹과 같아야 함). 새로 적용한 항목만 다른 그룹원에게 전달 → 늦게 켠 PC 는 온라인 그룹원 누구에게서든 따라잡음 |
-
-- 개인 항목(`group` 없음)은 보내지도 받지도 않는다. Hera Link 의 내 PC 끼리 동기화는 반대로 `group` 이 있는 항목을 빼고 주고받는다.
-- 변경 소식: 원격 변경을 적용하면 `team-news {group, by, action, title}` → Island (그룹별 '변경 소식' 켜짐일 때). 팀 일정 알림도 그룹별로 끌 수 있다.
