@@ -106,3 +106,7 @@
 ## Island a15 설치 (2026-11-18 20:47)
 - 950c5ae: 맥이 Deskflow 만일 때(맥 Hera 파일 채널 없음) 한/영 키 = 맥 ^Space 를 엔진으로 (키 매핑 역추적: 윈도우 습관이면 Win+Space 주입). 설정 문구 = 맥 기준. cargo 81 ok, settings-cdp ALL PASS. 주입 키가 엔진을 통과하는지는 실제 키로만 확인 가능 → 사용자 확인.
 - 사용자 확인 (2026-11-18): 맥(Deskflow)에서 우 Alt 한/영 정상 동작.
+
+## Hera for Windows a16~a19 설치 (2026-11-19 12:54)
+- 889ec69 a16 정리(연결·클립보드·선반·메모·물결·꾸미기만), 36b2793 a17 트레이 패널+알림 카드, 7c83e97 a18 흔들기 받침+맥 가장자리 포탈, 976bcd4 a19 작업 표시줄 펫(꾸미기 켰을 때) + docs/spec.md. b47d62c docs/mac-design.md(맥판 명세, 저장 키는 spec.md 기준으로 맞춤).
+- 설치 파일 10:25(a19 커밋 10:21 이후) 확인 후 /S 설치. idle: 8 processes, privateWS 55.6 MB.
