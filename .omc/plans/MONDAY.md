@@ -96,3 +96,9 @@
 - eed563a: LP 효과·아스키를 모든 모니터에 (fx/fx-1.., 주 모니터 먼저, 마지막 창이 닫혀야 fx-closed · 아스키 Esc 한 번에 모두 닫힘). LP 끌기 고스트 = 매 이동마다 원점·배율 재측정 (캡슐 끌림 확대 scale 때문에 a11 수정으로도 어긋났음).
 - cargo test 76 ok · lp-cdp ALL PASS (scale 케이스 추가) · a7 ALL PASS · tsc OK. 멀티 모니터 창은 헤드리스로 못 봄 → 사용자 확인.
 - idle 80s: 8 processes, privateWS 74.9 MB. Deskflow 3개 실행 중 (core PID 는 사용자 daemon 이 다시 띄워 바뀜 — Hera·나 아님).
+
+## Island a13 · a14 설치 (2026-11-18)
+- a13 bcd6429 (hera-dev4): 캡슐 끌어서 자유 배치(island.pos, 반쪽 기준 펼침 방향), 설정 창 capability 누락(settings·ascii-*·fx-*) 수정 → 설정이 이제 실제로 저장·즉시 적용, Ctrl+Alt+K 팔레트 제거(상용구 = 허브에서 눌러 붙여넣기). 헤드리스 14개 스위트 통과, cargo 79 ok.
+- 메모리: 설정 창 열린 채 219MB → 닫은 뒤 80s idle 54.4MB (7 processes).
+- a14 eca90c9: Link/Team 비콘이 0.0.0.0 소켓이라 metric 1 가상 어댑터(이더넷 4, 10.10.100.1)로만 나가 맥(192.168.50.x)이 못 받음 → 기본 경로 랜카드 주소에 묶은 소켓으로도 송신, 팀 초대 주소도 같은 기준. 설치 후 24811 수신 확인: 192.168.50.32·10.10.100.1 두 곳에서 비콘. 빌드는 target 파일 잠금으로 3회 실패 후 성공.
+- Deskflow: 사용자가 서비스 중지·사용 안 함(Disabled)으로 바꿈, 24800 = Hera 내장 엔진.
