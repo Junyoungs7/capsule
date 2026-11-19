@@ -1,0 +1,108 @@
+/* ═══════════ 펫 (44×40 상자, 몸 = SVG/글자 + HTML 눈·소품 → 합성기만) ═══════════ */
+.pet { position: relative; width: 44px; height: 40px; flex: none; }
+.pet .accs { display: contents; }
+.pbody { position: absolute; left: 2px; top: 4px; width: 40px; height: 36px; transform-origin: 50% 100%; }
+.pbody svg { position: absolute; inset: 0; width: 40px; height: 36px; overflow: visible; }
+.pet .eyes { position: absolute; left: 0; top: 0; width: 40px; height: 36px; }
+.pet .eye { position: absolute; top: var(--ey); width: var(--ew); height: var(--eh); border-radius: 50%; background: var(--ec); transform-origin: 50% 50%; }
+.pet .eye::after { content: ''; position: absolute; left: 22%; top: 18%; width: 34%; height: 30%; border-radius: 50%; background: rgba(255, 255, 255, 0.85); }
+.pet .eye.l { left: var(--el); } .pet .eye.r { left: var(--er); }
+.pet .brow { position: absolute; top: calc(var(--ey) - 3.2px); width: 4.2px; height: 1.3px; border-radius: 1px; background: var(--ec); opacity: 0; }
+.pet .brow.l { left: calc(var(--el) - 0.8px); transform: rotate(-22deg); } .pet .brow.r { left: calc(var(--er) - 0.4px); transform: rotate(22deg); }
+
+.pet .acc { position: absolute; opacity: 0; pointer-events: none; }
+.pet .acc.z { right: -3px; top: 1px; font: 700 7px/1 var(--font, sans-serif); color: rgba(255, 255, 255, 0.8); }
+.pet .acc.z b { position: absolute; left: 5px; top: -5px; font-size: 9px; }
+.pet .acc.bubble { right: -5px; top: 0; min-width: 16px; height: 13px; padding: 0 4px; border-radius: 7px; background: #fff; color: #111; font: 800 9px/13px var(--font, sans-serif); text-align: center; }
+.pet .acc.bubble::after { content: ''; position: absolute; left: 3px; bottom: -3px; border: 3px solid transparent; border-top-color: #fff; border-left-color: #fff; }
+.pet .acc.bell { left: -6px; top: -1px; width: 14px; height: 14px; color: #ffd60a; transform-origin: 50% 10%; }
+.pet .acc.bell svg { width: 14px; height: 14px; }
+.pet .acc.laptop { left: 9px; bottom: -1px; width: 26px; height: 11px; }
+.pet .acc.laptop::before { content: ''; position: absolute; left: 2px; right: 2px; top: 0; height: 8px; border-radius: 2px 2px 0 0; background: linear-gradient(180deg, #3a3e48, #2a2d35); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), inset 0 -2px 0 rgba(50, 215, 75, 0.55); }
+.pet .acc.laptop::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0 0 2px 2px; background: #c9ccd4; }
+.pet .paw { position: absolute; top: -3px; width: 5px; height: 4px; border-radius: 3px; background: var(--paw, #ffe9cf); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2); }
+.pet .paw.a { left: 6px; } .pet .paw.b { right: 6px; }
+.pet .acc.stars { inset: -6px; }
+.pet .acc.stars i { position: absolute; width: 5px; height: 5px; background: #ffd60a; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+.pet .acc.stars i:nth-child(1) { left: 2px; top: 6px; } .pet .acc.stars i:nth-child(2) { right: 1px; top: 2px; width: 6px; height: 6px; } .pet .acc.stars i:nth-child(3) { right: 6px; top: 16px; width: 4px; height: 4px; }
+.pet .acc.bang { right: -5px; top: 0; width: 13px; height: 13px; border-radius: 50%; background: #ff453a; color: #fff; font: 900 9px/13px var(--font, sans-serif); text-align: center; box-shadow: 0 0 0 1.5px #0e0e12; }
+.pet .acc.sweat { left: 33px; top: 9px; width: 4px; height: 6px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: #7cc4ff; }
+.pet .acc.box { left: 10px; bottom: -2px; width: 24px; height: 13px; border-radius: 2px; background: linear-gradient(180deg, #d9a56c, #c58d55); box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25); }
+.pet .acc.box::before { content: ''; position: absolute; left: 10px; top: 0; width: 4px; height: 100%; background: #f0cf9a; opacity: 0.9; }
+.pet .acc.box .paw { top: -2px; }
+
+/* 평소: 숨쉬기(아래 기준 크기) + 깜빡임 + 가끔 두리번 */
+.pet .pbody { animation: breathe 3.6s cubic-bezier(.25, .1, .25, 1) infinite alternate; }
+.pet .eye { animation: blink 5.4s steps(1) infinite; }
+.pet .eyes { animation: look 13s steps(1) infinite; }
+@keyframes breathe { from { transform: scale(1, 1); } to { transform: scale(1.025, 1.04); } }
+@keyframes blink { 0%, 93% { transform: scaleY(1); } 94%, 96% { transform: scaleY(0.12); } 97% { transform: scaleY(1); } }
+@keyframes look { 0%, 52% { transform: translateX(0); } 54%, 66% { transform: translateX(-1.4px); } 68%, 78% { transform: translateX(1.4px); } 80% { transform: translate(0, -0.6px); } 82%, 100% { transform: translateX(0); } }
+/* 잠 */
+.pet[data-s='sleep'] .pbody { animation: breathe 6s ease-in-out infinite alternate; }
+.pet[data-s='sleep'] .eye { animation: none; height: 1.4px; top: calc(var(--ey) + 1.6px); border-radius: 1px; }
+.pet[data-s='sleep'] .eye::after { display: none; }
+.pet[data-s='sleep'] .eyes { animation: none; }
+.pet[data-s='sleep'] .acc.z { opacity: 1; animation: zz 4s steps(8) infinite; }
+@keyframes zz { 0% { transform: translate(0, 2px); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(3px, -4px); opacity: 0; } }
+/* 채팅: 귀 쫑긋 + 말풍선 */
+.pet[data-s='chat'] .pbody { animation: hop 620ms cubic-bezier(.3, .7, .4, 1) 1, breathe 3.6s 620ms cubic-bezier(.25, .1, .25, 1) infinite alternate; }
+.pet[data-s='chat'] .eyes { animation: none; transform: translateY(-0.8px); }
+.pet[data-s='chat'] .acc.bubble { opacity: 1; animation: pop 420ms cubic-bezier(.2, 1.35, .35, 1) both; }
+@keyframes hop { 0% { transform: translateY(0); } 35% { transform: translateY(-4px) scale(0.98, 1.04); } 70% { transform: translateY(0) scale(1.03, 0.97); } 100% { transform: none; } }
+@keyframes pop { from { transform: scale(0.3); opacity: 0; } }
+/* 일정: 종 */
+.pet[data-s='event'] .acc.bell { opacity: 1; animation: ring 800ms ease-in-out 4; }
+.pet[data-s='event'] .eyes { animation: none; transform: translate(-1px, -0.6px); }
+@keyframes ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(18deg); } 45% { transform: rotate(-16deg); } 70% { transform: rotate(10deg); } }
+/* 실행 중: 노트북 + 낮은 프레임으로 두드림 */
+.pet[data-s='typing'] .acc.laptop { opacity: 1; }
+.pet[data-s='typing'] .eyes { animation: none; transform: translateY(1.2px); }
+.pet[data-s='typing'] .paw { animation: tap 300ms steps(1) infinite; }
+.pet[data-s='typing'] .paw.b { animation-delay: 150ms; }
+@keyframes tap { 0% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+/* 완료: 만세 */
+.pet[data-s='done'] .pbody { animation: cheer 700ms cubic-bezier(.3, .7, .4, 1) 2, breathe 3.6s 1.4s cubic-bezier(.25, .1, .25, 1) infinite alternate; }
+.pet[data-s='done'] .acc.stars { opacity: 1; animation: twinkle 1.2s steps(2) infinite; }
+.pet[data-s='done'] .eye { animation: none; background: none; height: 3px; top: calc(var(--ey) + 0.5px); border-radius: 50% 50% 0 0 / 100% 100% 0 0; border-top: 1.6px solid var(--ec); }
+.pet[data-s='done'] .eye::after { display: none; }
+.pet[data-s='done'] .eyes { animation: none; }
+@keyframes cheer { 0% { transform: none; } 40% { transform: translateY(-5px) scale(0.97, 1.05); } 75% { transform: translateY(0) scale(1.04, 0.96); } 100% { transform: none; } }
+@keyframes twinkle { 0% { opacity: 1; } 50% { opacity: 0.45; } }
+/* 실패: 걱정 + 빨간 ! */
+.pet[data-s='fail'] .brow { opacity: 1; }
+.pet[data-s='fail'] .brow.l { transform: rotate(22deg); } .pet[data-s='fail'] .brow.r { transform: rotate(-22deg); }
+.pet[data-s='fail'] .acc.bang { opacity: 1; animation: pop 420ms cubic-bezier(.2, 1.35, .35, 1) both; }
+.pet[data-s='fail'] .acc.sweat { opacity: 1; animation: sweat 2.4s steps(6) infinite; }
+.pet[data-s='fail'] .eye { animation: none; transform: scale(0.85); }
+.pet[data-s='fail'] .eyes { animation: none; transform: translateY(0.6px); }
+@keyframes sweat { 0% { transform: translateY(0); opacity: 1; } 80% { transform: translateY(5px); opacity: 0.6; } 100% { transform: translateY(6px); opacity: 0; } }
+/* 선반에 항목: 상자 */
+.pet[data-s='shelf'] .acc.box { opacity: 1; }
+.pet[data-s='shelf'] .eyes { animation: none; transform: translateY(1px); }
+
+/* 스타일 */
+.pet[data-style='pixel'] .eye { border-radius: 0; }
+.pet[data-style='pixel'] .eye::after { display: none; }
+.pet[data-style='pixel'][data-s='idle'] .pbody, .pet[data-style='pixel'][data-s='typing'] .pbody, .pet[data-style='pixel'][data-s='event'] .pbody,
+.pet[data-style='pixel'][data-s='shelf'] .pbody, .pet[data-style='pixel'][data-s='fail'] .pbody { animation: bob 1.6s steps(1) infinite; }
+@keyframes bob { 0%, 50% { transform: none; } 51%, 100% { transform: translateY(-1px); } }
+.pet[data-style='pixel'] .acc.bubble, .pet[data-style='pixel'] .acc.bang { border-radius: 2px; }
+.pet[data-glow] .eye { border-radius: 1.5px; box-shadow: 0 0 4px var(--ec); }
+.pet[data-glow] .eye::after { display: none; }
+.pet .asc { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font: 700 11.5px/1.05 'Cascadia Mono', Consolas, monospace; white-space: pre; letter-spacing: -0.4px; text-shadow: 0 0 6px rgba(255, 255, 255, 0.18); }
+.pet .asc small { font-size: 8px; opacity: 0.75; letter-spacing: 0; }
+.pet .asc span { display: inline-block; animation: look 13s steps(1) infinite; }
+.pet .aeye { display: inline-block; font-style: normal; transform-origin: 50% 62%; animation: blink 5.4s steps(1) infinite; }
+.pet .aeye::before { content: attr(data-e); }
+.pet[data-style='line'][data-s='idle'] .pbody, .pet[data-style='line'][data-s='typing'] .pbody, .pet[data-style='line'][data-s='event'] .pbody,
+.pet[data-style='line'][data-s='shelf'] .pbody, .pet[data-style='line'][data-s='fail'] .pbody { animation: bob 2.2s steps(1) infinite; }
+.pet[data-s='sleep'] .aeye { animation: none; } .pet[data-s='sleep'] .aeye::before { content: '-'; }
+.pet[data-s='done'] .aeye { animation: none; } .pet[data-s='done'] .aeye::before { content: '^'; }
+.pet[data-s='fail'] .aeye { animation: none; } .pet[data-s='fail'] .aeye.l::before { content: '>'; } .pet[data-s='fail'] .aeye.r::before { content: '<'; }
+.pet[data-s='sleep'] .asc span, .pet[data-s='done'] .asc span, .pet[data-s='fail'] .asc span { animation: none; }
+.pet[data-style='line'] .acc.laptop, .pet[data-style='line'] .acc.box { bottom: 1px; }
+.pet[data-style='line'][data-s='typing'] .asc, .pet[data-style='line'][data-s='shelf'] .asc { transform: translateY(-5px); }
+/* 잠든 펫 · 가려진 창 = 멈춘 자세 (CPU ≈ 0) · 움직임 줄이기 = 정지 자세 */
+.pet[data-s='sleep'], .pet[data-s='sleep'] *, [data-still='true'] .pet, [data-still='true'] .pet * { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .pet, .pet * { animation: none !important; } }

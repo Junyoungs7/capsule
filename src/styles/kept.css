@@ -1,0 +1,219 @@
+/* 자리 비움 화면(아스키·효과) · 화면 효과 · 모니터 배치 캔버스 · 메모 카드 — 예전 v2/v3 에서 지금 쓰는 것만 */
+:root {
+  --font: 'Segoe UI Variable Text', 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --text: var(--t1); --text-2: var(--t2); --text-3: var(--t3); --line: var(--stroke); --line-strong: var(--stroke); --fill: var(--card); --fill-2: var(--card2); --field: var(--card);
+  --glass-strong: var(--solid); --glass-plate: var(--solid); --glass-sheen: linear-gradient(transparent, transparent); --spec: 0 0 0 0 transparent; --shadow: 0 8px 24px rgba(0, 0, 0, .3); --blur-lens: none;
+  --ease-out: cubic-bezier(.2, .8, .2, 1); --spring-smooth: cubic-bezier(.2, .9, .3, 1); --dur-smooth: 400ms;
+}
+.ascii3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ascii-full {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  cursor: default;
+  transform-origin: 0 0;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 700ms var(--ease-out), transform 900ms var(--ease-out);
+}
+.ascii-full[data-show='true'] { opacity: 1; transform: none; transition: opacity 900ms var(--ease-out), transform 1400ms var(--ease-out); }
+.ascii-full[data-zoom='false'] { transform-origin: 50% 50%; }
+/* 위젯 rect → 전체화면 확대 (닫을 때는 반대로 위젯 자리로 빨려 들어감) */
+.ascii-full[data-zoom='true'] {
+  transform: translate(var(--fx), var(--fy)) scale(var(--sx), var(--sy));
+  clip-path: inset(0 round var(--r));
+  transition: transform 380ms cubic-bezier(0.5, 0, 0.75, 0.2), clip-path 380ms cubic-bezier(0.5, 0, 0.75, 0.2), opacity 160ms 260ms;
+}
+.ascii-full[data-zoom='true'][data-show='true'] {
+  transform: none;
+  clip-path: inset(0 round 0px);
+  opacity: 1;
+  transition: transform var(--dur-smooth) var(--spring-smooth), clip-path var(--dur-smooth) var(--spring-smooth), opacity 120ms;
+}
+.ascii-full footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2.5vh;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+  text-align: center;
+  font-size: 13px;
+  color: rgba(235, 240, 250, 0.62);
+}
+.ascii-full footer b { font-weight: 650; color: rgba(245, 248, 252, 0.85); }
+.ascii-full footer small { display: block; margin-top: 4px; font-size: 11.5px; opacity: 0.6; }
+.ascii-full[data-cover='fx'] footer { z-index: 26; }
+
+/* ── 전체화면 효과: 캔버스 1장. 들어올 때 1.5초, 나갈 때 2.5초 페이드 ── */
+.fx { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 25; /* 독(30)·Island(40) 아래 */ pointer-events: none; opacity: 0; transition: opacity 1500ms var(--ease-out); }
+.fx[data-show='true'] { opacity: 1; }
+.fx[data-sky='true'][data-show='true'] { opacity: 0.85; } /* 하늘 효과: 바탕화면이 살짝 비치게 */
+.fx[data-show='false'] { transition: opacity 2500ms ease-in-out; }
+.mon-wrap { display: flex; flex-direction: column; gap: 6px; margin: 0 4px; }
+.mon-canvas { position: relative; align-self: center; border-radius: 12px; background: var(--fill); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; touch-action: none; }
+.mon { position: absolute; display: grid; place-items: center; border-radius: 4px; font-size: 10px; font-weight: 650; color: var(--text-2); background: var(--fill-2); box-shadow: inset 0 0 0 1px var(--line-strong); user-select: none; }
+.mon[data-mac='true'] { color: #fff; background: linear-gradient(160deg, #3a8bff, #1f5fd0); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); cursor: grab; transition: transform 160ms var(--ease-out), box-shadow 160ms; }
+.mon[data-drag='true'] { cursor: grabbing; transform: scale(1.03); box-shadow: 0 6px 18px rgba(10, 90, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.4); z-index: 2; }
+.mon span { overflow: hidden; max-width: 92%; text-overflow: ellipsis; white-space: nowrap; }
+.mon-link { position: absolute; border-radius: 2px; background: #5ab0ff; box-shadow: 0 0 8px #3c9aff; animation: fade 200ms ease-out; z-index: 3; pointer-events: none; }
+.mon-hint, .mon-limit { font-size: 11px; color: var(--text-2); }
+.mon-limit { color: #d9822b; }
+.mon-sizes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); }
+.mon-sizes label { display: flex; align-items: center; gap: 3px; }
+.mon-sizes input { width: 52px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+@media (prefers-reduced-motion: reduce) {
+  .mon[data-mac='true'] { animation: none; transition: none; }
+  .ascii-full, .ascii-full[data-show='true'], .ascii-full[data-zoom='true'] { transform: none; clip-path: none; transition: opacity 240ms; }
+}
+.note-pos { position: absolute; left: 0; top: 0; } /* 메모 보드 안 */
+.note {
+  --nc: #f5c542;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  color: var(--text);
+  /* 물든 리퀴드 글라스 한 장: 안쪽 판 없이 메모 자체를 조금 짙은 틴트로 채워 글자 대비(AA)를 낸다.
+     얇은 림(--spec) + 얕은 블러, 렌즈 없음 (정적 레이어). 그림자도 메모 색으로 물든다. */
+  --note-base: color-mix(in srgb, var(--glass-plate) 84%, transparent);
+  --text-2: color-mix(in srgb, var(--text) 82%, transparent); /* 메모 안 보조 글자: 틴트 위에서도 AA */
+  background:
+    var(--glass-sheen),
+    linear-gradient(160deg, color-mix(in srgb, var(--nc) 40%, transparent), color-mix(in srgb, var(--nc) 22%, transparent)),
+    var(--note-base);
+  backdrop-filter: blur(6px) saturate(180%) brightness(1.04);
+  box-shadow:
+    var(--spec),
+    inset 0 0 0 1px color-mix(in srgb, var(--nc) 30%, transparent),
+    0 14px 34px -14px color-mix(in srgb, var(--nc) 60%, rgba(15, 23, 42, 0.5)),
+    0 0 0 0.5px rgba(15, 23, 42, 0.08);
+  transform-origin: 50% 50%;
+}
+[data-theme='dark'] .note {
+  --note-base: var(--glass-plate);
+  --text-2: color-mix(in srgb, var(--text) 82%, transparent);
+  background:
+    var(--glass-sheen),
+    linear-gradient(160deg, color-mix(in srgb, var(--nc) 30%, transparent), color-mix(in srgb, var(--nc) 14%, transparent)),
+    var(--note-base);
+}
+.note[data-pinned='true']::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 26px;
+  height: 6px;
+  margin-left: -13px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--nc) 70%, white);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.note-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.note-bar:active { cursor: grabbing; }
+.note-bar button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  opacity: 0;
+  transition: opacity 140ms;
+}
+.note:hover .note-bar button, .note-bar button:focus-visible, .note-bar button[aria-pressed='true'] { opacity: 1; }
+.note-bar button:hover { background: color-mix(in srgb, var(--nc) 30%, transparent); color: var(--text); }
+.note-bar button[aria-pressed='true'] { color: color-mix(in srgb, var(--nc) 55%, var(--text)); }
+.note-bar svg { width: 14px; height: 14px; }
+.note-swatch { width: 11px; height: 11px; border-radius: 50%; background: var(--nc); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.note-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow: auto;
+  scrollbar-width: none;
+  font: 13px/1.5 var(--font);
+  color: var(--text);
+  cursor: text;
+  user-select: text;
+}
+textarea.note-body { border: 0; outline: 0; resize: none; background: none; }
+.note-body p { margin: 0; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+.note-ph { color: var(--text-3); }
+.note-check { display: flex; align-items: flex-start; gap: 7px; padding: 1px 0; cursor: pointer; }
+.note-check input {
+  appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 3px 0 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--nc) 60%, var(--text-2));
+  cursor: pointer;
+}
+.note-check input:checked {
+  background: color-mix(in srgb, var(--nc) 80%, black 5%) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100%;
+  box-shadow: none;
+}
+.note-check[data-done='true'] span { color: var(--text-3); text-decoration: line-through; }
+.note-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0;
+  background: linear-gradient(135deg, transparent 55%, var(--text-3) 55% 62%, transparent 62% 72%, var(--text-3) 72% 79%, transparent 79%);
+  transition: opacity 140ms;
+}
+.note:hover .note-resize { opacity: 1; }
+.note-pop {
+  position: absolute;
+  top: 30px;
+  right: 6px;
+  z-index: 2;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--glass-sheen), var(--glass-strong);
+  backdrop-filter: var(--blur-lens); /* 작은 팝오버 = 렌즈 허용 */
+  box-shadow: var(--spec), var(--shadow);
+  animation: note-pop var(--dur-smooth) var(--spring-smooth);
+  transform-origin: 90% 0;
+}
+@keyframes note-pop { from { opacity: 0; transform: translateY(-4px) scale(0.94); } }
+.note-colors { display: flex; gap: 6px; }
+.note-colors button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--nc);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 160ms var(--ease-out);
+}
+.note-colors button:hover { transform: scale(1.12); }
+.note-colors button[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--glass-strong), 0 0 0 3.5px var(--nc); }
+
+/* ── 패널 탭 5개 ── */
+@media (prefers-reduced-motion: reduce) { .note-pop { animation: none; } }

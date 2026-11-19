@@ -1,21 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react'
 import { deleteWithUndo } from './Undo'
-import { isTauri, onStore, storeGet, storeSet, useItems } from '../data/api'
-import { reducedMotion } from './Tile'
-import { Avatar, groupOf } from './Team'
-import { EMPTY } from '../data/mock'
+import { useItems } from '../data/api'
+import { reducedMotion } from './util'
 
-/* 메모 (a4): 포스트잇은 바탕화면이 아니라 '메모 보드'(떠 있는 창 float-notes)에 붙는다.
-   예전 바탕화면 메모 창(모니터마다 투명 창) · 앱 메모 · 펼침/접힘은 지웠다 — 처음 실행 때 Rust 가 메모를 보드 격자로 옮긴다 (notes.rs).
+/* 메모: 패널에서 빠르게 쓰고(최근 3개), '모두 보기' = 메모 보드 창 (?surface=notes).
    보드: 끌어 옮기기 · 오른쪽 아래로 크기 · 제자리 편집 · 색 · 삭제 · 메모장으로 열기 (Rust 가 파일을 쓰고 notepad.exe, 고치면 다시 읽어 온다). */
-type V3 = { ocr: boolean }
-let st: V3 = { ocr: false }
-const subs = new Set<() => void>()
-export const setV3 = (p: Partial<V3>) => ((st = { ...st, ...p }), subs.forEach((f) => f()))
-export const useV3 = () => useSyncExternalStore((f) => (subs.add(f), () => void subs.delete(f)), () => st)
 
-// 메모: 키 note:<id>, x·y·w·h = 보드 안 자리 (논리 px). group = Hera Team 공유 메모판 id, by = 마지막 편집자
-export type Note = { id: string; text: string; color: number; x: number; y: number; w: number; h: number; group?: string; by?: string }
+// 메모: 키 note:<id>, x·y·w·h = 보드 안 자리 (논리 px), at = 만든 시각 (패널은 최근 3개)
+export type Note = { id: string; text: string; color: number; x: number; y: number; w: number; h: number; at?: number }
 export const NOTE_COLORS = ['#f5c542', '#f47fb0', '#5bb8f5', '#42c9a0', '#a78bfa', '#f59e6b']
 export const NOTE_COLOR_NAMES = ['노랑', '분홍', '하늘', '민트', '라벤더', '살구']
 /** (a7) 새 메모 기본 색 = 마지막 메모의 다음 색 */
@@ -24,10 +16,9 @@ export const nextColor = (notes: Pick<Note, 'color'>[]) => (notes.length ? ((not
 export const enterCommits = (e: { key: string; shiftKey: boolean; nativeEvent: KeyboardEvent }) =>
   e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229
 
-export const seedNotes: Note[] = EMPTY ? [] : [
-  { id: 'n1', text: '오늘 3시 배너 QA\n디자인팀 피드백 반영본으로 확인', color: 0, x: 16, y: 16, w: 210, h: 140 },
-  { id: 'n2', text: '- [x] 주간 보고 초안\n- [ ] 휴가 신청 (12/24)\n- [ ] 노트북 반납', color: 3, x: 248, y: 16, w: 210, h: 140 },
-  { id: 'n3', text: '와이파이 HERA-5G\nhera2026!', color: 4, x: 480, y: 16, w: 210, h: 140 },
+export const seedNotes: Note[] = [
+  { id: 'n1', text: '회의실 B 3시 → 4시로 변경', color: 0, x: 16, y: 16, w: 210, h: 140, at: 2 },
+  { id: 'n2', text: '서버 점검 공지 확인', color: 1, x: 248, y: 16, w: 210, h: 140, at: 1 },
 ]
 
 /** 보드의 빈 칸 (3열 격자, 카드 210×140) — 새 메모 자리 */
@@ -48,17 +39,10 @@ export function NoteBoard({ onNotepad }: { onNotepad: (id: string) => void }) {
   const patch = (id: string, p: Partial<Note>) => setNotes((all) => all.map((n) => (n.id === id ? { ...n, ...p } : n)))
   const add = () => {
     const id = crypto.randomUUID()
-    setNotes((all) => [...all, { id, text: '', color: nextColor(all), ...freeSlot(all), w: 210, h: 140 }])
+    setNotes((all) => [...all, { id, text: '', color: nextColor(all), ...freeSlot(all), w: 210, h: 140, at: Date.now() }])
     setFront(id)
     setFresh(id)
   }
-  // 아일랜드 '새 메모'·'보드에 붙이기' → note.edit = id → 그 메모를 바로 편집
-  useEffect(() => {
-    if (!isTauri) return
-    const edit = (id: unknown) => typeof id === 'string' && id && (setFront(id), setFresh(id), storeSet('note.edit', null))
-    void storeGet<string>('note.edit').then(edit)
-    return onStore((k, v) => k === 'note.edit' && edit(v))
-  }, [])
   const [bw, bh] = [Math.max(0, ...notes.map((n) => n.x + n.w)) + 16, Math.max(0, ...notes.map((n) => n.y + n.h)) + 16]
   return (
     <div className="board" style={{ minWidth: bw, minHeight: bh }} onDoubleClick={(e) => e.target === e.currentTarget && add()}>
@@ -87,8 +71,6 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNotepad, onDelete }: 
   const [edit, setEdit] = useState(!!edit0)
   useEffect(() => void (edit0 && setEdit(true)), [edit0]) // '새 메모' 요청이 카드보다 늦게 와도 편집으로
   const [pop, setPop] = useState<'color' | null>(null)
-  const g = groupOf(n.group)
-  const editor = g?.members.find((m) => m.name === n.by)
 
   // 새 메모: 살짝 튀어나오며 등장
   useLayoutEffect(() => {
@@ -130,10 +112,8 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNotepad, onDelete }: 
 
   return (
     <div ref={pos} className="note-pos" style={{ transform: `translate(${n.x}px, ${n.y}px)`, width: n.w, height: n.h, zIndex: z }} onPointerDown={onFront}>
-      <div ref={card} className="note" data-id={n.id} data-group={!!g} style={{ '--nc': NOTE_COLORS[n.color], ...(g && { '--g': g.color }) } as CSSProperties}>
-        {g && <i className="note-gbar" aria-hidden />}
+      <div ref={card} className="note" data-id={n.id} style={{ '--nc': NOTE_COLORS[n.color] } as CSSProperties}>
         <header className="note-bar" onPointerDown={(e) => grab(e, 'move')}>
-          {g && <span className="note-group" title={`${g.name} 공유 메모 · ${n.by} 마지막 편집`}><Avatar m={editor ?? { name: n.by ?? '?', online: false }} color={g.color} size={16} /><small>{g.name}</small></span>}
           <span className="grow" />
           <button onClick={() => setPop(pop === 'color' ? null : 'color')} aria-label="색 바꾸기"><i className="note-swatch" /></button>
           <button onClick={onNotepad} aria-label="메모장으로 열기" data-notepad><Ico d="M7 3.5h7.5L19 8v11a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z M14.5 3.5V8H19 M8.5 12.5h7 M8.5 16h4.5" /></button>
@@ -170,20 +150,3 @@ function NoteCard({ n, z, edit: edit0, onFront, onPatch, onNotepad, onDelete }: 
 }
 
 const Ico = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>
-
-/* ── 데모 바 'v3' 묶음 (시안 전용) ── */
-export function V3Demo({ onPanel }: { onPanel: (v: 'calendar' | 'snippets') => void }) {
-  return (
-    <>
-      <header className="demo-sub">
-        <b>v3</b>
-        <small>달력 · 글자 복사 · 상용구</small>
-      </header>
-      <div className="demo-btns v3">
-        <button onClick={() => onPanel('calendar')}>월간 달력</button>
-        <button onClick={() => setV3({ ocr: true })}>글자 복사 <kbd>Ctrl Alt T</kbd></button>
-        <button onClick={() => onPanel('snippets')}>상용구</button>
-      </div>
-    </>
-  )
-}

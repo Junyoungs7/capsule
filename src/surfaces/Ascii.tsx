@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
-import { reducedMotion, usePresence } from './Tile'
+import { reducedMotion, usePresence } from './util'
 import { Fx, FX_LABEL, type FxKind } from './Fx'
 
 /* ── v2 아스키 아트: 글자로 짠 3D ──

@@ -1,9 +1,8 @@
-// Headless UI harness (a3). NEVER launches Hera and NEVER touches the real mouse/keyboard/cursor or focus:
-//   Vite dev server (own port) + headless Chrome (--headless=new, throwaway profile) + a mocked Tauri IPC shared by all "windows".
+// Headless UI harness. NEVER launches Hera and NEVER touches the real mouse/keyboard/cursor or focus:
+//   built dist served by vite preview (own port) + headless Chrome (--headless=new, throwaway profile) + a mocked Tauri IPC shared by all "windows".
 //   Input = CDP Input.dispatchMouseEvent / dispatchKeyEvent inside the headless page only.
-//   Rust behaviour is emulated just enough for the UI paths (store, events, island_tall geometry + hit-rect shift, float windows);
-//   the Rust logic itself is covered by `cargo test`.
-// usage: import { start } from './headless.mjs'; const h = await start(); const isl = await h.open('island'); …; await h.close()
+//   Rust behaviour is emulated just enough for the UI paths (store, events, a few commands); the Rust logic itself is covered by `cargo test`.
+// usage: import { start } from './headless.mjs'; const h = await start(); const p = await h.open('panel'); …; await h.close()
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,14 +13,10 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(existsSync)
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const dbg = (m) => process.env.HERA_DEBUG && console.log('[h]', m)
-export const WA = { w: 1920, h: 1032 } // 가짜 작업 영역 (작업 표시줄 48)
-export const ISL = { w: 680, h: 680 }
-// Rust float.rs FEATURES (화면 + 머리줄 40) · default_pos
-const FEAT = { notes: [728, 520], todo: [380, 460], calendar: [480, 460], chat: [400, 520], term: [640, 340], clips: [380, 440], shelf: [360, 380], snippets: [380, 440], team: [400, 480], link: [380, 400], ocr: [360, 340], lp: [340, 488] }
 
 const MOCK = `(() => {
   const q = new URLSearchParams(location.search)
-  const label = q.get('surface') === 'float' ? 'float-' + q.get('f') : (q.get('surface') || 'main')
+  const label = q.get('surface') || 'main'
   let seq = 0
   const cbs = new Map(), pending = new Map()
   window.__heraCalls = []
@@ -95,32 +90,8 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
   const pages = new Map() // label → page
   const calls = [] // [label, cmd, args]
   const hits = new Map() // label → [[x,y,w,h]] (클라이언트 기준, Rust watch::HITS 처럼)
-  const pets = new Map()
-  let cursor = { x: 0, y: 0 } // 가짜 화면 커서 (float 머리줄 끌기용)
   const handlers = {} // 시험이 덮어쓰는 커맨드
 
-  // (a13) 떠 있는 캡슐: Rust island::layout 과 같은 규칙 (배율 1, 작업 영역 = WA). 자리 = store island.pos (없으면 오른쪽 아래)
-  const PAD = 96, cl = (v, a, b) => Math.min(Math.max(v, a), b)
-  let tall = false, igrab = null
-  const spot = () => { const p = store.get('island.pos'); return p ? [p.fx * WA.w, p.fy * WA.h] : [WA.w - 56, WA.h - 38] }
-  function layout(c, t) {
-    const cx = cl(c[0], 24, WA.w - 24), cy = cl(c[1], 24, WA.h - 24), right = cx >= WA.w / 2, bottom = cy >= WA.h / 2
-    const g = t ? { x: 0, y: 1, w: WA.w, h: WA.h - 1 } : { x: cl(right ? Math.round(cx + PAD) - ISL.w : Math.round(cx - PAD), 0, WA.w - ISL.w), y: cl(bottom ? Math.round(cy + PAD) - ISL.h : Math.round(cy - PAD), 1, WA.h - ISL.h), w: ISL.w, h: ISL.h }
-    return [g, { right, bottom, x: right ? g.x + g.w - cx : cx - g.x, y: bottom ? g.y + g.h - cy : cy - g.y }]
-  }
-  let anchor = layout(spot(), false)[1]
-  async function place() {
-    const isl = pages.get('island')
-    const [g, a] = layout(spot(), tall)
-    anchor = a
-    if (!isl) return
-    const old = { ...isl.geo }
-    // Rust island::place → watch::shift_rects (창 원점이 바뀌어도 히트 rect 는 화면 같은 자리)
-    hits.set('island', (hits.get('island') ?? []).map((r) => [r[0] + old.x - g.x, r[1] + old.y - g.y, r[2], r[3]]))
-    await setGeo(isl, g)
-    await emitTo('island', 'island-anchor', a)
-  }
-  const islandOrigin = () => pages.get('island')?.geo ?? { x: WA.w - ISL.w, y: WA.h - ISL.h, w: ISL.w, h: ISL.h }
   async function emitTo(label, event, payload) {
     const p = pages.get(label)
     if (!p) return
@@ -132,19 +103,6 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     await p.send('Emulation.setDeviceMetricsOverride', { width: g.w, height: g.h, deviceScaleFactor: 1, mobile: false })
     await p.eval(`window.__heraGeo = ${JSON.stringify({ x: g.x, y: g.y })}`)
   }
-  async function floatPage(f, show, fit = null) {
-    const label = `float-${f}`
-    if (pages.has(label)) return pages.get(label)
-    // Rust float::fit_size: 떼어낸 화면의 잰 크기 (MIN 300×220, 기본의 1.5배까지)
-    const [w, hh] = fit ? [Math.round(Math.min(Math.max(fit[0], 300), FEAT[f][0] * 1.5)), Math.round(Math.min(Math.max(fit[1], 220), FEAT[f][1] * 1.5))] : FEAT[f]
-    const left = !anchor.right
-    const g = { x: left ? 464 : WA.w - 464 - w, y: WA.h - 72 - hh, w, h: hh }
-    const p = await open(`float&f=${f}${fit ? '&enter=1' : ''}`, { label, geo: g })
-    p.shown = show
-    return p
-  }
-  const rect = (p) => [p.geo.x, p.geo.y, p.geo.w, p.geo.h]
-
   async function handle(p, { cmd, args, raw }) {
     calls.push([p.label, cmd, args])
     if (handlers[cmd]) return handlers[cmd](p, args, raw)
@@ -156,12 +114,10 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       case 'plugin:store|set':
         store.set(a.key, a.value)
         await emit('store://change', { path: 'hera.json', resourceId: 1, key: a.key, value: a.value, exists: true })
-        if (a.key === 'island.pos') await place() // Rust 스토어 리스너
         return null
       case 'plugin:store|delete': {
         const had = store.delete(a.key)
         await emit('store://change', { path: 'hera.json', resourceId: 1, key: a.key, value: null, exists: false })
-        if (a.key === 'island.pos') await place()
         return had
       }
       case 'plugin:store|entries': return [...store.entries()]
@@ -173,93 +129,15 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
       case 'plugin:event|emit': await emit(a.event, a.payload); return null
       case 'plugin:event|emit_to': await emitTo(a.target?.label ?? a.target, a.event, a.payload); return null
       case 'report_hit_rects': hits.set(p.label, a.rects); return null
-      case 'island_tall': if (tall !== a.on) (tall = a.on), await place(); return null
-      case 'island_anchor': return anchor
-      case 'island_drag': {
-        // Rust island_drag: 창이 가짜 화면 커서를 따라간다 · 놓으면 캡슐 가운데를 작업 영역 비율로 저장 → place
-        const isl = pages.get('island')
-        if (a.phase === 'start') return (igrab = { x: cursor.x - isl.geo.x, y: cursor.y - isl.geo.y }), null
-        if (a.phase === 'move' && igrab) return await setGeo(isl, { ...isl.geo, x: cursor.x - igrab.x, y: cursor.y - igrab.y }), null
-        if (!igrab) return null
-        igrab = null
-        const g = isl.geo, cx = anchor.right ? g.x + g.w - anchor.x : g.x + anchor.x, cy = anchor.bottom ? g.y + g.h - anchor.y : g.y + anchor.y
-        return handle(p, { cmd: 'plugin:store|set', args: { rid: 1, key: 'island.pos', value: { mon: 'D1', fx: cl(cx / WA.w, 0, 1), fy: cl(cy / WA.h, 0, 1) } } })
-      }
-      case 'float_prepare': { const fp = await floatPage(a.f, false, a.fit); if (fp.ready) await emitTo('island', 'float-ready', a.f); return rect(fp) }
-      case 'float_ready': p.ready = true; await emitTo('island', 'float-ready', p.label.slice(6)); return null
-      case 'float_show': {
-        const fp = pages.get(`float-${a.f}`)
-        const o = islandOrigin()
-        if (fp && a.rect) await setGeo(fp, { x: Math.round(o.x + a.rect[0]), y: Math.round(o.y + a.rect[1]), w: Math.round(a.rect[2]), h: Math.round(a.rect[3]) })
-        if (fp) {
-          fp.shown = true
-          // 보이는 순간부터 창 안 프레임 기록 (등장 애니메이션)
-          await fp.eval(`(() => { const f = (window.__heraFrames = []); let last = performance.now(), on = true; const t = (x) => { if (!on) return; f.push(x - last); last = x; requestAnimationFrame(t) }; requestAnimationFrame((x) => ((last = x), requestAnimationFrame(t))); setTimeout(() => (on = false), 600) })()`).catch(() => {})
-        }
-        await emit('float-opened', a.f)
-        await emitTo('island', 'float-shown', a.f)
-        return null
-      }
-      case 'float_open': { const fp = await floatPage(a.f, true); fp.shown = true; await emit('float-opened', a.f); return null }
-      case 'float_absorbed': await closePage(`float-${a.f}`); return null
-      case 'float_close': await closePage(p.label); return null
-      case 'float_drag': {
-        // Rust float_drag: 커서 = 가짜 화면 커서. 캡슐 = 아일랜드 첫 히트 rect
-        const f = p.label.slice(6)
-        if (a.phase === 'start') return (p.grab = { x: cursor.x - p.geo.x, y: cursor.y - p.geo.y }), null
-        if (a.phase === 'move' && p.grab) await setGeo(p, { ...p.geo, x: cursor.x - p.grab.x, y: cursor.y - p.grab.y })
-        const o = islandOrigin(), c = (hits.get('island') ?? [])[0]
-        const css = [p.geo.x - o.x, p.geo.y - o.y, p.geo.w, p.geo.h]
-        if (a.phase === 'absorb') return void (await emitTo('island', 'absorb', { f, rect: css }))
-        if (!c) return null
-        const [cx, cy] = [o.x + c[0], o.y + c[1]]
-        const d = Math.hypot(Math.max(cx - cursor.x, cursor.x - (cx + c[2]), 0), Math.max(cy - cursor.y, cursor.y - (cy + c[3]), 0))
-        if (a.phase === 'end') {
-          const was = p.near
-          p.near = false
-          await emitTo('island', 'absorb-near', { f, d: 9999 })
-          if (was && d < 48) await emitTo('island', 'absorb', { f, rect: css })
-          return null
-        }
-        if (d < 160 || p.near) await emitTo('island', 'absorb-near', { f, d })
-        p.near = d < 160
-        return null
-      }
-      case 'watch_state': return [null, []]
       case 'link_status': return [{ state: 'off', peer: '', onPeer: false }, null]
       case 'link_plan': return [[], { segs: [], limits: [] }]
-      case 'team_state': return { name: '나', pk: 'me', groups: [], online: [] }
-      case 'term_state': return { alive: true, running: false, cwd: 'C:\\Users\\me', cmd: '' }
-      case 'term_start': return 'C:\\Users\\me'
-      case 'clips': return []
-      case 'start_apps': return []
-      // (a6) 설정 창: 없으면 만들고(940×680), 있으면 그 섹션으로 · 자기 창 닫기
+      // 설정 창: 없으면 만들고(720×600), 있으면 그 섹션으로 · 자기 창 닫기
       case 'settings_open': {
         if (pages.has('settings')) { await emitTo('settings', 'settings-sec', a.sec); return null }
-        await open(`settings&sec=${a.sec}`, { label: 'settings', geo: { x: 490, y: 176, w: 940, h: 680 } })
+        await open(`settings&sec=${a.sec}`, { label: 'settings', geo: { x: 600, y: 200, w: 720, h: 600 } })
         return null
       }
       case 'close_self': await closePage(p.label); return null
-      case 'mcp_log': return []
-      case 'mcp_info': return ''
-      case 'power': return null
-      case 'pet_list': return [...pets.values()]
-      case 'pet_delete': pets.delete(a.id); return null
-      case 'pet_save': {
-        // 몸통 = [u32 LE json 길이][json][이미지…] — 형식만 읽는다 (검사는 Rust pets.rs + cargo test)
-        const b = Buffer.from(raw, 'base64'), n = b.readUInt32LE(0), j = JSON.parse(b.subarray(4, 4 + n).toString())
-        const id = j.id ?? Math.random().toString(36).slice(2, 10)
-        let at = 4 + n
-        const files = {}
-        for (const [st, len] of j.files) {
-          const img = b.subarray(at, at + len)
-          at += len
-          const png = img.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-          files[st] = { path: `data:image/${png ? 'png' : 'gif'};base64,${img.toString('base64')}#`, w: png ? img.readUInt32BE(16) : img.readUInt16LE(6), h: png ? img.readUInt32BE(20) : img.readUInt16LE(8), v: Date.now() }
-        }
-        pets.set(id, { id, name: j.name, style: j.style, sheet: j.sheet, files })
-        return id
-      }
       default: return null
     }
   }
@@ -290,7 +168,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     await s.send('Runtime.enable')
     await s.send('Page.enable')
     await s.send('Runtime.addBinding', { name: '__heraIPC' })
-    const g0 = geo ?? (surface === 'island' ? layout(spot(), tall)[0] : { x: 0, y: 0, w: 800, h: 600 })
+    const g0 = geo ?? { x: 0, y: 0, w: 800, h: 600 }
     await s.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__heraGeo = ${JSON.stringify({ x: g0.x, y: g0.y })};${init};\n${MOCK}` })
     await s.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }, { name: 'prefers-color-scheme', value: 'dark' }] })
     await s.send('Emulation.setFocusEmulationEnabled', { enabled: true })
@@ -335,7 +213,6 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     pages.delete(label)
     try { p.ws.close() } catch { /* already gone */ }
     await browser.send('Target.closeTarget', { targetId: p.id }).catch(() => {})
-    if (label.startsWith('float-')) await emit('float-closed', label.slice(6))
   }
   async function close() {
     for (const l of [...pages.keys()]) await closePage(l).catch(() => {})
@@ -345,7 +222,7 @@ export async function start({ port = 5199, cdp = 9555, reducedMotion = false } =
     await sleep(300)
     try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }) } catch { /* 임시 폴더 — 다음에 OS 가 치운다 */ }
   }
-  return { store, pages, calls, hits, pets, handlers, open, close, closePage, emit, emitTo, setCursor: (x, y) => (cursor = { x, y }) }
+  return { store, pages, calls, hits, handlers, open, close, closePage, emit, emitTo }
 }
 
 /* 작은 시험 도구 */

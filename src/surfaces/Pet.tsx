@@ -1,18 +1,15 @@
 import { memo, type CSSProperties } from 'react'
 
-/* 캡슐에 사는 펫 (승인 시안 prototype.html 그대로). 19종 · 4 스타일 · 8 상태 — 모두 직접 그린 그림 (pets/LICENSES.md).
-   몸 = SVG/글자, 눈·눈썹·소품 = HTML → 모든 움직임이 transform/opacity (합성기만). 상태는 data-s 만 바꾼다 (애니메이션이 처음부터 다시 돌지 않게).
-   내 펫 = 사용자 이미지 (%APPDATA%\Hera\pets, Rust pets.rs) + 같은 소품. */
+/* 작업 표시줄 펫 (꾸미기). 기본 19종 · 4 스타일 · 8 상태 — 모두 직접 그린 그림 (pets/LICENSES.md).
+   몸 = SVG/글자, 눈·눈썹·소품 = HTML → 모든 움직임이 transform/opacity (합성기만). 상태는 data-s 만 바꾼다. */
 
 export type PetState = 'idle' | 'sleep' | 'chat' | 'event' | 'typing' | 'done' | 'fail' | 'shelf'
 export const PET_STATES: [PetState, string][] = [['idle', '평소'], ['sleep', '잠'], ['chat', '채팅'], ['event', '일정'], ['typing', '실행 중'], ['done', '완료'], ['fail', '실패'], ['shelf', '선반']]
 export type PetStyle = 'pixel' | 'flat' | 'clay' | 'line'
-export const STYLES: Record<PetStyle | 'custom', string> = { pixel: '픽셀', flat: '플랫', clay: '클레이', line: '라인', custom: '내 펫' }
+export const STYLES: Record<PetStyle, string> = { pixel: '픽셀', flat: '플랫', clay: '클레이', line: '라인' }
 
 type Eyes = { ey: string; el: string; er: string; ew: string; eh: string; ec: string; glow?: 1 }
 type Builtin = { style: PetStyle; name: string; kind: string; paw?: string; eyes?: Eyes; svg?: string; color?: string; face?: string; top?: string; bottom?: string }
-/** 내 펫: files[상태] = 이미지 (url = asset 프로토콜), sheet = 가로 한 줄 스프라이트 */
-export type CustomPet = { id: string; name: string; style: 'pixel' | 'smooth'; sheet: { frames: number; fps: number } | null; files: Partial<Record<PetState, { url: string; w: number; h: number }>> }
 
 const mir = (s: string) => `${s}<g transform="matrix(-1 0 0 1 40 0)">${s}</g>`
 /* 픽셀 아트: 반쪽 8칸 줄을 거울로 16×14, 1칸 = 2.5px */
@@ -126,14 +123,10 @@ export const PETS: Record<string, Builtin> = {
 }
 export const DEFAULT_PET = 'cat'
 
-/* 캡슐 크기 (설정 → 크기, store island.size): 캡슐 = 64×48 × k. 픽셀 펫은 한 칸 = 정수 장치 픽셀 */
-export type CapSize = 's' | 'm' | 'l' | 'xl'
-export const SIZES_CAP: Record<CapSize, [string, number]> = { s: ['작게', 1], m: ['보통', 1.25], l: ['크게', 1.5], xl: ['아주 크게', 1.75] }
-const PIXEL_UNIT: Record<CapSize, number> = { s: 2, m: 3, l: 4, xl: 4 } // CSS px per art pixel (아트 16×14, 기본 2.5px) — 5 면 112×84 를 넘친다
-/** --pk: 펫 상자 배율. 벡터 = 캡슐 배율, 픽셀 = 아트 한 칸이 장치 픽셀 정수배가 되게 */
-export function petScale(style: PetStyle | 'custom', size: CapSize, dpr = devicePixelRatio || 1) {
-  if (style !== 'pixel') return SIZES_CAP[size][1]
-  return Math.max(1, Math.round(PIXEL_UNIT[size] * dpr)) / dpr / 2.5
+/** --pk: 펫 상자 배율. 벡터 = k, 픽셀 = 아트 한 칸(2.5px)이 장치 픽셀 정수배가 되게 (흐려지지 않게) */
+export function petScale(style: PetStyle, k: number, dpr = devicePixelRatio || 1) {
+  if (style !== 'pixel') return k
+  return Math.max(1, Math.round(2.5 * k * dpr)) / dpr / 2.5
 }
 
 const BELL = '<svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6v4l-1.8 3h15.6L18 13V9a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M9.8 18.5a2.2 2.2 0 0 0 4.4 0" fill="currentColor"/></svg>'
@@ -152,42 +145,8 @@ function bodyOf(p: Builtin) {
 }
 const BODY = new Map<string, string>()
 
-/** 내 펫 이미지: 40×36 몸 상자 안. 픽셀 = u 장치 px / 아트 px (정수), 부드럽게 = 맞춰 넣기. 시트 = 가로 n칸 steps() */
-function CustomImg({ c, st, pk }: { c: CustomPet; st: PetState; pk: number }) {
-  const f = c.files[st] ?? c.files.idle
-  if (!f) return null
-  const n = c.sheet && c.sheet.frames > 1 ? c.sheet.frames : 1
-  const [fw, fh] = [f.w / n, f.h]
-  let dw: number, dh: number
-  if (c.style === 'pixel') {
-    const dpr = devicePixelRatio || 1
-    const u = Math.max(1, Math.floor(Math.min(40 / fw, 36 / fh) * pk * dpr))
-    ;[dw, dh] = [(fw * u) / (dpr * pk), (fh * u) / (dpr * pk)]
-  } else {
-    const k = Math.min(40 / fw, 36 / fh)
-    ;[dw, dh] = [fw * k, fh * k]
-  }
-  if (n === 1) return <img src={f.url} alt="" draggable={false} style={{ width: dw, height: dh }} />
-  const fps = Math.max(1, c.sheet!.fps || 8)
-  return (
-    <span className="strip" style={{ width: dw, height: dh }}>
-      <img src={f.url} alt="" draggable={false} style={{ width: dw * n, height: dh, '--sx': `${-dw * n}px`, '--n': n, '--dur': `${n / fps}s` } as CSSProperties} />
-    </span>
-  )
-}
-
-/** 펫 1마리. kind = 기본 펫 키 또는 custom.id. bubble = 채팅 말풍선 숫자 */
-export const Pet = memo(function Pet({ kind, state, custom, pk = 1, bubble = 1 }: { kind: string; state: PetState; custom?: CustomPet | null; pk?: number; bubble?: number }) {
-  if (custom) {
-    const st = custom.files[state] ? state : 'idle'
-    return (
-      <div className="pet" data-pet={`custom:${custom.id}`} data-style="custom" data-s={state} style={{ '--paw': '#FFFFFF' } as CSSProperties}>
-        <div className="pbody"><div className={`cimg ${custom.style === 'pixel' ? 'px' : ''}`} data-st={st}><CustomImg c={custom} st={st} pk={pk} /></div></div>
-        <div className="acc bubble">{bubble}</div>
-        <div className="accs" dangerouslySetInnerHTML={{ __html: ACC }} />
-      </div>
-    )
-  }
+/** 펫 1마리 (kind = 기본 펫 키) */
+export const Pet = memo(function Pet({ kind, state, bubble = 1 }: { kind: string; state: PetState; bubble?: number }) {
   const p = PETS[kind] ?? PETS[DEFAULT_PET]
   if (!BODY.has(kind)) BODY.set(kind, bodyOf(p))
   return (

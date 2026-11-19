@@ -36,8 +36,7 @@ pub enum Event {
     /// meta = offer 의 부가 필드 (via: "edge" 면 화면 가장자리로 끌어 보낸 것, edge·pos)
     Received { id: u32, path: String, meta: Value },
     Sent { id: u32, ok: bool, error: String },
-    Clip { text: String },
-    /// 이 모듈이 모르는 메시지 (monitors · crossed · ambient · sync · ime · keymap …) — 위층(link.rs)이 처리
+    /// 이 모듈이 모르는 메시지 (monitors · crossed · ime · keymap …) — 위층(link.rs)이 처리
     Msg { msg: Value },
 }
 
@@ -193,8 +192,6 @@ impl Rx {
 pub struct Conn {
     tx: Mutex<Tx>,
     pub peer_name: String,
-    /// 상대 장기 공개키 (Hera Team 그룹원 확인용)
-    pub peer_pk: [u8; 32],
     ready: AtomicBool,
     next_id: AtomicU32,
     confirm: Mutex<Option<Sender<bool>>>,
@@ -224,11 +221,6 @@ impl Conn {
         if let Some(tx) = self.confirm.lock().unwrap().take() {
             let _ = tx.send(ok);
         }
-    }
-
-    #[cfg_attr(not(windows), allow(dead_code))]
-    pub fn send_clip(&self, text: &str) -> std::io::Result<()> {
-        self.json(json!({ "t": "clip", "text": text }))
     }
 
     /// 닫기: 상대에게 bye (상대 읽기 루프가 바로 끝남) → 내 읽기 루프도 closed 깃발로 0.5초 안에 끝남 → 소켓 shutdown
@@ -350,7 +342,6 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let conn = Arc::new(Conn {
         tx: Mutex::new(tx),
         peer_name: peer_name.clone(),
-        peer_pk: ppk,
         ready: AtomicBool::new(false),
         next_id: AtomicU32::new(1),
         confirm: Mutex::new(Some(ctx)),
@@ -460,7 +451,6 @@ fn recv_loop(rx: &mut Rx, conn: &Arc<Conn>, cfg: &Config, sink: &Sink) -> std::i
                     let _ = tx.send((m["ok"] == true, m["error"].as_str().unwrap_or("").to_string()));
                 }
             }
-            "clip" => sink(Event::Clip { text: m["text"].as_str().unwrap_or("").chars().take(64 * 1024).collect() }),
             "ping" => {}
             "bye" => return Ok(()), // 상대가 닫음
             _ => sink(Event::Msg { msg: m }), // 위층이 처리 (모르면 무시)
@@ -689,9 +679,6 @@ mod tests {
         assert_eq!(std::fs::read(&got).unwrap(), data);
         assert!(got.ends_with("photo.bin"));
         assert!(events.lock().unwrap().iter().any(|(t, e)| *t == 'm' && matches!(e, Event::Sent { ok: true, .. })));
-        // 3) 클립보드 기록 항목
-        mac.send_clip("안녕 hera").unwrap();
-        assert!(wait_for(&|e| e.iter().any(|(t, e)| *t == 'w' && matches!(e, Event::Clip { text } if text == "안녕 hera"))));
         mac.close();
         s.join().unwrap();
         c.join().unwrap();

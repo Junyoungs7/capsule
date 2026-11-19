@@ -1,21 +1,12 @@
-// 단일 watch 루프 (스레드 1개): 30Hz 커서 히트테스트·포그라운드 / 2s 실행 집합·전체화면·알림·배경화면·작업 영역.
+// 단일 watch 루프 (스레드 1개): 30Hz 커서 히트테스트 · 흔들기 · 끌기 / 2s 전체화면 · 자리 비움 화면 · 효과.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
-use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
-use windows::core::{w, PCWSTR, PWSTR};
 use windows::core::BOOL;
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
-use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
-use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
-use windows::Win32::System::Threading::{GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreForWindow};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::System::SystemInformation::{GetLocalTime, GetTickCount};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON};
 use windows::Win32::UI::Shell::{
@@ -30,7 +21,7 @@ static HITS: Mutex<Vec<(String, Vec<[f64; 4]>)>> = Mutex::new(Vec::new());
 /// (a13) 설정이 바뀌었다 → 2s 블록(전체화면 숨김·화면보호기·효과·커서 찾기 설정 읽기)을 다음 틱에 바로 돈다
 pub static RECHECK: AtomicBool = AtomicBool::new(false);
 
-/// 클릭 통과·전체화면 숨김 대상 오버레이 창 (라벨, HWND as isize). dock/island 는 상시, 효과·메모 창은 있을 때만.
+/// 클릭 통과 대상 오버레이 창 (라벨, HWND as isize). 있을 때만.
 /// 루프가 매 틱 읽는다(창 핸들 조회를 메인 스레드에 보내지 않도록 생성 시 등록).
 static OVERLAYS: Mutex<Vec<(&'static str, isize)>> = Mutex::new(Vec::new());
 
@@ -41,32 +32,6 @@ pub fn add_overlay(label: &'static str, hwnd: isize) {
 pub fn remove_overlay(label: &str) {
     OVERLAYS.lock().unwrap().retain(|(l, _)| *l != label);
     HITS.lock().unwrap().retain(|(l, _)| l != label);
-}
-
-/// 창 원점이 (dx, dy) 만큼 반대로 움직였을 때 클라이언트 rect 를 화면 같은 자리로 (아일랜드가 커지고 줄 때)
-pub fn shift(rects: &mut [[f64; 4]], dx: f64, dy: f64) {
-    for r in rects {
-        r[0] += dx;
-        r[1] += dy;
-    }
-}
-
-pub fn shift_rects(label: &str, dx: f64, dy: f64) {
-    if let Some((_, r)) = HITS.lock().unwrap().iter_mut().find(|(l, _)| l == label) {
-        shift(r, dx, dy);
-    }
-}
-
-/// 지금 보고된 히트 rect (클라이언트 기준 물리 px, 아일랜드의 첫 rect = 캡슐)
-pub fn hit_rects(label: &str) -> Vec<[f64; 4]> {
-    HITS.lock().unwrap().iter().find(|(l, _)| l == label).map(|(_, r)| r.clone()).unwrap_or_default()
-}
-
-/// 점 ↔ rect 거리 (안이면 0)
-pub fn rect_dist(x: f64, y: f64, r: [f64; 4]) -> f64 {
-    let dx = (r[0] - x).max(x - (r[0] + r[2])).max(0.0);
-    let dy = (r[1] - y).max(y - (r[1] + r[3])).max(0.0);
-    dx.hypot(dy)
 }
 
 /// 최근 커서 표본 8개 (x, y, ms) — Hera Link 넘어감 자리 (엔진이 커서를 옮기기 전 자리를 알기 위해)
@@ -87,114 +52,8 @@ pub fn set_rects(label: &str, rects: Vec<[f64; 4]>) {
     }
 }
 
-/// B3: 포그라운드 앱 (= Now Playing 곡). aumid 는 UWP/패키지 앱만.
-#[derive(Clone, Serialize, PartialEq, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Fg {
-    hwnd: isize,
-    pub(crate) pid: u32,
-    pub(crate) exe_path: String,
-    title: String,
-    pub(crate) aumid: String,
-}
-
-/// 마지막 포그라운드 + 실행 집합 — 늦게 뜬 창(패널 등)이 `watch_state` 로 즉시 가져간다.
-pub static STATE: Mutex<(Option<Fg>, Vec<String>)> = Mutex::new((None, Vec::new()));
-
-unsafe fn wstr(buf: &[u16]) -> String {
+fn wstr(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())])
-}
-
-/// (exe 경로, 패키지 AUMID) — 패키지 앱(Win11 메모장 등)은 프로세스에서 AUMID 를 얻는다.
-unsafe fn proc_info(pid: u32) -> (String, String) {
-    let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return Default::default() };
-    let mut buf = [0u16; 1024];
-    let mut n = buf.len() as u32;
-    let exe = if QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut n).is_ok() { wstr(&buf[..n as usize]) } else { String::new() };
-    let mut n = buf.len() as u32;
-    let aumid = if GetApplicationUserModelId(h, &mut n, Some(PWSTR(buf.as_mut_ptr()))).is_ok() { wstr(&buf) } else { String::new() };
-    let _ = CloseHandle(h);
-    (exe, aumid)
-}
-
-/// 창의 AUMID (PKEY_AppUserModel_ID) — UWP 의 ApplicationFrameHost 창은 여기에 앱 AUMID 가 있다.
-unsafe fn window_aumid(hwnd: HWND) -> String {
-    SHGetPropertyStoreForWindow::<IPropertyStore>(hwnd)
-        .and_then(|s| s.GetValue(&PKEY_AppUserModel_ID))
-        .map(|v| v.to_string())
-        .unwrap_or_default()
-}
-
-pub unsafe fn info(hwnd: HWND) -> Fg {
-    let mut pid = 0;
-    GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    let (exe_path, pkg) = proc_info(pid);
-    let mut buf = [0u16; 512];
-    let n = GetWindowTextW(hwnd, &mut buf) as usize;
-    let aumid = Some(window_aumid(hwnd)).filter(|a| !a.is_empty()).unwrap_or(pkg);
-    Fg { hwnd: hwnd.0 as isize, pid, exe_path, title: wstr(&buf[..n]), aumid }
-}
-
-/// 작업 표시줄에 뜨는 앱 창(shell::eligible — Explorer 규칙, 자기 프로세스 제외) → (창, 키들). 키 = exe 경로·`shell:appsfolder\<aumid>` (소문자). z-순서(위→아래).
-unsafe fn app_windows(me: u32) -> Vec<(HWND, Vec<String>)> {
-    unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> BOOL {
-        (*(l.0 as *mut Vec<HWND>)).push(h);
-        true.into()
-    }
-    let mut all: Vec<HWND> = vec![];
-    let _ = EnumWindows(Some(collect), LPARAM(&mut all as *mut _ as isize));
-    let mut out = vec![];
-    for h in all {
-        if !crate::shell::eligible_hwnd(h) {
-            continue;
-        }
-        let i = info(h);
-        if i.pid == me {
-            continue;
-        }
-        let mut keys = vec![];
-        if !i.aumid.is_empty() {
-            keys.push(format!(r"shell:appsfolder\{}", i.aumid).to_lowercase());
-        }
-        if !i.exe_path.is_empty() {
-            keys.push(i.exe_path.to_lowercase());
-        }
-        out.push((h, keys));
-    }
-    out
-}
-
-/// C1 플래터 클릭: 키가 맞는 가장 위의 앱 창을 전면으로 (최소화면 복원). 사용자 클릭 직후라 SetForegroundWindow 가 허용된다.
-/// `launch::sta` 스레드에서 부를 것 (창 AUMID 조회 = COM).
-pub fn activate(keys: &[String]) -> Result<(), String> {
-    let h = unsafe {
-        let Some((h, _)) = app_windows(GetCurrentProcessId()).into_iter().find(|(_, ks)| ks.iter().any(|k| keys.contains(k))) else {
-            return Err("실행 중인 창이 없어요".into());
-        };
-        if IsIconic(h).as_bool() {
-            let _ = ShowWindow(h, SW_RESTORE);
-        }
-        h
-    };
-    focus(h)
-}
-
-/// 창을 전면으로 (사용자 클릭 직후라 허용된다). 포그라운드 잠금이면 입력 큐에 잠깐 붙어 1회 재시도 (키 입력 주입 없음).
-pub fn focus(h: HWND) -> Result<(), String> {
-    unsafe {
-        if SetForegroundWindow(h).as_bool() {
-            return Ok(());
-        }
-        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-        let (me, fg) = (GetCurrentThreadId(), GetWindowThreadProcessId(GetForegroundWindow(), None));
-        let attached = fg != 0 && fg != me && AttachThreadInput(me, fg, true).as_bool();
-        let _ = BringWindowToTop(h);
-        let ok = SetForegroundWindow(h).as_bool();
-        if attached {
-            let _ = AttachThreadInput(me, fg, false);
-        }
-        if ok { Ok(()) } else { Err("창을 앞으로 가져오지 못했어요".into()) }
-    }
 }
 
 /// 모니터 목록: (장치 이름, [x, y, w, h] 물리 px, 배율, 주 모니터) — Hera Link 배치·리플·가장자리 띠
@@ -220,14 +79,6 @@ pub fn monitors() -> Vec<(String, [f64; 4], f64, bool)> {
     v
 }
 
-/// C4 배터리: (잔량 %, 충전 중). 배터리 없는 데스크톱·알 수 없음 → None (위젯 숨김)
-pub fn power() -> Option<(u8, bool)> {
-    use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-    let mut s = SYSTEM_POWER_STATUS::default();
-    unsafe { GetSystemPowerStatus(&mut s) }.ok()?;
-    (s.BatteryFlag & 128 == 0 && s.BatteryFlag != 255 && s.BatteryLifePercent <= 100).then_some((s.BatteryLifePercent, s.ACLineStatus == 1))
-}
-
 /// 커서(클라이언트 기준 물리 px)가 모양 rect 중 하나를 사방 m px 넓힌 영역 안에 있는가.
 fn hit(x: f64, y: f64, rects: &[[f64; 4]], m: f64) -> bool {
     rects.iter().any(|r| x >= r[0] - m && x < r[0] + r[2] + m && y >= r[1] - m && y < r[1] + r[3] + m)
@@ -239,27 +90,6 @@ const DRAG_MARGIN: f64 = 24.0;
 /// 원하는 확장 스타일. tao 는 자기 플래그로 GWL_EXSTYLE 을 통째로 다시 쓰므로(show/hide 등)
 /// TOOLWINDOW 를 지우고 APPWINDOW 를 되살린다 → 매 틱 비교해 다를 때만 쓴다.
 /// 클릭 통과 = TRANSPARENT|LAYERED (tao 의 set_ignore_cursor_events 와 같은 비트).
-/// 바깥에서 끌어오는 파일이 캡슐(클라이언트 rect) 근처 140 논리 px 안 (x, y = 클라이언트 기준, s = 배율)
-fn drag_near(x: f64, y: f64, cap: Option<[f64; 4]>, s: f64) -> bool {
-    cap.is_some_and(|c| rect_dist(x, y, c) < 140.0 * s)
-}
-
-/// (a7) 작업 영역(l, t, r, b — 아일랜드가 사는 모니터, island::WA) 안인가. 밖 = 작업 표시줄·트레이 띠 또는 다른 모니터 → 캡슐은 절대 받지 않는다.
-fn in_work_area(x: i32, y: i32, wa: [i32; 4]) -> bool {
-    x >= wa[0] && x < wa[2] && y >= wa[1] && y < wa[3]
-}
-
-/// (a7) 누른 채 실제로 끌었나 (Windows 끌기 문턱 4px × 배율 2배 = 8 논리 px). 제자리 클릭은 드래그가 아니다.
-fn dragged(from: (i32, i32), to: (i32, i32), s: f64) -> bool {
-    (((to.0 - from.0) as f64).hypot((to.1 - from.1) as f64)) >= 8.0 * s
-}
-
-/// (a7) 이 화면 점을 캡슐(히트 rect)이 받는가: 작업 영역 안 + 창 원점 기준 히트 rect 안 (m = 여유).
-/// 히트 rect 가 창 아래로 넘쳐도(머묾 여유 16 > 아래 여백 8) 작업 표시줄 띠는 받지 않는다.
-fn capsule_takes(pt: (i32, i32), wa: [i32; 4], origin: (i32, i32), rects: &[[f64; 4]], m: f64) -> bool {
-    in_work_area(pt.0, pt.1, wa) && hit((pt.0 - origin.0) as f64, (pt.1 - origin.1) as f64, rects, m)
-}
-
 fn ex_style(cur: isize, pass: bool) -> isize {
     let through = (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize;
     let base = (cur | (WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) as isize) & !(WS_EX_APPWINDOW.0 as isize);
@@ -268,118 +98,6 @@ fn ex_style(cur: isize, pass: bool) -> isize {
 
 fn fullscreen(s: QUERY_USER_NOTIFICATION_STATE) -> bool {
     s == QUNS_BUSY || s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE
-}
-
-pub fn wallpaper_path() -> String {
-    let mut buf = [0u16; 260];
-    unsafe {
-        let _ = SystemParametersInfoW(SPI_GETDESKWALLPAPER, buf.len() as u32, Some(buf.as_mut_ptr().cast()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
-    }
-    String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)])
-}
-
-fn reg_sz(key: PCWSTR, value: PCWSTR) -> String {
-    let mut buf = [0u16; 64];
-    let mut len = (buf.len() * 2) as u32;
-    let ok = unsafe { RegGetValueW(HKEY_CURRENT_USER, key, value, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut len)) };
-    if ok.is_err() {
-        return String::new();
-    }
-    String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(0)])
-}
-
-/// 배경화면 배치 ("10"=채우기, "6"=맞춤, "2"=늘이기, …)와 여백 색("r g b")
-pub fn wallpaper_style() -> (String, String) {
-    (reg_sz(w!(r"Control Panel\Desktop"), w!("WallpaperStyle")), reg_sz(w!(r"Control Panel\Colors"), w!("Background")))
-}
-
-fn work_area() -> [i32; 4] {
-    let mut r = RECT::default();
-    unsafe {
-        let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some((&mut r as *mut RECT).cast()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
-    }
-    [r.left, r.top, r.right, r.bottom]
-}
-
-/// B4 알림 1건. `at` = 발화 시각(epoch ms) = snooze ?? due(할 일) / start(일정).
-#[derive(Clone, Serialize, PartialEq, Debug)]
-pub struct Alarm {
-    key: String, // store 키 (todo:<id> / event:<id>)
-    title: String,
-    at: i64,
-    done: bool,
-    /// Hera Team 그룹 일정이면 그룹 id (그룹별 '팀 일정 알림' 끄기 반영)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    group: Option<String>,
-}
-
-impl Alarm {
-    /// 발화 키: 시각이 바뀌면(다시 알림·기한 수정) 새 키 → 다시 발화
-    fn fire_key(&self) -> String {
-        format!("{}@{}", self.key, self.at)
-    }
-}
-
-/// island JS 가 'alarm' 리스너를 건 뒤 true — 그 전에는 발화하지 않는다(시작 직후 이벤트 유실 방지).
-pub static ALARMS_READY: AtomicBool = AtomicBool::new(false);
-
-/// `toISOString()` 형식(YYYY-MM-DDTHH:MM:SS[.sss]Z, UTC)만 → epoch ms. 그 외 형식은 None(알림 없음).
-fn iso_ms(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() < 20 || !s.ends_with('Z') || b[4] != b'-' || b[10] != b'T' {
-        return None;
-    }
-    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
-    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
-    let ms = if b[19] == b'.' { n(20..23)? } else { 0 };
-    // days_from_civil (Howard Hinnant)
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
-    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
-    Some(((days * 24 + n(11..13)?) * 60 + n(14..16)?) * 60_000 + n(17..19)? * 1000 + ms)
-}
-
-/// store 항목 → 알림 후보 (todo:/event: 이고 시각이 있는 것)
-fn alarm_item(key: &str, v: &Value) -> Option<Alarm> {
-    let at = |f: &str| v[f].as_str().and_then(iso_ms);
-    let base = if key.starts_with("todo:") { at("due") } else if key.starts_with("event:") { at("start") } else { None };
-    Some(Alarm {
-        key: key.into(),
-        title: v["title"].as_str().unwrap_or_default().into(),
-        at: at("snooze").or(base)?,
-        done: v["done"].as_bool().unwrap_or(false),
-        group: v["group"].as_str().filter(|g| !g.is_empty()).map(String::from),
-    })
-}
-
-/// due 도달 + 미완료 + 미발화 → 발화 시각 순. 놓친 알림(절전·앱 종료 중)도 이 규칙으로 1회 나온다.
-fn due_alarms<'a>(now: i64, items: &'a [Alarm], fired: &[String]) -> Vec<&'a Alarm> {
-    let mut v: Vec<_> = items.iter().filter(|a| !a.done && a.at <= now && !fired.contains(&a.fire_key())).collect();
-    v.sort_by_key(|a| a.at);
-    v
-}
-
-/// 2s: 스토어 스캔 → 발화. 발화 집합은 store `alarm.fired` 에 저장(재시작 시 재발화 없음), 사라진 항목의 키는 정리.
-fn check_alarms(app: &AppHandle) {
-    let Ok(s) = app.store("hera.json") else { return };
-    let items: Vec<Alarm> = s.entries().iter().filter_map(|(k, v)| alarm_item(k, v)).collect();
-    let old: Vec<String> = s.get("alarm.fired").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-    let mut fired: Vec<String> = old.iter().filter(|k| items.iter().any(|a| &a.fire_key() == *k)).cloned().collect();
-    // Hera Link: 알림은 커서가 있는 PC 에서만. 커서가 맥에 있으면 맥 Hera 가 울리고, 여기선 울린 것으로 표시만 (돌아와서 또 울리지 않게)
-    let here = !crate::link::status().on_peer;
-    let group_on = |g: &Option<String>| g.as_ref().is_none_or(|g| s.get(format!("team.group:{g}")).is_none_or(|v| v["alarms"].as_bool().unwrap_or(true)));
-    for a in due_alarms(now, &items, &old) {
-        if here && group_on(&a.group) {
-            let _ = app.emit_to("island", "alarm", a);
-        }
-        fired.push(a.fire_key());
-    }
-    if fired != old {
-        s.set("alarm.fired", serde_json::json!(fired));
-    }
 }
 
 /// 전체화면 앱·발표 중 (2s 갱신) — 효과 창은 이때 만들지 않는다
@@ -528,9 +246,6 @@ impl Shake {
     }
 }
 
-/// 트레이 '날씨·계절 효과' 체크 항목 (패널에서 바꾸면 watch 루프가 맞춰 준다)
-pub struct FxMenu(pub tauri::menu::CheckMenuItem<tauri::Wry>);
-
 fn last_input() -> u32 {
     let mut li = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
     unsafe {
@@ -539,32 +254,33 @@ fn last_input() -> u32 {
     li.dwTime
 }
 
+/// 누른 채 실제로 끌었나 (Windows 끌기 문턱 4px × 배율 2배 = 8 논리 px). 제자리 클릭은 드래그가 아니다.
+fn dragged(from: (i32, i32), to: (i32, i32), s: f64) -> bool {
+    (((to.0 - from.0) as f64).hypot((to.1 - from.1) as f64)) >= 8.0 * s
+}
+
+/// 그 점의 모니터 배율 (없으면 1)
+fn scale_at(x: i32, y: i32) -> f64 {
+    monitors().iter().find(|(_, r, _, _)| (x as f64) >= r[0] && (x as f64) < r[0] + r[2] && (y as f64) >= r[1] && (y as f64) < r[1] + r[3]).map_or(1.0, |m| m.2)
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED); // SHGetPropertyStoreForWindow — 이 루프 전용 스레드라 아파트 혼용 없음
-        let me = GetCurrentProcessId();
         let mut prev_lb = false;
-        let mut drag_out = false; // 창 밖에서 누른 채 들어오는 드래그(탐색기 파일 등)
-        let mut press_at = (0, 0); // 누른 자리 — 실제로 끌어야 드래그 (a7: 작업 표시줄 시계 클릭이 드롭존을 켜던 원인)
-        let mut drag_shown = false;
-        let mut last_fg = HWND::default();
-        let mut prev_fg = HWND::default(); // 마지막 외부(비 Hera) 포그라운드
-        let mut hidden = false;
-        let mut wall = (wallpaper_path(), wallpaper_style());
-        let mut screens = (work_area(), monitors()); // 바뀌면(작업 표시줄·해상도·배율·모니터 추가/제거) 아일랜드 다시 배치
+        let mut drag_out = false; // Hera 창 밖에서 누른 채 끄는 중 (탐색기 파일 등)
+        let mut press_at = (0, 0); // 누른 자리 — 실제로 끌어야 드래그
         let mut slow = Instant::now();
-        let mut pow = power();
-        let mut saver: Option<u32> = None; // 화면보호기로 연 아스키 창: 열 때의 마지막 입력 시각
+        let mut saver: Option<u32> = None; // 자리 비움 화면을 열 때의 마지막 입력 시각
         let mut saver_closing: Option<Instant> = None;
         let mut sky: Option<(Tod, u8)> = None;
         let mut season_shown = (0u16, 0u16);
-        let mut fx_on: Option<bool> = None;
         let mut shake = Shake::default();
         let mut locator = true;
+        let mut full = false;
         let t0 = Instant::now();
 
         loop {
-            // ── 30Hz: 커서 히트테스트 → 클릭 통과 ──
+            // ── 30Hz: 커서 → 흔들기 · 끌기 · 클릭 통과 ──
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             {
@@ -575,8 +291,8 @@ pub fn start(app: AppHandle) {
                 c.push((pt.x, pt.y, now_ms()));
             }
             let lb = GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0;
-            // 커서 찾기 (커서가 이 PC 에 있을 때만 — 맥에 있으면 엔진이 커서를 붙잡아 둔다)
-            if locator && !hidden && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, 50) {
+            // 커서 찾기: 단추를 누르지 않고 흔들 때만 (커서가 맥에 있으면 엔진이 붙잡아 둔다)
+            if locator && !lb && !full && !crate::link::status().on_peer && shake.push(t0.elapsed().as_millis() as u64, pt.x, pt.y, (50.0 * scale_at(pt.x, pt.y)) as i32) {
                 crate::ripple::show(pt.x, pt.y, None, crate::ripple::Kind::Locate);
             }
             let overlays = OVERLAYS.lock().unwrap().clone();
@@ -588,84 +304,35 @@ pub fn start(app: AppHandle) {
                     r
                 })
                 .collect();
-            let inside = |r: &RECT| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom;
-            let wa = *crate::island::WA.lock().unwrap(); // 아일랜드가 사는 모니터의 작업 영역 (a13: 캡슐은 어느 모니터에나)
-            let moving = crate::island::dragging(); // 캡슐을 끄는 동안은 창 전체가 입력을 받는다 (다른 모니터로 넘어가도 놓치지 않게)
-            let pressed = lb && !prev_lb;
-            if pressed {
+            let hits = HITS.lock().unwrap().clone();
+            let on_shape = |i: usize, m: f64| {
+                let r = &rects[i];
+                let shape = hits.iter().find(|(l, _)| l == overlays[i].0).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
+                hit((pt.x - r.left) as f64, (pt.y - r.top) as f64, shape, m)
+            };
+            if lb && !prev_lb {
                 press_at = (pt.x, pt.y);
-                // 작업 표시줄·트레이에서 누른 것은 파일 드래그가 아니다 (시계·알림 영역은 캡슐 바로 아래)
-                drag_out = !rects.iter().any(inside) && in_work_area(pt.x, pt.y, wa);
+                drag_out = !(0..overlays.len()).any(|i| on_shape(i, 0.0));
             } else if !lb {
                 drag_out = false;
             }
             prev_lb = lb;
+            let s = scale_at(pt.x, pt.y);
+            let file_drag = drag_out && dragged(press_at, (pt.x, pt.y), s);
             // Hera Link: 바깥에서 끌어오는 중이면 가장자리 띠를 받기 모드로 (근처일 때만)
-            crate::edge::tick(pt.x, pt.y, drag_out);
-            // 바깥에서 끌어오는 드래그(파일)가 캡슐 근처에 오면 캡슐을 드롭존으로 — OS 전역 '파일 드래그 중' 신호는 없다
-            if let Some(i) = overlays.iter().position(|&(l, _)| l == "island") {
-                let s = windows::Win32::UI::HiDpi::GetDpiForWindow(HWND(overlays[i].1 as _)) as f64 / 96.0;
-                let cap = hit_rects("island").first().copied();
-                let s = if s > 0.0 { s } else { 1.0 };
-                let near = drag_out && dragged(press_at, (pt.x, pt.y), s) && in_work_area(pt.x, pt.y, wa) && drag_near((pt.x - rects[i].left) as f64, (pt.y - rects[i].top) as f64, cap, s);
-                if near != drag_shown {
-                    drag_shown = near;
-                    let _ = app.emit_to("island", "drag-near", near);
-                }
-            }
-
-            let hits = HITS.lock().unwrap().clone();
-            // 캡슐·허브 밖을 누르면 알림 (펼쳐져 있으면 JS 가 접는다) — 아일랜드 창은 클릭 통과라 스스로 못 본다
-            if pressed && !moving {
-                if let (Some(i), Some((_, hr))) = (overlays.iter().position(|&(l, _)| l == "island"), hits.iter().find(|(l, _)| l == "island")) {
-                    let r = &rects[i];
-                    if !capsule_takes((pt.x, pt.y), wa, (r.left, r.top), hr, 0.0) {
-                        let _ = app.emit_to("island", "island-outside", ());
-                    }
-                }
-            }
-            for (i, &(label, h)) in overlays.iter().enumerate() {
-                let r = &rects[i];
-                let shape = hits.iter().find(|(l, _)| l == label).map(|(_, v)| v.as_slice()).unwrap_or(&[]);
-                let o = (r.left, r.top);
-                // 아일랜드는 작업 영역 밖(작업 표시줄)에서 절대 입력을 받지 않는다 — 다른 오버레이(효과 등)는 모양이 없어 늘 통과
-                let wa_ok = label != "island" || in_work_area(pt.x, pt.y, wa);
-                let p = !(label == "island" && moving) && !(wa_ok && (hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, 0.0) || (drag_out && hit((pt.x - o.0) as f64, (pt.y - o.1) as f64, shape, DRAG_MARGIN))));
+            crate::edge::tick(pt.x, pt.y, file_drag);
+            for (i, &(_, h)) in overlays.iter().enumerate() {
+                // 모양(히트 rect) 위만 입력을 받는다 · 끌어오는 중이면 모양 +24px 까지 (드롭 대상)
+                let p = !(on_shape(i, 0.0) || (drag_out && on_shape(i, DRAG_MARGIN)));
                 let hwnd = HWND(h as _);
                 let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                let mut want = ex_style(cur, p);
-                // 아일랜드 안 화면에 글자를 치는 동안은 포커스를 받을 수 있게 (NOACTIVATE 빼기)
-                if label == "island" && crate::island::INTERACTIVE.load(Ordering::Relaxed) {
-                    want &= !(WS_EX_NOACTIVATE.0 as isize);
-                }
+                let want = ex_style(cur, p);
                 if want != cur {
                     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
                 }
             }
 
-            // ── 포그라운드: 자기 창 무시, dock/island(WebView2 자식 포함)가 가져가면 직전 창으로 복원 ──
-            let fg = GetForegroundWindow();
-            if fg != last_fg {
-                last_fg = fg;
-                let mut pid = 0;
-                GetWindowThreadProcessId(fg, Some(&mut pid));
-                if pid == me {
-                    let root = GetAncestor(fg, GA_ROOT);
-                    let typing = crate::island::INTERACTIVE.load(Ordering::Relaxed) && overlays.iter().any(|&(l, h)| l == "island" && HWND(h as _) == root);
-                    if !typing && overlays.iter().any(|&(_, h)| HWND(h as _) == root) && !prev_fg.is_invalid() && IsWindow(Some(prev_fg)).as_bool() {
-                        let _ = SetForegroundWindow(prev_fg);
-                    }
-                } else if !fg.is_invalid() {
-                    prev_fg = fg;
-                    // B3: Now Playing. 제목 없는 창(작업표시줄 등 일시 포커스)은 곡으로 치지 않는다.
-                    let i = info(fg);
-                    if !i.title.is_empty() {
-                        STATE.lock().unwrap().0 = Some(i); // MCP 가 요청 때 읽는다 (a4: 웹뷰로 보내던 'foreground' 는 듣는 곳이 없어 지움)
-                    }
-                }
-            }
-
-            // 화면보호기: 열린 뒤 입력(마우스·키)이 있으면 닫기 — 창이 포커스가 없어도 키를 잡는다. JS 가 닫힘 애니메이션 후 파괴.
+            // 자리 비움 화면: 열린 뒤 입력(마우스·키)이 있으면 닫기 — 창이 포커스가 없어도 키를 잡는다. JS 가 닫힘 애니메이션 후 파괴.
             if let Some(at) = saver {
                 if last_input() != at {
                     saver = None;
@@ -678,12 +345,14 @@ pub fn start(app: AppHandle) {
             if slow.elapsed() >= Duration::from_secs(2) || RECHECK.swap(false, Ordering::Relaxed) {
                 slow = Instant::now();
                 let qs = SHQueryUserNotificationState().ok();
-                let full = qs.is_some_and(fullscreen);
-                // 설정 '전체화면 앱에서 자동으로 숨기기' (기본 켬)
-                let autohide = app.store("hera.json").ok().and_then(|s| s.get("island.autohide")).and_then(|v| v.as_bool()).unwrap_or(true);
+                full = qs.is_some_and(fullscreen);
                 let away = qs == Some(QUNS_NOT_PRESENT); // 잠금·화면보호기·사용자 전환
                 FULLSCREEN.store(full, Ordering::Relaxed);
-                // 화면보호기 열기/정리. 잠기면 바로 파괴(메모리 0), 닫기 요청 후 3초 지나도 남아 있으면 파괴.
+                let st = app.store("hera.json").ok();
+                let get = |k: &str| st.as_ref().and_then(|s| s.get(k));
+                locator = get("locator.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                let deco = get("deco.enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                // 자리 비움 화면 열기/정리. 잠기면 바로 파괴(메모리 0), 닫기 요청 후 3초 지나도 남아 있으면 파괴.
                 let covers = crate::ascii_windows(&app);
                 if !covers.is_empty() {
                     if (away && saver.is_some()) || saver_closing.is_some_and(|t| t.elapsed() > Duration::from_secs(3)) {
@@ -694,82 +363,44 @@ pub fn start(app: AppHandle) {
                 } else {
                     saver_closing = None;
                     saver = None;
-                    let idle_min = app.store("hera.json").ok().and_then(|s| s.get("ascii.idleMin")).and_then(|v| v.as_u64()).unwrap_or(10);
+                    let idle_min = if deco { get("ascii.idleMin").and_then(|v| v.as_u64()).unwrap_or(10) } else { 0 };
                     let li = last_input();
                     if saver_due(GetTickCount().wrapping_sub(li), idle_min, full || away, false) {
                         saver = Some(li);
                         let h = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = crate::open_ascii(&h, true, None) {
-                                eprintln!("ascii saver: {e}");
+                            if let Err(e) = crate::open_cover(&h) {
+                                eprintln!("cover: {e}");
                             }
                         });
                     }
                 }
-                // 효과 이벤트: 시간대·날씨·계절 첫날 변화 → 효과 창 (스위치 켜짐 + 전체화면·잠금 아님일 때만)
-                if let Ok(s) = app.store("hera.json") {
-                    locator = s.get("locator.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                    let on = s.get("fx.enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                    if fx_on != Some(on) {
-                        fx_on = Some(on);
-                        if let Some(m) = app.try_state::<FxMenu>() {
-                            let _ = m.0.set_checked(on);
+                // 효과 이벤트: 시간대·날씨·계절 첫날 변화 → 효과 창 (꾸미기 켜짐 + 전체화면·잠금 아님일 때만)
+                let lt = GetLocalTime();
+                let w = get("fx.weather");
+                // 도시 좌표(JS 가 지오코딩해 store `fx.coords` = [위도, 경도]), 없으면 서울
+                let (lat, lon) = get("fx.coords").and_then(|v| serde_json::from_value::<(f64, f64)>(v).ok()).unwrap_or((37.57, 126.98));
+                let sun = sun_times(lat, lon, day_of_year(lt.wYear as i32, lt.wMonth as u32, lt.wDay as u32), tz_offset()).unwrap_or(SUN_FALLBACK);
+                let cur = (tod(lt.wHour as i32 * 60 + lt.wMinute as i32, sun), wet(w.as_ref().and_then(|w| w["text"].as_str()).unwrap_or_default()));
+                let today = (lt.wMonth, lt.wDay);
+                let season = season_fx(lt.wMonth, lt.wDay).filter(|_| season_shown != today);
+                if let Some(kind) = fx_trigger(sky, cur, season) {
+                    if deco && !full && !away && crate::fx_windows(&app).is_empty() {
+                        if season == Some(kind) {
+                            season_shown = today;
                         }
-                    }
-                    let lt = GetLocalTime();
-                    let w = s.get("fx.weather");
-                    // 도시 좌표(JS 가 지오코딩해 store `fx.coords` = [위도, 경도]), 없으면 서울
-                    let (lat, lon) = s.get("fx.coords").and_then(|v| serde_json::from_value::<(f64, f64)>(v).ok()).unwrap_or((37.57, 126.98));
-                    let sun = sun_times(lat, lon, day_of_year(lt.wYear as i32, lt.wMonth as u32, lt.wDay as u32), tz_offset()).unwrap_or(SUN_FALLBACK);
-                    let cur = (tod(lt.wHour as i32 * 60 + lt.wMinute as i32, sun), wet(w.as_ref().and_then(|w| w["text"].as_str()).unwrap_or_default()));
-                    let today = (lt.wMonth, lt.wDay);
-                    let season = season_fx(lt.wMonth, lt.wDay).filter(|_| season_shown != today);
-                    if let Some(kind) = fx_trigger(sky, cur, season) {
-                        if on && !full && !away && crate::fx_windows(&app).is_empty() {
-                            if season == Some(kind) {
-                                season_shown = today;
+                        let h = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = crate::open_fx(&h, kind) {
+                                eprintln!("fx: {e}");
                             }
-                            let h = app.clone();
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(e) = crate::open_fx(&h, kind) {
-                                    eprintln!("fx: {e}");
-                                }
-                            });
-                        }
-                    }
-                    sky = Some(cur);
-                }
-                if (full && autohide) != hidden {
-                    hidden = full && autohide;
-                    for &(_, h) in &overlays {
-                        let _ = ShowWindowAsync(HWND(h as _), if hidden { SW_HIDE } else { SW_SHOWNOACTIVATE });
+                        });
                     }
                 }
-                // B4: 전체화면 중에는 검사하지 않는다 = 큐 보관. 종료 후 첫 검사에서 밀린 알림이 시각 순으로 나온다.
-                if !hidden && ALARMS_READY.load(Ordering::Relaxed) {
-                    check_alarms(&app);
-                }
-                // B3 실행 집합은 shell.rs 가 창 이벤트로 갱신한다 (예전 2s EnumWindows 폴링 대체)
-                // C4: 전원 상태는 바뀔 때만 emit (JS 폴링 없음)
-                let p = power();
-                if p != pow {
-                    pow = p;
-                    let _ = app.emit("power", p);
-                }
-                let w = (wallpaper_path(), wallpaper_style());
-                if w != wall {
-                    wall = w;
-                    let _ = app.emit("wallpaper", ());
-                }
-                let a = (work_area(), monitors());
-                if a != screens {
-                    screens = a;
-                    crate::place(&app);
-                }
+                sky = Some(cur);
             }
 
-            // 전체화면으로 숨긴 동안은 2Hz (2s 블록은 그대로)
-            std::thread::sleep(Duration::from_millis(if hidden { 500 } else { 33 }));
+            std::thread::sleep(Duration::from_millis(33));
         }
     });
 }
@@ -777,57 +408,6 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// (a7) 작업 표시줄 시계를 누르면 Hera 도 눌리던 버그: 시계 자리는 캡슐 판정에서 빠지고, 캡슐 rect 는 작업 표시줄 띠와 겹치지 않는다
-    #[test]
-    fn taskbar_clock_is_never_a_capsule_press() {
-        // (모니터 l,t,r,b · 배율) — 아래 작업 표시줄 48 논리 px. 마지막 = 왼쪽(음수 원점) 보조 모니터에 아일랜드가 있을 때
-        for (mon, s) in [([0, 0, 1920, 1080], 1.0), ([0, 0, 2560, 1440], 1.25), ([0, 0, 3840, 2160], 1.5), ([-1920, 4, 0, 1084], 1.0)] {
-            let bar = (48.0 * s) as i32;
-            let wa = [mon[0], mon[1], mon[2], mon[3] - bar];
-            let w4 = [wa[0], wa[1], wa[2] - wa[0], wa[3] - wa[1]];
-            let ([wx, wy, ww, wh], _) = crate::island::layout(w4, s, crate::island::home(w4, s), false);
-            assert!(wy + wh <= wa[3], "아일랜드 창은 작업 영역 안 {mon:?}");
-            // JS 히트 rect: 캡슐 80×60 · 오른쪽 16 · 아래 8 · 머묾 여유 16 (= 창 아래로 8 넘침) — 물리 px
-            let (cw, ch, m) = (80.0 * s, 60.0 * s, 16.0 * s);
-            let cap = [ww as f64 - 16.0 * s - cw - m, wh as f64 - 8.0 * s - ch - m, cw + 2.0 * m, ch + 2.0 * m];
-            let o = (wx, wy);
-            // 시계·날짜 = 작업 표시줄 오른쪽 끝 (오른쪽에서 40, 띠 가운데) · 알림 영역 = 그 왼쪽
-            for clock in [(mon[2] - (40.0 * s) as i32, mon[3] - bar / 2), (mon[2] - (90.0 * s) as i32, mon[3] - 4), (mon[2] - 1, wa[3])] {
-                assert!(!capsule_takes(clock, wa, o, &[cap], 0.0), "시계 {clock:?}는 캡슐이 아님 {mon:?}");
-                assert!(!in_work_area(clock.0, clock.1, wa));
-            }
-            // 넘친 rect 의 띠 쪽 부분도 받지 않는다 → 캡슐이 받는 영역은 작업 표시줄과 겹치지 않음
-            let bottom = (cap[1] + cap[3]) as i32 + o.1;
-            assert!(bottom > wa[3], "시험 전제: 머묾 rect가 창 아래로 넘친다");
-            let x = o.0 + (cap[0] + cap[2] / 2.0) as i32;
-            for y in wa[3]..mon[3] {
-                assert!(!capsule_takes((x, y), wa, o, &[cap], DRAG_MARGIN));
-            }
-            // 캡슐 가운데는 여전히 받는다
-            assert!(capsule_takes((x, o.1 + (cap[1] + cap[3] / 2.0) as i32), wa, o, &[cap], 0.0));
-            // 시계를 제자리 클릭(끌지 않음)은 드래그가 아니다 → 드롭존으로 바뀌지 않음
-            assert!(!dragged((mon[2] - 40, mon[3] - 20), (mon[2] - 41, mon[3] - 19), s));
-            assert!(dragged((mon[2] - 600, wa[3] - 300), (mon[2] - 560, wa[3] - 300), s));
-        }
-        // 아일랜드 = 주 모니터, 보조 모니터(왼쪽)의 작업 표시줄 시계 → 받지 않음 (주 모니터 작업 영역 밖)
-        let wa = [0, 0, 1920, 1032];
-        let cap = [1824.0 - 1240.0, 620.0, 112.0, 92.0];
-        assert!(!capsule_takes((-40, 1060), wa, (1240, 352), &[cap], DRAG_MARGIN));
-        assert!(!in_work_area(-40, 1060, wa));
-    }
-
-    #[test]
-    fn drag_near_capsule() {
-        let cap = Some([590.0, 616.0, 80.0, 60.0]); // 680×680 창 오른쪽 아래 캡슐
-        assert!(drag_near(620.0, 640.0, cap, 1.0)); // 위
-        assert!(drag_near(500.0, 600.0, cap, 1.0)); // 90px 옆
-        assert!(!drag_near(300.0, 300.0, cap, 1.0)); // 허브 자리 (앱 위 드래그는 그대로)
-        assert!(!drag_near(620.0, 640.0, None, 1.0)); // 아직 보고 전
-        assert!(drag_near(390.0, 616.0, cap, 1.5)); // 배율 1.5 = 210px
-        assert_eq!(rect_dist(10.0, 10.0, [0.0, 0.0, 20.0, 20.0]), 0.0);
-        assert_eq!(rect_dist(23.0, 24.0, [0.0, 0.0, 20.0, 20.0]), 5.0);
-    }
 
     #[test]
     fn hit_test() {
@@ -855,72 +435,6 @@ mod tests {
         assert_eq!(off & (WS_EX_TRANSPARENT.0 | WS_EX_LAYERED.0) as isize, 0);
         assert_ne!(off & WS_EX_NOACTIVATE.0 as isize, 0);
         assert_eq!(ex_style(off, false), off); // 변화 없으면 같은 값 → SetWindowLongPtr 생략
-    }
-
-    /// 수동(계산기를 띄웠다 닫음): cargo test running_and_aumid -- --ignored --nocapture
-    #[test]
-    #[ignore]
-    fn running_and_aumid() {
-        crate::launch::sta(|| crate::launch::launch(r"shell:AppsFolder\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")).unwrap();
-        std::thread::sleep(Duration::from_secs(3));
-        let calc = r"shell:appsfolder\microsoft.windowscalculator_8wekyb3d8bbwe!app";
-        let (keys, frame) = unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let keys: Vec<String> = app_windows(GetCurrentProcessId()).into_iter().flat_map(|(_, k)| k).collect();
-            // 포그라운드 이벤트가 쓰는 info(): 계산기의 ApplicationFrameHost 창에서 AUMID 가 풀리는가
-            unsafe extern "system" fn collect(h: HWND, l: LPARAM) -> BOOL {
-                (*(l.0 as *mut Vec<HWND>)).push(h);
-                true.into()
-            }
-            let mut all: Vec<HWND> = vec![];
-            let _ = EnumWindows(Some(collect), LPARAM(&mut all as *mut _ as isize));
-            let frame = all.into_iter().map(|h| info(h)).find(|i| i.exe_path.to_lowercase().ends_with("applicationframehost.exe") && i.aumid.contains("Calculator"));
-            (keys, frame)
-        };
-        let _ = std::process::Command::new("taskkill").args(["/IM", "CalculatorApp.exe", "/F"]).output();
-        println!("RUNNING {keys:#?}\nFRAME {frame:?}");
-        assert!(keys.iter().any(|k| k == calc), "calc not in running set");
-        assert!(frame.is_some(), "calc frame AUMID not resolved");
-    }
-
-    fn al(key: &str, at: i64, done: bool) -> Alarm {
-        Alarm { key: key.into(), title: String::new(), at, done, group: None }
-    }
-
-    #[test]
-    fn iso_parse() {
-        assert_eq!(iso_ms("1970-01-01T00:00:00.000Z"), Some(0));
-        assert_eq!(iso_ms("2026-11-13T09:30:00.250Z"), Some(1_794_562_200_250));
-        assert_eq!(iso_ms("2024-02-29T00:00:00Z"), Some(1_709_164_800_000));
-        assert_eq!(iso_ms("2026-11-13T09:30"), None); // 로컬 시각(Z 없음)은 무시
-    }
-
-    #[test]
-    fn alarm_items() {
-        let t = serde_json::json!({"title": "a", "due": "1970-01-01T00:00:01.000Z", "done": false});
-        assert_eq!(alarm_item("todo:1", &t).unwrap().at, 1000);
-        let snoozed = serde_json::json!({"title": "a", "due": "1970-01-01T00:00:01.000Z", "snooze": "1970-01-01T00:00:02.000Z"});
-        assert_eq!(alarm_item("todo:1", &snoozed).unwrap().at, 2000); // 다시 알림이 기한보다 우선
-        let ev = serde_json::json!({"title": "e", "start": "1970-01-01T00:00:03.000Z", "end": "1970-01-01T01:00:00.000Z"});
-        assert_eq!(alarm_item("event:1", &ev).unwrap().at, 3000);
-        assert!(alarm_item("todo:2", &serde_json::json!({"title": "기한 없음"})).is_none());
-        assert!(alarm_item("record:x", &t).is_none());
-    }
-
-    #[test]
-    fn due_rules() {
-        let now = 10_000;
-        let items = [al("todo:future", 20_000, false), al("todo:due", 9_000, false), al("event:missed", 1_000, false), al("todo:done", 5_000, true), al("todo:fired", 8_000, false)];
-        let fired = vec!["todo:fired@8000".to_string()];
-        let keys: Vec<_> = due_alarms(now, &items, &fired).iter().map(|a| a.key.as_str()).collect();
-        // 놓친 알림(오래전) 포함, 시각 순 / 미래·완료·이미 발화 제외
-        assert_eq!(keys, ["event:missed", "todo:due"]);
-        // 다시 알림: 시각이 +10분 바뀌면 새 발화 키 → 그 시각 전엔 조용, 도달하면 다시 발화
-        let snoozed = [al("todo:fired", 8_000 + 600_000, false)];
-        assert!(due_alarms(now, &snoozed, &fired).is_empty());
-        assert_eq!(due_alarms(8_000 + 600_000, &snoozed, &fired).len(), 1);
-        // 정각 경계 포함
-        assert_eq!(due_alarms(20_000, &items[..1], &[]).len(), 1);
     }
 
     #[test]

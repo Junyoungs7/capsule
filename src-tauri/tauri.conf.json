@@ -7,22 +7,12 @@
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist",
-    "beforeBundleCommand": "cargo build --release --manifest-path src-tauri/Cargo.toml --bin hera-mcp"
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [],
     "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "$APPDATA/icons/**",
-          "$APPDATA/chat/**",
-          "$APPDATA/chat-out/**",
-          "$DATA/Hera/pets/**"
-        ]
-      }
+      "csp": null
     }
   },
   "bundle": {
@@ -37,7 +27,7 @@
       "icons/icon.ico"
     ],
     "publisher": "Hera",
-    "shortDescription": "Hera — glass dock & launcher",
+    "shortDescription": "Hera — Windows와 맥을 하나처럼",
     "windows": {
       "nsis": {
         "installMode": "currentUser",

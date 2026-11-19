@@ -1,19 +1,47 @@
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import './styles/motion.css'
-import './styles/glass.css'
-import './styles/lp.css'
-import './styles/v2.css'
-import './styles/v3.css'
-import './styles/team.css'
-import './styles/island.css'
-import './styles/capsule.css'
-import './styles/a6.css'
-import { Desktop } from './mockup/Desktop'
-import { installMotion } from './motion'
+import './styles/win.css'
+import './styles/pet.css'
+import './styles/kept.css'
+import './styles/board.css'
+import { closeSelf, coverCloseAll, isTauri, noteNotepad, onEvent } from './data/api'
+import { SettingsWin } from './win/Settings'
+import { NoteBoard } from './surfaces/Notes'
+import { UndoToast } from './surfaces/Undo'
+import { AsciiFull, SCENES, seasonOf, type SceneId } from './surfaces/Ascii'
+import { FX_LABEL, Fx, type FxKind } from './surfaces/Fx'
 
-// ?surface=island|float|settings|ascii|fx|ocr|all (fx: &fx=snow|rain|leaves|sunset|moon)
-const surface = new URLSearchParams(location.search).get('surface') ?? 'all'
-document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+/* 창 1개 = 표면 1개 (?surface=). settings · notes(메모 보드) · ascii(자리 비움 화면) · fx(화면 효과) */
+const q = new URLSearchParams(location.search)
+const surface = q.get('surface') ?? 'settings'
+const dark = matchMedia('(prefers-color-scheme: dark)')
+const theme = () => (document.documentElement.dataset.theme = dark.matches ? 'dark' : 'light')
+theme()
+dark.addEventListener('change', theme)
 
-installMotion() // (a6) 모션 팩: 변수·알약·스위치·떠오르기 (동작 줄이기면 꺼짐)
-createRoot(document.getElementById('root')!).render(<Desktop only={surface === 'all' ? undefined : surface} />)
+function Cover() {
+  const sc = q.get('scene') as SceneId | FxKind | null
+  const [open, setOpen] = useState(true)
+  useEffect(() => (isTauri ? onEvent('ascii-close', () => setOpen(false)) : undefined), [])
+  const now = new Date()
+  return (
+    <AsciiFull open={open} id={sc && (sc in SCENES || sc in FX_LABEL) ? sc : 'calm'} from={null} saver
+      caption={`${now.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })} · ${seasonOf(now)}`}
+      onClose={() => (setOpen(false), isTauri && void coverCloseAll())} onClosed={() => void closeSelf()} />
+  )
+}
+
+function App() {
+  if (surface === 'notes')
+    return (
+      <div className="hx boardwin">
+        <NoteBoard onNotepad={(id) => void noteNotepad(id).catch(() => {})} />
+        <UndoToast />
+      </div>
+    )
+  if (surface === 'ascii') return <Cover />
+  if (surface === 'fx') return <Fx kind={(q.get('fx') as FxKind) ?? 'snow'} onDone={() => void closeSelf()} />
+  return <SettingsWin sec={q.get('sec')} />
+}
+
+createRoot(document.getElementById('root')!).render(<App />)

@@ -2,35 +2,30 @@
 name = "hera"
 version = "0.1.0"
 edition = "2021"
-default-run = "hera" # src/bin/hera-mcp.rs (AI 연결 MCP) 가 두 번째 바이너리
 
 [lib]
 name = "hera_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[dev-dependencies]
+png = "0.18.1" # ripple.rs 미리보기 시험(무시됨)만
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
-window-vibrancy = "0.8"
 tauri-plugin-store = "2.5.1"
 serde_json = "1.0.154"
-png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
-tauri-plugin-global-shortcut = "2"
-drag = "2.1.1"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
 getrandom = "0.3"
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
-portable-pty = "0.9"
-flate2 = "1.1"     # 내 펫 .herapet.zip 읽기 (이미 의존성 트리에 있음)
-crc32fast = "1.5"
 
 # Windows 전용 (맥 등은 src/stub.rs 로 컴파일만 — docs/mac-port.md)
 [target.'cfg(windows)'.dependencies]
@@ -42,21 +37,12 @@ windows = { version = "0.62", features = [
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",
   "Win32_System_Threading",
-  "Win32_Security",
-  "Win32_System_Power",
   "Win32_System_Registry",
+  "Win32_Security",
   "Win32_System_Com",
-  "Win32_System_Com_StructuredStorage",
-  "Win32_System_Variant",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
-  "Win32_Storage_EnhancedStorage",
   "Win32_Storage_FileSystem",
-  "Win32_Storage_Packaging_Appx",
-  "Win32_UI_Shell_Common",
-  "Win32_UI_Shell_PropertiesSystem",
-  "Win32_System_DataExchange",
-  "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_LibraryLoader",
   "Win32_System_SystemInformation",
@@ -64,17 +50,7 @@ windows = { version = "0.62", features = [
   "Win32_UI_Accessibility",
   "Win32_System_JobObjects",
   "Win32_UI_HiDpi",
-  "Win32_UI_Input_Ime",
   "Win32_System_SystemServices",
-  "Foundation",
-  "Foundation_Collections",
-  "Globalization",
-  "Graphics_Imaging",
-  "Media_Ocr",
-  "Storage_Streams",
-  "Win32_System_Pipes", # mcp.rs
-  "Win32_System_IO", # mcp.rs (ConnectNamedPipe)
-  "Win32_Security_Authorization", # mcp.rs
 ] }
 
 [profile.release]

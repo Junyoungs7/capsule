@@ -1,0 +1,44 @@
+/* 메모 보드 창 (?surface=notes) · 지우기 되돌리기 */
+
+.hx {
+  --font: 'Pretendard Variable', Pretendard, 'Segoe UI Variable Text', 'Malgun Gothic', sans-serif;
+  --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+  --glass: rgba(14, 14, 18, 0.9);
+  --glass-strong: rgba(16, 16, 20, 0.9);
+  --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 42%);
+  --blur: blur(28px) saturate(180%);
+  --rim: inset 0 0.5px 0 rgba(255, 255, 255, 0.28), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+  --lift: 0 0 0 0.5px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.3);
+  --lift-big: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.22), 0 24px 64px rgba(0, 0, 0, 0.38);
+  --hairline: rgba(255, 255, 255, 0.1);
+  --fill-1: rgba(255, 255, 255, 0.06); --fill-2: rgba(255, 255, 255, 0.1); --fill-3: rgba(255, 255, 255, 0.16);
+  --t1: rgba(255, 255, 255, 0.94); --t2: rgba(255, 255, 255, 0.66); --t3: rgba(255, 255, 255, 0.48);
+  --red: #ff453a; --orange: #ff9f0a; --yellow: #ffd60a; --green: #32d74b; --teal: #40c8e0; --cyan: #64d2ff;
+  --blue: #0a84ff; --indigo: #5e5ce6; --purple: #bf5af2; --pink: #ff375f; --brown: #c69c6d; --gray: #98989f;
+  --accent: var(--blue);
+  --spring: cubic-bezier(.2, 1.35, .35, 1);
+  --settle: cubic-bezier(.3, .7, .4, 1);
+  --ease-calm: cubic-bezier(.25, .1, .25, 1);
+  --morph: 480ms; --fade: 160ms;
+  /* 예전 부품(할 일·달력·채팅·터미널)이 쓰는 이름 → 같은 짙은 유리 값 */
+  --text: var(--t1); --text-2: var(--t2); --text-3: var(--t3); --fill: var(--fill-1); --line: var(--hairline); --island-accent: var(--green); --on-accent: #fff;
+  font: 13px/1.4 var(--font);
+  letter-spacing: -0.006em;
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+  color: var(--t1);
+}
+
+.hx .board { position: relative; flex: 1; min-height: 100%; background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 16px 16px; }
+.hx .board .note-pos { position: absolute; left: 0; top: 0; }
+.hx .board .note { backdrop-filter: none; }
+.hx .board-empty { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--t3); font-size: 12.5px; pointer-events: none; }
+.hx .board-add.fab { position: fixed; right: 16px; bottom: 16px; z-index: 5; width: 44px; height: 44px; min-height: 0; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--accent); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.35), var(--lift); transition: transform 160ms var(--ease-out); }
+.hx .board-add.fab svg { width: 20px; height: 20px; }
+.hx .board-add.fab:hover { background: var(--accent); filter: brightness(1.08); }
+/* (a7) 누르면 움츠렸다 pop 스프링으로 튀어 돌아옴 */
+.hx .board-add.fab:active { transform: scale(0.88); transition-duration: 80ms; }
+html.mx .hx .board-add.fab { transition: transform var(--sp-pop-ms, 420ms) var(--sp-pop, ease); }
+html.mx .hx .board-add.fab:active { transition: transform 80ms ease-out; }
+
+/* (a9) 지우기 되돌리기 토스트 (5초) — 화면 안 아래 가운데 (아일랜드 히트 rect 안), 모션 팩 pop 으로 */

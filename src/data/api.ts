@@ -1,15 +1,13 @@
 import { useEffect, useState, type SetStateAction } from 'react'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { invoke } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
 import { load as loadStore, type Store } from '@tauri-apps/plugin-store'
-import type { Clip } from './types'
 
-// 단일 모듈: Tauri 가 있으면 invoke/스토어/이벤트, 없으면(시안) mock + localStorage.
+// 단일 모듈: Tauri 가 있으면 invoke/스토어/이벤트, 없으면(시안) localStorage.
 export const isTauri = '__TAURI_INTERNALS__' in window
 
-/* ── 저장: Tauri = tauri-plugin-store `hera.json` 항목당 키(record:<id>, todo:<id>, event:<id>, dock.pinned).
-   B0-6: 스토어는 앱 단위 리소스(같은 rid)이고 쓰기마다 app.emit('store://change') → 다른 창의 onChange 로 전달된다.
-   그래서 커스텀 data-changed 이벤트 없음. 시안 = localStorage(배열 통째). */
+/* ── 저장: Tauri = tauri-plugin-store `hera.json` 항목당 키 (note:<id>, shelf:<id>, link.cfg …). 키 목록은 docs/spec.md.
+   쓰기마다 'store://change' 가 모든 창에 간다 → 다른 창의 onChange 로 따라온다. 시안 = localStorage. */
 let st: Promise<Store> | undefined
 const store = () => (st ??= loadStore('hera.json'))
 
@@ -29,10 +27,8 @@ function saveLocal(key: string, value: unknown) {
   }
 }
 
-/** 단일 키 읽기/쓰기 (훅 밖 — 여러 창이 함께 보는 작은 상태: notes.shown 등) */
 export const storeGet = <T,>(key: string) => store().then((s) => s.get<T>(key))
 export const storeSet = (key: string, value: unknown) => void store().then((s) => s.set(key, value))
-export const storeDelete = (key: string) => void store().then((s) => s.delete(key))
 
 export function onStore(cb: (key: string, value: unknown) => void) {
   const off = store().then((s) => s.onChange(cb))
@@ -70,7 +66,7 @@ export function useItems<T extends { id: string }>(prefix: string, seed: T[]) {
   return [items, update] as const
 }
 
-/** 단일 키 값 (dock.pinned 등) */
+/** 단일 키 값 */
 export function useValue<T>(key: string, fallback: T) {
   const [v, setV] = useState<T>(() => (isTauri ? fallback : local(key, fallback)))
   useEffect(() => {
@@ -90,149 +86,48 @@ export function useValue<T>(key: string, fallback: T) {
   return [v, update] as const
 }
 
-/* ── 실행·아이콘 ── */
-export async function launch(target: string) {
-  if (isTauri) return invoke<void>('launch', { target })
-  console.info('[hera] launch', target)
-}
-
-const isUrl = (t: string) => /^[a-z][a-z0-9+.-]+:/i.test(t) && !/^shell:/i.test(t)
-const iconCache = new Map<string, Promise<{ src: string; kind: 'app' | 'fav' } | null>>()
-
-/** 레코드 아이콘: 앱 = Rust 추출 PNG(asset protocol), http(s) URL = favicon. 실패/시안 = null(커버 컬러 이니셜·글리프). */
-export function iconFor(target: string) {
-  if (!isTauri || !target) return null
-  let p = iconCache.get(target)
-  if (!p) {
-    p = isUrl(target)
-      ? Promise.resolve(/^https?:/i.test(target) ? { src: new URL(target).origin + '/favicon.ico', kind: 'fav' as const } : null)
-      : invoke<string>('icon', { target }).then((path) => ({ src: convertFileSrc(path), kind: 'app' as const }), () => null)
-    iconCache.set(target, p)
-  }
-  return p
-}
-
-/** 대상 → 기본 제목 (URL = 호스트, 경로 = 파일 이름) */
-export function titleOf(target: string) {
-  if (/^https?:/i.test(target)) return new URL(target).hostname.replace(/^www\./, '')
-  return target.split(/[\\/]/).pop()!.replace(/\.(exe|lnk)$/i, '')
-}
-
-export const startApps = () => invoke<[string, string][]>('start_apps')
-
-/* ── B3: 포그라운드 앱(Now Playing) · 실행 집합 ── */
-export type Fg = { hwnd: number; pid: number; exePath: string; title: string; aumid: string }
-export const watchState = () => invoke<[Fg | null, string[]]>('watch_state')
-
-/* ── B4 알림: watch 루프(2s)가 due 판정 → island 창에 'alarm'. 리스너를 건 뒤 alarms_ready 로 발화 시작. ── */
-export type Alarm = { key: string; title: string; at: number }
-export function onAlarm(cb: (a: Alarm) => void) {
-  const off = listen<Alarm>('alarm', (e) => cb(e.payload))
-  void off.then(() => invoke('alarms_ready'))
-  return () => void off.then((f) => f())
-}
-
-export const lnkTarget = (path: string) => invoke<string>('lnk_target', { path })
-
-/* ── Stage C ── */
-// 턴테이블 창: 보이기(+ 레코드 올리기) / 숨기기 = 창 파괴
-export const setTurntable = (show: boolean, play?: string) => invoke('turntable', { show, play })
-// 플래터 클릭 → 레코드 앱 창 전면 (keys = 실행 집합 키)
-export const activate = (keys: string[]) => invoke('activate', { keys })
-// 배터리 [잔량 %, 충전 중] — 배터리 없으면 null
-export const power = () => invoke<[number, boolean] | null>('power')
-
-/* ── 창 간 알림 (실행 오류 → Island alert) ── */
-export type AlertMsg = { title: string; body: string }
-export const sendAlert = (a: AlertMsg) => emit('hera-alert', a)
-/** 아일랜드 안 화면 열기 (어느 창에서든 — 예전 패널 창을 띄우지 않는다) */
-export const islandOpen = (view: string) => emit('island-open', view)
-// (a6) 설정 창에서 내 펫을 저장·삭제했다 → 아일랜드가 목록을 다시 읽게
-export const petsChanged = () => (isTauri ? void emit('pets-changed') : undefined)
-
-/* ── 클릭 통과 히트 rect ──
-   B0-3: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 시안에서는 no-op.
-   마지막 rect(CSS px)를 기억해 두고 배율(DPI)이 바뀌면 새 devicePixelRatio 로 다시 보낸다. */
-const lastRects = new Map<string, DOMRect[]>()
-const sendRects = (rects: DOMRect[]) => {
-  const k = devicePixelRatio
-  void invoke('report_hit_rects', { rects: rects.map((r) => [r.x * k, r.y * k, r.width * k, r.height * k]) })
-}
-function watchDpr() {
-  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
-    'change',
-    () => {
-      sendRects([...lastRects.values()].flat())
-      watchDpr()
-    },
-    { once: true },
-  )
-}
-if (isTauri) watchDpr()
-
-export function reportHitRects(surface: string, rects: DOMRect[]) {
-  if (!isTauri) return
-  lastRects.set(surface, rects)
-  sendRects([...lastRects.values()].flat()) // 한 창 안의 여러 표면(예: island + mcp 확인 카드) rect 합집합
-}
-
-// (a6) 설정 창 940×680 (처음 열 때 생성, 닫으면 파괴). sec = general|island|pet|link|chat|term|keys|about, 연결 탭은 'link:devices'
-export const openSettings = (sec = 'general') => invoke('settings_open', { sec })
-// Windows 시작 시 실행 (on 없으면 읽기만)
-export const autostart = (on?: boolean) => invoke<boolean>('autostart', { on })
-
-// B0-1 ② 배경화면 페이크용 원본 바이트. 단색/없음 → null (틴트 폴백)
-export const wallpaper = () =>
-  Promise.all([
-    invoke<ArrayBuffer>('wallpaper').then((b) => new Blob([b]), () => null),
-    invoke<[string, string]>('wallpaper_style'), // [WallpaperStyle, 여백 색 "r g b"]
-  ])
-
 export function onEvent<T = unknown>(name: string, cb: (payload: T) => void) {
   const off = listen<T>(name, (e) => cb(e.payload))
   return () => void off.then((f) => f())
 }
 
-/** 선반 파일을 밖으로 끌어내기 (네이티브 OLE 드래그 시작) */
-export const dragOut = (path: string) => invoke('drag_out', { path })
+/* ── 클릭 통과 히트 rect: watch 루프가 커서 히트테스트에 쓸 모양 rect (클라이언트 기준 물리 px). 배율이 바뀌면 다시 보낸다. ── */
+let lastRects: DOMRect[] = []
+const sendRects = () => {
+  const k = devicePixelRatio
+  void invoke('report_hit_rects', { rects: lastRects.map((r) => [r.x * k, r.y * k, r.width * k, r.height * k]) })
+}
+function watchDpr() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => (sendRects(), watchDpr()), { once: true })
+}
+if (isTauri) watchDpr()
+export function reportHitRects(rects: DOMRect[]) {
+  if (!isTauri) return
+  lastRects = rects
+  sendRects()
+}
 
-/* ── v2 ── */
-// 클립보드 기록 (Rust 메모리에만, 변화는 'clips' 이벤트) / 고른 항목을 다시 클립보드에
-export const clipList = () => invoke<Clip[]>('clips')
-export const setClip = (text: string) => invoke('set_clip', { text })
-// 아스키 전체화면 창 (from = 위젯의 화면 rect, 논리 px) / 효과 창 (수동 '지금 보기')
-export const openAscii = (from: [number, number, number, number] | null, scene?: string) => invoke('ascii', { from, scene })
-export const openFx = (kind: string) => invoke('fx', { kind })
-// 호출한 창 파괴 (설정·아스키·효과 공용 — Rust close_self 는 호출 창을 닫는다)
+/* ── 창 ── */
+// 설정 창 (처음 열 때 생성, 닫으면 파괴). sec = general|link|deco|about, 연결 탭은 'link:devices'
+export const openSettings = (sec = 'general') => invoke('settings_open', { sec })
+export const autostart = (on?: boolean) => invoke<boolean>('autostart', { on })
 export const closeSelf = () => invoke('close_self')
-/** (a7) 화면 덮개: 모든 모니터의 덮개 창에 닫기 */
+export const openFx = (kind: string) => invoke('fx', { kind })
+/** 덮개: 모든 모니터의 덮개 창에 닫기 */
 export const coverCloseAll = () => emit('ascii-close')
 
-/* ── Island-only: 허브 · 떠 있는 기능 창 · 상단 공간 확보 ── */
-export type FloatKind = 'notes' | 'todo' | 'calendar' | 'chat' | 'term' | 'clips' | 'shelf' | 'snippets' | 'team' | 'link' | 'ocr' | 'lp'
-export const floatOpen = (f: FloatKind) => invoke('float_open', { f })
-// 떼어내기: 유령 자리(아일랜드 CSS rect)에 만들어 첫 페인트 뒤 보이기 / 흡수: 유령을 그린 뒤 창 파괴 / 떠 있는 창: 첫 페인트 끝
-/** 떼어내기 준비: 숨긴 채 만들기 → 그려질 자리 (물리 px [x, y, w, h]). 첫 페인트가 끝나면 'float-ready' */
-export const floatPrepare = (f: FloatKind, fit?: [number, number]) => invoke<[number, number, number, number]>('float_prepare', { f, fit: fit ?? null })
-/** 머리줄 끌기 (start | move | end) · 'Island로' (absorb) */
-export const floatDrag = (phase: 'start' | 'move' | 'end' | 'absorb') => invoke('float_drag', { phase })
-export const floatShow = (f: FloatKind, r: DOMRect | null) => invoke('float_show', { f, rect: r && [r.x, r.y, r.width, r.height] })
-export const floatAbsorbed = (f: FloatKind) => invoke('float_absorbed', { f })
-export const floatReady = () => invoke('float_ready')
-// 아일랜드 창: 애니메이션 동안 화면 높이로 · 글자 입력용 포커스 · 스니펫 붙여넣기(직전 앱으로)
-export const islandTall = (on: boolean) => invoke('island_tall', { on })
-export const islandFocus = (on: boolean) => invoke('island_focus', { on })
-export const floatClose = () => invoke('float_close')
-export const floatPin = (on: boolean) => invoke('float_pin', { on })
-// 떠 있는 창이 아닌 허브 동작: 메모 보드 · OCR · Team/Link/설정(설정 창 섹션)
-export const hubAction = (kind: 'notes' | 'ocr' | 'team' | 'link' | 'settings') => invoke('hub_action', { kind })
-export const appbarSet = (on: boolean) => invoke('appbar_set', { on })
-export const fxStop = () => invoke('fx_stop')
+/* ── 선반 · 메모 ── */
+export type ShelfFile = { id: string; path: string; at: number; from?: 'pc' | 'mac'; sent?: boolean }
+export const shelfAdd = (paths: string[]) => invoke('shelf_add', { paths })
+export const openPath = (path: string) => invoke('open_path', { path })
+export const boardOpen = () => invoke('board_open')
+/** 메모장으로 열기 (Rust: %APPDATA%\Hera\notes\<id>.txt 에 쓰고 notepad.exe, 고치면 메모에 다시 읽어 넣음) */
+export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id })
 
-/* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files', 받은 파일 'link-received'(아일랜드) ── */
+/* ── Hera Link (윈도우 = 서버). 엔진 상태 'link-status', 화면 전환 'link-switch', 파일 채널 'link-files' ── */
 export type LinkCfg = {
   me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number
-  keymap: string; keyRows: [string, string][]; ime: string; autoSaverMin: number; locator: boolean
+  keymap: string; keyRows: [string, string][]; ime: string
 }
 export type LinkStatus = { state: 'off' | 'starting' | 'waiting' | 'connected' | 'blocked' | 'error'; detail: string; peer: string; onPeer: boolean; fingerprint: string }
 export type LinkFilesEv =
@@ -241,7 +136,6 @@ export type LinkFilesEv =
   | { kind: 'xfer'; dir: 'in' | 'out'; id: number; name: string; bytes: number; size: number }
   | { kind: 'received'; id: number; path: string }
   | { kind: 'sent'; id: number; ok: boolean; error: string }
-  | { kind: 'clip'; text: string }
 export const linkStatus = () => invoke<[LinkStatus, string | null]>('link_status')
 export const linkApply = () => invoke('link_apply')
 export const linkImport = () => invoke<LinkCfg>('link_import')
@@ -249,102 +143,6 @@ export const linkTrust = (fp: string) => invoke('link_trust', { fp })
 export const linkPair = (ok: boolean) => invoke('link_pair', { ok })
 export const linkUnpair = () => invoke('link_unpair')
 export const linkSend = (path: string) => invoke('link_send', { path })
-
-/* ── Hera Link 3b: 모니터 배치 · 상대 PC 분위기 ── */
 export type LinkMon = { id: string; mac: boolean; rect: [number, number, number, number]; at: [number, number, number, number] }
 export type LinkSeg = { side: 'left' | 'right' | 'up' | 'down'; win: [number, number]; mac: [number, number]; edge: [number, number, number, number] }
 export const linkPlan = () => invoke<[LinkMon[], { segs: LinkSeg[]; limits: string[] }]>('link_plan')
-export type Ambient = { kind: 'ascii' | 'saver' | 'fx'; fx?: 'snow' | 'rain' | 'leaves' | 'sunset' | 'dawn' | 'moon'; action: 'start' | 'stop' }
-export const linkAmbient = (a: Ambient) => invoke('link_ambient', { kind: a.kind, fx: a.fx ?? null, action: a.action })
-
-/* ── v3 실제 앱 연결 ── */
-export const asciiStop = () => invoke('ascii_stop')
-export const ocrStart = () => invoke('ocr_start')
-export const ocrRegion = (r: { x: number; y: number; w: number; h: number }) => invoke<[string, string]>('ocr_region', r)
-export const ocrSave = (text: string) => invoke<string>('ocr_save', { text })
-export const snippetPaste = (text: string) => invoke('snippet_paste', { text })
-// Hera Team
-export type TeamGroupRaw = { id: string; name: string; color: string; members: { pk: string; name: string }[]; rev: number; alarms: boolean; news: boolean }
-export const teamState = () => invoke<{ name: string; pk: string; groups: TeamGroupRaw[]; online?: string[] }>('team_state')
-// 팀 채팅: 파일 경로로 보내기(채팅 창 네이티브 드롭) · '+' 로 고른 파일 바이트 · 파일을 클립보드에 · 선반에
-export const chatSendPaths = (group: string, paths: string[]) => invoke<string[]>('chat_send_paths', { group, paths })
-export const chatAttach = async (group: string, f: File) =>
-  invoke<string>('chat_attach', new Uint8Array(await f.arrayBuffer()), { headers: { 'x-group': group, 'x-name': encodeURIComponent(f.name) } })
-export const clipFiles = (paths: string[]) => invoke('clip_files', { paths })
-export const shelfAdd = (path: string) => invoke('shelf_add', { path })
-
-/* (a9) 네이티브 파일 대화상자 지킴이: 대화상자는 웹뷰 밖 별도 창이라 그 안을 누르면 watch 루프가 '아일랜드 밖 클릭'(island-outside)으로 보고해
-   허브가 접혔다 (a4 날짜 고르기와 같은 원인). 대화상자가 떠 있는 동안은 그 알림을 무시하고, 닫히면(고름·취소) 다시 받는다. */
-let picking = 0
-export const isPicking = () => picking > 0
-async function guardPicker<T>(open: () => Promise<T>): Promise<T> {
-  picking++
-  ;(window as Window & { __heraPicking?: number }).__heraPicking = picking
-  try {
-    return await open()
-  } finally {
-    picking--
-    ;(window as Window & { __heraPicking?: number }).__heraPicking = picking
-  }
-}
-/** 경로가 필요한 곳(선반): Rust 가 Windows 파일 열기 대화상자 → 경로들 (취소 = []) */
-export const pickPaths = (multi = true) => guardPicker(() => (isTauri ? invoke<string[]>('pick_files', { multi }) : Promise.resolve([] as string[])))
-/** 내용이 필요한 곳(채팅 첨부 · 펫 이미지·zip): 웹뷰 파일 고르기. 닫히면 = change · cancel (· 창이 다시 포커스를 받으면 안전망) */
-export function pickFiles(accept: string, multiple: boolean, folder = false): Promise<File[]> {
-  return guardPicker(
-    () =>
-      new Promise<File[]>((res) => {
-        const inp = document.createElement('input')
-        inp.type = 'file'
-        inp.accept = accept
-        inp.multiple = multiple
-        if (folder) inp.webkitdirectory = true
-        let t = 0
-        const end = () => (removeEventListener('focus', back), clearTimeout(t), res([...(inp.files ?? [])]))
-        const back = () => (t = window.setTimeout(end, 800)) // 취소 이벤트가 없는 웹뷰용
-        inp.addEventListener('change', end, { once: true })
-        inp.addEventListener('cancel', end, { once: true })
-        addEventListener('focus', back, { once: true })
-        inp.click()
-      }),
-  )
-}
-export const fileSrc = (path: string) => convertFileSrc(path)
-/** store 의 `<prefix><키>` → 값 (항목이 {id} 객체가 아닌 것: chatin:<fid> = 경로). 실제 앱만, 시안 = 빈 객체 */
-export function usePrefix<T>(prefix: string): Record<string, T> {
-  const [m, setM] = useState<Record<string, T>>({})
-  useEffect(() => {
-    if (!isTauri) return
-    void store().then((s) => s.entries<T>()).then((es) => setM(Object.fromEntries(es.filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [k.slice(prefix.length), v]))))
-    return onStore((k, v) => k.startsWith(prefix) && setM((x) => { const n = { ...x }; if (v === undefined) delete n[k.slice(prefix.length)]; else n[k.slice(prefix.length)] = v as T; return n }))
-  }, [])
-  return m
-}
-export const teamCreate = (name: string, color: string) => invoke<TeamGroupRaw>('team_create', { name, color })
-export const teamInvite = (group: string) => invoke<[string, string]>('team_invite', { group })
-export const teamJoin = (input: string) => invoke('team_join', { input })
-export const teamFlags = (group: string, alarms: boolean, news: boolean) => invoke('team_flags', { group, alarms, news })
-/** (a10) 그룹 나가기: 이 PC 에서 그룹·일정·메모·채팅을 지우고 그룹원에게 알림 (그룹원 쪽은 그대로) */
-export const teamLeave = (group: string) => invoke('team_leave', { group })
-export const teamName = (name: string) => invoke('team_name', { name })
-
-/* ── 내 펫 (Rust pets.rs: %APPDATA%\Hera\pets) ── */
-export type PetPack = { id: string; name: string; style: 'pixel' | 'smooth'; sheet: { frames: number; fps: number } | null; files: Record<string, { path: string; w: number; h: number; v: number }> }
-export const petList = () => invoke<PetPack[]>('pet_list')
-/** 저장 몸통 = [u32 LE json 길이][json][이미지 바이트 …] */
-export async function petSave(meta: { id?: string; name: string; style: 'pixel' | 'smooth'; sheet: { frames: number; fps: number } | null }, files: [string, Blob][]) {
-  const bufs = await Promise.all(files.map(([, b]) => b.arrayBuffer()))
-  const json = new TextEncoder().encode(JSON.stringify({ ...meta, files: files.map(([st], i) => [st, bufs[i].byteLength]) }))
-  const out = new Uint8Array(4 + json.length + bufs.reduce((n, b) => n + b.byteLength, 0))
-  new DataView(out.buffer).setUint32(0, json.length, true)
-  out.set(json, 4)
-  let at = 4 + json.length
-  for (const b of bufs) out.set(new Uint8Array(b), at), (at += b.byteLength)
-  return invoke<string>('pet_save', out)
-}
-export const petDelete = (id: string) => invoke('pet_delete', { id })
-export const petImport = async (zip: Blob) => invoke<string>('pet_import', new Uint8Array(await zip.arrayBuffer()))
-export const petExport = (id: string) => invoke<string>('pet_export', { id })
-
-/** 메모장으로 열기 (Rust: %APPDATA%\Hera\notes\<id>.txt 에 쓰고 notepad.exe, 고치면 메모에 다시 읽어 넣음) — 누를 때만 */
-export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id })

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { reducedMotion } from './Tile'
+import { reducedMotion } from './util'
 import { isNight, moonPhase, seasonOf } from './Ascii'
 
 /* ── v2 전체화면 효과: 캔버스 2D 1장, 입자 ≤150, 30fps, 25초 뒤 페이드아웃 → 언마운트(onDone).

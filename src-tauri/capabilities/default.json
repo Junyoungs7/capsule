@@ -2,19 +2,16 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "windows": [
-    "island",
     "settings",
+    "notes",
     "panel",
+    "toast",
+    "drag",
+    "pet",
     "ascii",
     "ascii-*",
     "fx",
-    "fx-*",
-    "notes0",
-    "notes1",
-    "notes2",
-    "notes3",
-    "ocr",
-    "float-*"
+    "fx-*"
   ],
   "permissions": [
     "core:default",

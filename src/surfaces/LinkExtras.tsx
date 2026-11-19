@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { isTauri, linkApply, linkPlan, useValue, type Ambient, type LinkCfg, type LinkMon, type LinkSeg } from '../data/api'
+import { isTauri, linkApply, linkPlan, useValue, type LinkCfg, type LinkMon, type LinkSeg } from '../data/api'
 
-/* ── Hera Link 3b 패널 조각: 모니터 배치 캔버스 · 키 매핑 · 상대 PC 분위기 ── */
+/* ── 설정 → 연결 조각: 모니터 배치 캔버스 · 키 매핑 ── */
 
 const W = 336, H = 176, PAD = 10, SNAP = 10 // 캔버스 크기 · 여백 · 붙는 거리(화면 px)
 type At = Record<string, [number, number]>
@@ -169,13 +169,3 @@ export function KeyRows({ c, put }: { c: LinkCfg; put: (p: Partial<LinkCfg>) => 
     </div>
   )
 }
-
-/* ── 상대 PC 분위기: 아스키 · 화면보호기 · 효과 ── */
-export const AMBIENT: [string, Ambient][] = [
-  ['아스키', { kind: 'ascii', action: 'start' }],
-  ['화면보호기', { kind: 'saver', action: 'start' }],
-  ['눈', { kind: 'fx', fx: 'snow', action: 'start' }],
-  ['비', { kind: 'fx', fx: 'rain', action: 'start' }],
-  ['노을', { kind: 'fx', fx: 'sunset', action: 'start' }],
-  ['달·별', { kind: 'fx', fx: 'moon', action: 'start' }],
-]

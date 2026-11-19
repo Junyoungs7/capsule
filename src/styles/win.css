@@ -1,0 +1,165 @@
+/* Hera for Windows — Windows 11 Fluent (승인 시안 .omc/prototypes/win-tray-v3.html). 시스템 밝게/어둡게를 따른다. */
+:root {
+  --bg: #202020; --card: rgba(255, 255, 255, .055); --card2: rgba(255, 255, 255, .085); --stroke: rgba(255, 255, 255, .08);
+  --t1: #fff; --t2: rgba(255, 255, 255, .79); --t3: rgba(255, 255, 255, .55); --accent: #60cdff; --onacc: #003049;
+  --panel: rgba(32, 32, 32, .86); --solid: #2b2b2b; --danger: #ff99a4; --ok: #6ccb5f;
+  --ease: cubic-bezier(.1, .9, .2, 1); --spring: cubic-bezier(.34, 1.56, .64, 1);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f3f3f3; --card: rgba(255, 255, 255, .7); --card2: rgba(255, 255, 255, .95); --stroke: rgba(0, 0, 0, .07);
+    --t1: #1b1b1b; --t2: rgba(0, 0, 0, .72); --t3: rgba(0, 0, 0, .5); --accent: #005fb8; --onacc: #fff;
+    --panel: rgba(243, 243, 243, .88); --solid: #fbfbfb; --danger: #c42b1c; --ok: #0f7b0f;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; }
+body { font: 14px/1.43 'Segoe UI Variable Text', 'Segoe UI', 'Malgun Gothic', sans-serif; color: var(--t1); background: transparent; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
+button { font: inherit; color: inherit; }
+input, textarea { font: inherit; color: inherit; user-select: text; }
+:focus-visible { outline: 2px solid var(--t1); outline-offset: 1px; }
+
+/* 스위치 · 작은 단추 */
+.sw { all: unset; width: 40px; height: 20px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--t1) 55%, transparent); position: relative; cursor: pointer; flex: none; transition: background 120ms; }
+.sw::after { content: ''; position: absolute; left: 4px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--t2); transition: transform 160ms var(--ease); }
+.sw[aria-checked='true'] { background: var(--accent); border-color: transparent; }
+.sw[aria-checked='true']::after { transform: translateX(20px); background: var(--onacc); }
+.sw:focus-visible { outline: 2px solid var(--t1); outline-offset: 2px; }
+.ib { all: unset; width: 28px; height: 28px; border-radius: 4px; display: grid; place-items: center; cursor: pointer; color: var(--t2); flex: none; }
+.ib:hover { background: var(--card2); color: var(--t1); }
+.ib:disabled { opacity: .4; cursor: default; background: none; }
+.ib svg { width: 16px; height: 16px; }
+.ib.go { color: var(--accent); }
+.link { all: unset; color: var(--accent); font-size: 12px; cursor: pointer; }
+.btn { all: unset; height: 32px; padding: 0 12px; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; background: var(--card2); border: 1px solid var(--stroke); color: var(--t1); }
+.btn:hover { background: color-mix(in srgb, var(--card2) 70%, var(--t1) 6%); }
+.btn.pri { background: var(--accent); color: var(--onacc); border-color: transparent; }
+.btn.danger { color: var(--danger); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn svg { width: 14px; height: 14px; }
+.inp { width: 100%; font: inherit; color: var(--t1); background: var(--card); border: 1px solid var(--stroke); border-bottom: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: 4px; padding: 6px 10px; outline: none; }
+.inp:focus { background: var(--card2); border-bottom: 2px solid var(--accent); padding-bottom: 5px; }
+.mono { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+
+/* ── 패널 (Win11 빠른 설정 자리) ── */
+.pn { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 8px; background: var(--panel); border: 1px solid var(--stroke); overflow: hidden; }
+.pn[data-show='false'] { visibility: hidden; }
+.pn.in { animation: pn-in 250ms var(--ease); }
+@keyframes pn-in { from { transform: translateY(12px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pn.in { animation: pn-fade 120ms; } @keyframes pn-fade { from { opacity: 0; } } }
+.sec { padding: 12px 16px; }
+.sec + .sec { border-top: 1px solid var(--stroke); }
+.sh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sh b { font-size: 14px; font-weight: 600; }
+.sh small { color: var(--t3); font-size: 12px; }
+.peer { display: flex; align-items: center; gap: 12px; }
+.peer .dev { width: 36px; height: 36px; border-radius: 6px; background: var(--card2); display: grid; place-items: center; border: 1px solid var(--stroke); flex: none; position: relative; }
+.peer .dev svg { width: 20px; height: 20px; }
+.peer .dev i { position: absolute; right: -2px; bottom: -2px; width: 9px; height: 9px; border-radius: 50%; background: #8a8a8a; box-shadow: 0 0 0 2px var(--solid); }
+.peer[data-st='ok'] .dev i { background: var(--ok); }
+.peer[data-st='warn'] .dev i { background: #f7b500; }
+.peer .tx { flex: 1; min-width: 0; }
+.peer .tx b { display: block; font-weight: 600; }
+.peer .tx small { display: block; color: var(--t3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer[data-st='off'] .tx b { color: var(--t2); }
+.pair { margin-top: 10px; padding: 10px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--accent); display: flex; align-items: center; gap: 10px; }
+.pair .code { font: 600 22px/1 'Segoe UI Variable Display', 'Segoe UI', sans-serif; letter-spacing: .12em; flex: 1; font-feature-settings: 'tnum' 1; }
+.pair small { display: block; font-size: 12px; color: var(--t3); margin-top: 4px; letter-spacing: 0; font-weight: 400; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.tile { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.tile .bt { width: 100%; height: 48px; border-radius: 6px; background: var(--card2); border: 1px solid var(--stroke); display: grid; place-items: center; transition: background 120ms; }
+.tile .bt svg { width: 18px; height: 18px; }
+.tile[aria-pressed='true'] .bt { background: var(--accent); color: var(--onacc); border-color: transparent; }
+.tile small { font-size: 12px; color: var(--t2); text-align: center; line-height: 1.2; }
+.tile:focus-visible { outline: none; }
+.tile:focus-visible .bt { outline: 2px solid var(--t1); outline-offset: 1px; }
+.drop { border: 1px dashed color-mix(in srgb, var(--t1) 28%, transparent); border-radius: 6px; padding: 12px; text-align: center; color: var(--t3); font-size: 12px; transition: background 120ms, border-color 120ms; }
+.drop.over { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--t1); }
+.files { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.files li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 4px; background: var(--card); }
+.files li:hover { background: var(--card2); }
+.fi { width: 28px; height: 28px; border-radius: 4px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.files .nm { flex: 1; min-width: 0; }
+.files .nm b { display: block; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.files .nm small { color: var(--t3); font-size: 12px; }
+.files .acts { display: flex; gap: 2px; opacity: 0; transition: opacity 100ms; }
+.files li:hover .acts, .files li:focus-within .acts { opacity: 1; }
+.badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); margin-left: 6px; }
+.memo-in { resize: none; height: 34px; display: block; }
+.memos { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.memos li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 4px; background: var(--card); font-size: 13px; }
+.memos li i { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+.memos li span { flex: 1; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.memos li small { color: var(--t3); font-size: 11px; flex: none; }
+.foot { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--card); border-top: 1px solid var(--stroke); }
+.foot .lbl { flex: 1; font-size: 13px; }
+.foot .lbl small { display: block; color: var(--t3); font-size: 12px; }
+
+/* ── 알림 카드 (오른쪽 아래, 작업 표시줄 위) ── */
+.toast { position: absolute; inset: 0; padding: 12px 14px 12px 16px; border-radius: 8px; background: var(--panel); border: 1px solid var(--stroke); font-size: 13px; display: flex; gap: 12px; align-items: center; cursor: default; }
+.toast.click { cursor: pointer; }
+.toast.in { animation: toast-in 300ms var(--ease); }
+.toast.out { animation: toast-out 200ms ease-in forwards; }
+@keyframes toast-in { from { transform: translateX(110%); } }
+@keyframes toast-out { to { transform: translateX(110%); } }
+@media (prefers-reduced-motion: reduce) { .toast.in, .toast.out { animation-name: pn-fade; } .toast.out { animation-direction: reverse; } }
+.toast .ti { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; background: var(--card2); flex: none; color: var(--accent); }
+.toast .ti svg { width: 18px; height: 18px; }
+.toast .tx { flex: 1; min-width: 0; }
+.toast b { display: block; margin-bottom: 1px; font-weight: 600; }
+.toast small { display: block; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 설정 창 (보통 Windows 창) ── */
+.set { display: flex; height: 100%; background: var(--bg); }
+.set nav { width: 200px; flex: none; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.set nav button { all: unset; height: 36px; padding: 0 12px; border-radius: 4px; display: flex; align-items: center; gap: 12px; cursor: pointer; position: relative; font-size: 14px; }
+.set nav button:hover { background: var(--card); }
+.set nav button[aria-current='page'] { background: var(--card2); }
+.set nav button[aria-current='page']::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent); }
+.set nav svg { width: 16px; height: 16px; }
+.set nav .dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; background: #8a8a8a; }
+.set nav .dot[data-st='ok'] { background: var(--ok); }
+.set main { flex: 1; overflow-y: auto; padding: 20px 28px 32px 16px; user-select: text; }
+.set h1 { font: 600 28px/36px 'Segoe UI Variable Display', 'Segoe UI', sans-serif; margin: 0 0 16px; }
+.set h2 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; }
+.row { display: flex; align-items: center; gap: 16px; min-height: 64px; padding: 12px 16px; background: var(--card); border: 1px solid var(--stroke); border-radius: 6px; margin-bottom: 4px; }
+.row .tt { flex: 1; min-width: 0; }
+.row .tt b { display: block; font-weight: 400; }
+.row .tt small { display: block; color: var(--t3); font-size: 12px; }
+.row select { font: inherit; color: var(--t1); background: var(--card2); border: 1px solid var(--stroke); border-radius: 4px; height: 32px; padding: 0 8px; }
+.row select option { background: var(--solid); }
+.step { display: inline-flex; align-items: center; gap: 4px; }
+.step b { min-width: 52px; text-align: center; font-weight: 600; font-feature-settings: 'tnum' 1; }
+.tabs { display: flex; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid var(--stroke); }
+.tabs button { all: unset; padding: 8px 12px; cursor: pointer; color: var(--t2); position: relative; }
+.tabs button[aria-selected='true'] { color: var(--t1); font-weight: 600; }
+.tabs button[aria-selected='true']::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 3px; border-radius: 2px; background: var(--accent); }
+.note-line { color: var(--t3); font-size: 12px; margin: 8px 0; }
+.pets { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.pets button { all: unset; cursor: pointer; display: grid; justify-items: center; gap: 4px; padding: 10px 4px 6px; border-radius: 6px; background: var(--card); border: 1px solid var(--stroke); font-size: 12px; color: var(--t2); }
+.pets button[aria-checked='true'] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--t1); }
+.pets .pbx { width: 44px; height: 40px; }
+.set .card { background: var(--card); border: 1px solid var(--stroke); border-radius: 6px; padding: 4px 0; }
+.set .srow { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
+.set .srow .tt { flex: 1; }
+.set .srow .tt small { color: var(--t3); font-size: 12px; }
+.set .sel select { font: inherit; color: var(--t1); background: var(--card2); border: 1px solid var(--stroke); border-radius: 4px; height: 30px; }
+.set .keycap { all: unset; min-width: 64px; text-align: center; cursor: pointer; }
+.set kbd { font: 12px/1 'Segoe UI', sans-serif; padding: 4px 8px; border: 1px solid var(--stroke); border-bottom-width: 2px; border-radius: 4px; background: var(--card2); }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.presets button { all: unset; cursor: pointer; padding: 10px 12px; border-radius: 6px; background: var(--card); border: 1px solid var(--stroke); }
+.presets button[aria-checked='true'] { border-color: var(--accent); }
+.presets b { display: block; font-weight: 600; }
+.presets small { color: var(--t3); font-size: 12px; }
+.kbrow { display: flex; gap: 4px; margin: 10px 0; }
+.kbrow span { flex: 1; padding: 6px; border-radius: 4px; background: var(--card); border: 1px solid var(--stroke); text-align: center; font-size: 12px; }
+.kbrow span.chg { border-color: var(--accent); }
+.kbrow span.wide { flex: 3; }
+.kbrow b, .kbrow small { display: block; }
+.kbrow small { color: var(--t3); }
+.say { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 8px 16px; border-radius: 4px; background: var(--solid); border: 1px solid var(--stroke); box-shadow: 0 8px 24px rgba(0, 0, 0, .3); font-size: 13px; }
+
+/* ── 메모 보드 창 ── */
+.boardwin { height: 100%; overflow: auto; background: var(--bg); }
