@@ -798,9 +798,12 @@ pub fn start(app: AppHandle) {
         let a = app.clone();
         crate::shell::on_hangul(move || {
             // 맥에 커서가 있을 때 한/영: 맥 Hera 가 입력 소스 전환 (또는 엔진으로 맥 전환 단축키 — 실험적)
-            match read_cfg(&a).1.ime.as_str() {
-                "hera" => send(json!({ "t": "ime", "action": "toggle" })),
-                m => send_switch_shortcut(m),
+            let c = read_cfg(&a).1;
+            match c.ime.as_str() {
+                "hera" if files_connected().is_some() => send(json!({ "t": "ime", "action": "toggle" })),
+                // 맥 Hera 가 없다(맥은 Deskflow 만) → 맥 기본 입력 전환 단축키 ^Space 를 엔진으로
+                "hera" => send_switch_shortcut("ctrl-space", &c),
+                m => send_switch_shortcut(m, &c),
             }
         });
         let a = app.clone();
@@ -1032,16 +1035,33 @@ pub fn on_local_clip(app: &AppHandle, text: &str) {
     });
 }
 
-/// 한/영 대체 방법: 맥 전환 단축키를 SendInput 으로 만들어 엔진이 맥으로 실어 보내게 (엔진이 주입 키를 넘기는지는 미확인 — 실험적)
+/// 맥에서 `mac` 수식키(ctrl/super …)가 되는 윈도우 키 이름 — 키 매핑(윈도우 습관 = Ctrl↔Win)을 거꾸로 따라간다
+pub fn win_mod_for(c: &Cfg, mac: &str) -> Option<&'static str> {
+    modifiers(c).into_iter().find(|(_, to)| to == mac).map(|(from, _)| from)
+}
+
+/// 한/영 대체 방법: 맥 전환 단축키를 SendInput 으로 만들어 엔진이 맥으로 실어 보내게 (엔진이 주입 키를 넘기는지는 미확인 — 실험적).
+/// "ctrl-space" = 맥에서 ^Space, "cmd-space" = 맥에서 ⌘Space — 키 매핑으로 바뀌는 만큼 윈도우 쪽 키를 고른다.
 #[cfg(windows)]
-fn send_switch_shortcut(method: &str) {
+fn send_switch_shortcut(method: &str, c: &Cfg) {
     use windows::Win32::UI::Input::KeyboardAndMouse::*;
-    let keys: &[VIRTUAL_KEY] = match method {
-        "capslock" => &[VK_CAPITAL],
-        "ctrl-space" => &[VK_CONTROL, VK_SPACE],
-        "cmd-space" => &[VK_LWIN, VK_SPACE], // 엔진 기본 매핑에서 Win = ⌘ (윈도우 습관 프리셋이면 Ctrl 쪽으로 바뀐다)
+    let vk = |k: &str| match k {
+        "shift" => VK_SHIFT,
+        "ctrl" => VK_CONTROL,
+        "alt" => VK_MENU,
+        "altgr" => VK_RMENU,
+        _ => VK_LWIN, // super · meta
+    };
+    let m = |mac: &str| win_mod_for(c, mac).map(vk);
+    let keys: Vec<VIRTUAL_KEY> = match method {
+        "capslock" => vec![VK_CAPITAL],
+        "ctrl-space" => m("ctrl").into_iter().chain([VK_SPACE]).collect(),
+        "cmd-space" => m("super").into_iter().chain([VK_SPACE]).collect(),
         _ => return,
     };
+    if keys.len() < 2 && method != "capslock" {
+        return; // 매핑에 그 맥 수식키가 없음
+    }
     let ev = |vk: VIRTUAL_KEY, up: bool| INPUT { r#type: INPUT_KEYBOARD, Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() }, ..Default::default() } } };
     let inputs: Vec<INPUT> = keys.iter().map(|&k| ev(k, false)).chain(keys.iter().rev().map(|&k| ev(k, true))).collect();
     unsafe {
@@ -1056,6 +1076,20 @@ pub fn files_connected() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 한/영 대체 단축키: '윈도우 습관'(Ctrl↔Win)이면 맥 ^Space 는 Win 키로, ⌘Space 는 Ctrl 키로 보내야 한다
+    #[test]
+    fn switch_shortcut_follows_keymap() {
+        let mut c = Cfg::default();
+        c.keymap = "habit".into();
+        assert_eq!(win_mod_for(&c, "ctrl"), Some("super"));
+        assert_eq!(win_mod_for(&c, "super"), Some("ctrl"));
+        c.keymap = "position".into();
+        assert_eq!(win_mod_for(&c, "ctrl"), Some("ctrl"));
+        c.keymap = "custom".into();
+        c.key_rows = vec![("alt".into(), "ctrl".into()), ("ctrl".into(), "none".into())];
+        assert_eq!(win_mod_for(&c, "ctrl"), Some("alt"));
+    }
 
     fn cfg(side: &str) -> Cfg {
         Cfg { me: "DEV-PC".into(), peer: "MacBook".into(), side: side.into(), port: 24900, ..Cfg::default() }

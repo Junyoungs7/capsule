@@ -400,8 +400,8 @@ function LinkPane({ b, tab, setTab, say }: { b: LinkBundle; tab: LinkTab; setTab
           </div>
           {c.keymap === 'custom' && <KeyRows c={c} put={put} />}
           <Grp><div className="card">
-            <Row t="한/영 (맥에 커서가 있을 때)" s={c.ime === 'hera' ? '맥 Hera가 입력 소스를 바꿔요 (가장 확실)' : c.ime === 'off' ? '한/영 키를 맥으로 넘기지 않아요' : '맥 입력 전환 단축키 보내기 (실험적)'}>
-              <Sel value={c.ime} set={(v) => put({ ime: v })} label="한/영 방식" opts={[['hera', '맥 Hera'], ['capslock', 'Caps Lock'], ['ctrl-space', 'Ctrl+Space'], ['cmd-space', '⌘+Space'], ['off', '끄기']]} />
+            <Row t="한/영 (맥에 커서가 있을 때)" s={c.ime === 'hera' ? '맥 Hera가 입력 소스를 바꿔요 · 맥에 Hera가 없으면 맥의 Ctrl+Space를 보내요' : c.ime === 'off' ? '한/영 키를 맥으로 넘기지 않아요' : '맥 입력 전환 단축키 보내기 (실험적)'}>
+              <Sel value={c.ime} set={(v) => put({ ime: v })} label="한/영 방식" opts={[['hera', '맥 Hera'], ['capslock', 'Caps Lock'], ['ctrl-space', '맥 Ctrl+Space'], ['cmd-space', '맥 ⌘+Space'], ['off', '끄기']]} />
             </Row>
           </div></Grp>
         </>
