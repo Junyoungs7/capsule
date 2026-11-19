@@ -74,6 +74,16 @@ try {
   ok('꾸미기 default off', await p.eval(`document.querySelector('.pn .foot .sw').getAttribute('aria-checked') === 'false'`))
   await p.eval(`document.querySelector('.pn .foot .sw').click()`)
   ok('꾸미기 switch → deco.enabled = true', await until(() => h.store.get('deco.enabled') === true))
+  await h.emitTo('panel', 'panel-show', 'fx')
+  ok('pet click (panel-show "fx") → effects menu: 6 effects + 4 ascii, main panel hidden', await until(() => p.eval(`document.querySelectorAll('.pn [data-fx]').length === 6 && document.querySelectorAll('.pn [data-cover]').length === 4 && !document.querySelector('.pn .tile')`)))
+  n = h.calls.length
+  await p.eval(`document.querySelector('.pn [data-fx=snow]').click()`)
+  ok('눈 → fx(snow) + panel hides', await until(() => called('fx', n, (a) => a.kind === 'snow') && called('panel_hide', n)))
+  n = h.calls.length
+  await p.eval(`document.querySelector('.pn [data-cover=city]').click()`)
+  ok('도시 → cover(city) + panel hides', await until(() => called('cover', n, (a) => a.scene === 'city') && called('panel_hide', n)))
+  await h.emitTo('panel', 'panel-show', 'main')
+  ok('tray click (panel-show "main") → the normal panel again', await until(() => p.eval(`document.querySelectorAll('.pn .tile').length === 3 && !document.querySelector('.pn [data-fx]')`)))
   n = h.calls.length
   await p.key('Escape')
   ok('Esc → panel_hide', await until(() => called('panel_hide', n)))

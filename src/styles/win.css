@@ -201,7 +201,7 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 @media (prefers-reduced-motion: reduce) { .pad { animation: pn-fade 140ms; } .pz[data-z='mac'] .orb::before { animation: none; } }
 
 /* ── 작업 표시줄 펫 (52×46 창 아래쪽에 앉는다) ── */
-.petbar { all: unset; position: absolute; left: 4px; bottom: 2px; width: 44px; height: 40px; cursor: pointer; transform: scale(var(--pk, 1)); transform-origin: 50% 100%; }
+.petbar { all: unset; position: absolute; left: 2px; bottom: 1px; width: 44px; height: 40px; cursor: pointer; transform: scale(var(--pk, 1)); transform-origin: 50% 100%; }
 .petbar:focus-visible { outline: none; }
 /* 메모 지우기 (패널 최근 메모) — 마우스를 올리면 시각 자리에 */
 .memos li { position: relative; }
@@ -213,3 +213,11 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .undo-toast button { all: unset; cursor: pointer; height: 26px; padding: 0 12px; border-radius: 13px; font-weight: 650; color: var(--onacc); background: var(--accent); }
 @keyframes undo-in { from { opacity: 0; transform: translate(-50%, 8px) scale(.92); } }
 @media (prefers-reduced-motion: reduce) { .undo-toast { animation: none; } }
+/* 펫 메뉴 (패널 view=fx) */
+.fxm h4 { margin: 2px 0 6px; font-size: 11px; font-weight: 600; color: var(--t3); }
+.fxm .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.fxm .chips button { all: unset; cursor: pointer; height: 30px; padding: 0 12px; border-radius: 15px; background: var(--card); border: 1px solid var(--stroke); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.fxm .chips button:hover { background: var(--card2); }
+.fxm .chips button:active { transform: scale(.96); }
+.fxm .chips button:focus-visible { outline: 2px solid var(--t1); }
+.fxfoot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--stroke); padding-top: 8px; font-size: 12px; color: var(--t3); }

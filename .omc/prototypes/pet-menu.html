@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hera 펫 시안</title>
+<style>
+:root{--card:rgba(255,255,255,.055);--card2:rgba(255,255,255,.1);--stroke:rgba(255,255,255,.08);--t1:#fff;--t2:rgba(255,255,255,.79);--t3:rgba(255,255,255,.55);--accent:#60cdff;--panel:rgba(32,32,32,.86);--spring:cubic-bezier(.34,1.56,.64,1)}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{font:14px/1.43 'Segoe UI Variable Text','Segoe UI','Malgun Gothic',sans-serif;color:var(--t1);overflow:hidden;
+ background:radial-gradient(1200px 700px at 30% 20%,#3a5f8a,#1b2a40 60%,#0f1622)}
+.cap{position:fixed;left:24px;top:20px;max-width:520px;color:var(--t2);font-size:13px}
+.cap b{color:var(--t1);font-size:15px;display:block;margin-bottom:4px}
+.bar{position:fixed;left:0;right:0;bottom:0;height:48px;background:rgba(28,28,28,.85);backdrop-filter:blur(30px);border-top:1px solid var(--stroke);display:flex;align-items:center}
+.apps{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:4px}
+.apps i{width:40px;height:40px;border-radius:4px;display:grid;place-items:center}
+.apps i::after{content:"";width:24px;height:24px;border-radius:5px;background:var(--c)}
+.tray{position:absolute;right:8px;display:flex;align-items:center;gap:14px;color:var(--t2);font-size:12px;padding:0 8px}
+.tray .clk{text-align:right;line-height:1.25}
+/* 펫: 작업 표시줄 안, 트레이 왼쪽 */
+.pet{position:absolute;bottom:4px;width:44px;height:40px;cursor:pointer;border-radius:6px;display:grid;place-items:end center}
+.pet:hover{background:var(--card2)}
+.pet svg{width:36px;height:34px;transform-origin:50% 100%;animation:breathe 3.2s ease-in-out infinite}
+.pet.hop svg{animation:hop 420ms var(--spring)}
+@keyframes breathe{50%{transform:scaleY(1.04)}}
+@keyframes hop{40%{transform:translateY(-9px) scaleY(1.05)}}
+/* 펫 메뉴 */
+.menu{position:fixed;bottom:56px;width:300px;padding:10px;border-radius:8px;background:var(--panel);backdrop-filter:blur(48px) saturate(1.6);border:1px solid var(--stroke);
+ box-shadow:0 16px 40px rgba(0,0,0,.45);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity 140ms,transform 220ms cubic-bezier(.1,.9,.2,1)}
+.menu.on{opacity:1;transform:none;pointer-events:auto}
+.menu h4{margin:2px 4px 6px;font-size:11px;font-weight:600;color:var(--t3)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chips:last-child{margin-bottom:2px}
+.chips button{all:unset;cursor:pointer;height:30px;padding:0 12px;border-radius:15px;background:var(--card);border:1px solid var(--stroke);font-size:13px;display:flex;align-items:center;gap:6px}
+.chips button:hover{background:var(--card2)}
+.chips button:active{transform:scale(.96)}
+.chips button span{font-size:14px}
+.foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--stroke);margin-top:4px;padding:8px 4px 0;font-size:12px;color:var(--t3)}
+.foot button{all:unset;cursor:pointer;color:var(--accent)}
+.toast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);font-size:28px;font-weight:600;opacity:0;transition:opacity 300ms;text-shadow:0 2px 20px #000}
+.toast.on{opacity:1}
+</style></head><body>
+<div class="cap"><b>시안 — 펫 자리 · 펫 메뉴</b>
+펫이 작업 표시줄 <b style="display:inline;font-size:13px">안</b>, 트레이 바로 왼쪽 빈자리에 앉아요(창을 가리지 않음). 펫을 누르면 위로 효과 메뉴가 열리고, 하나 고르면 바로 띄워요. 바깥을 누르거나 Esc = 닫힘. 패널은 트레이 아이콘으로만.</div>
+<div class="toast" id="toast"></div>
+<div class="bar">
+  <div class="apps"><i style="--c:#3c9aff"></i><i style="--c:#ffb900"></i><i style="--c:#e81123"></i><i style="--c:#107c41"></i><i style="--c:#8764b8"></i></div>
+  <div class="pet" id="pet" title="Hera 펫 — 눌러서 효과 고르기">
+    <svg viewBox="0 0 36 34"><path d="M7 33c-2-6-1-13 3-17l-1-9 6 5c2-.6 4-.6 6 0l6-5-1 9c4 4 5 11 3 17z" fill="#f2a65a"/><circle cx="14" cy="21" r="1.6" fill="#2b1a0e"/><circle cx="22" cy="21" r="1.6" fill="#2b1a0e"/><path d="M16.5 25q1.5 1.2 3 0" stroke="#2b1a0e" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+  <div class="tray" id="tray"><span>^</span><span>📶</span><span>🔊</span><span class="clk">13:20<br>2026-11-19</span></div>
+</div>
+<div class="menu" id="menu" role="menu">
+  <h4>날씨·계절 효과</h4>
+  <div class="chips" data-k="fx"><button><span>❄️</span>눈</button><button><span>🌧️</span>비</button><button><span>🍁</span>단풍</button><button><span>🌅</span>새벽</button><button><span>🌇</span>노을</button><button><span>🌙</span>달·별</button></div>
+  <h4>아스키 화면 (모든 모니터 · 마우스 움직이면 사라짐)</h4>
+  <div class="chips" data-k="ascii"><button><span>🎄</span>성탄</button><button><span>🏙️</span>도시</button><button><span>🍂</span>가을</button><button><span>🌊</span>고요</button></div>
+  <div class="foot"><span>지금 날씨: 맑음 3°</span><button>꾸미기 설정</button></div>
+</div>
+<script>
+const pet=document.getElementById('pet'),menu=document.getElementById('menu'),tray=document.getElementById('tray'),toast=document.getElementById('toast')
+const place=()=>{const t=tray.getBoundingClientRect();pet.style.left=(t.left-8-44)+'px';const p=pet.getBoundingClientRect();menu.style.left=Math.min(innerWidth-308,p.left+22-150)+'px'}
+place();addEventListener('resize',place)
+pet.onclick=e=>{e.stopPropagation();menu.classList.toggle('on')}
+document.onclick=e=>{if(!menu.contains(e.target))menu.classList.remove('on')}
+addEventListener('keydown',e=>e.key==='Escape'&&menu.classList.remove('on'))
+menu.querySelectorAll('.chips button').forEach(b=>b.onclick=()=>{menu.classList.remove('on');pet.classList.remove('hop');void pet.offsetWidth;pet.classList.add('hop');
+ toast.textContent=(b.parentElement.dataset.k==='fx'?'효과: ':'아스키: ')+b.lastChild.textContent;toast.classList.add('on');setTimeout(()=>toast.classList.remove('on'),1400)})
+</script>
+</body></html>

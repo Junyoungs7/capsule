@@ -106,6 +106,12 @@ pub static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 /// v2 자리 비움 화면보호기: 입력 없이 idle_min 분 지남 + 막힘(전체화면·잠금) 아님 + 아스키 창 없음. 0분 = 끔.
 /// 재무장은 따로 없다 — 닫힘은 입력으로만 일어나고 입력이 idle 을 0 으로 되돌린다.
 /// 자리 비움 화면 대기 분: 꾸미기가 꺼져 있으면 0 (= 안 뜸), 켜져 있으면 설정값(기본 10분)
+static COVER_ARMED: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+/// 손으로 연 아스키 화면도 입력이 있으면 닫히게
+pub fn arm_cover() {
+    *COVER_ARMED.lock().unwrap() = Some(Instant::now());
+}
+
 fn cover_wait(deco: bool, min: Option<u64>) -> u64 {
     if deco { min.unwrap_or(10) } else { 0 }
 }
@@ -363,6 +369,11 @@ pub fn start(app: AppHandle) {
                 crate::pet::tick(full);
             }
 
+            // 펫 메뉴로 연 화면: 1.5초 뒤부터 입력을 보면 닫는다 (누른 손이 바로 닫지 않게)
+            if saver.is_none() && COVER_ARMED.lock().unwrap().is_some_and(|t| t.elapsed() > Duration::from_millis(1500)) {
+                *COVER_ARMED.lock().unwrap() = None;
+                saver = Some(last_input());
+            }
             // 자리 비움 화면: 열린 뒤 입력(마우스·키)이 있으면 닫기 — 창이 포커스가 없어도 키를 잡는다. JS 가 닫힘 애니메이션 후 파괴.
             if let Some(at) = saver {
                 if last_input() != at {
@@ -401,7 +412,7 @@ pub fn start(app: AppHandle) {
                         saver = Some(li);
                         let h = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            if let Err(e) = crate::open_cover(&h) {
+                            if let Err(e) = crate::open_cover(&h, None) {
                                 eprintln!("cover: {e}");
                             }
                         });

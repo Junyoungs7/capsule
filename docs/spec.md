@@ -24,7 +24,7 @@
 | `panel` | 시작할 때 숨긴 채 만들어 상주 (웹뷰 1개) | 트레이 왼쪽 클릭 = 열기/닫기. 368px, 작업 표시줄이 있는 모니터의 트레이 쪽 모서리에서 12px. 바깥 클릭·Esc = 닫힘. 내용: 연결 줄(+스위치, 페어링 숫자) · 타일 3개(클립보드 공유 · 넘어갈 때 물결 · 흔들어 커서 찾기) · 선반(놓기 칸 + 목록) · 메모(입력 + 최근 3 + 모두 보기) · 꾸미기 스위치 + 설정 |
 | `drag` | 시작할 때 숨긴 채 상주, 파일을 끌 때만 그 모니터를 덮음 | 흔들어 받침(선반에 올리기 · 맥으로 보내기) + 맥 쪽 가장자리 포탈. 클릭 통과, 받침 rect 만 드롭 대상 |
 | `toast` | 그때만 만들고 사라지면 파괴 | 알림 카드 (오른쪽 아래, 작업 표시줄 위 — 패널이 열려 있으면 그 위): 받음 · 보냄 · 실패 · 연결됨/끊김 · 페어링(누르면 패널) |
-| `pet` | 꾸미기 켜짐일 때만 (끄면 파괴) | 주 작업 표시줄 안쪽 가장자리, 트레이 옆. 펫만 누를 수 있음 → 패널. 전체화면 앱 · 숨은 자동 숨김 작업 표시줄이면 숨김 |
+| `pet` | 꾸미기 켜짐일 때만 (끄면 파괴) | 주 작업 표시줄 **안**, 트레이 바로 왼쪽 빈자리(두께 가운데, 48×42). 펫만 누를 수 있음 → 패널이 효과 메뉴(`panel-show` = `"fx"`: 눈·비·단풍·새벽·노을·달·별 → `fx(kind)`, 아스키 성탄·도시·가을·고요 → `cover(scene)`, 1.5초 뒤 입력이 있으면 닫힘)로 열림. 트레이 아이콘 = `"main"`. 전체화면 앱 · 숨은 자동 숨김 작업 표시줄이면 숨김 |
 | `settings` | 열 때 만들고 닫으면 파괴 | 보통 창 (제목 표시줄 · Alt+Tab) |
 | `notes` | '모두 보기' 때 만들고 닫으면 파괴 | 메모 보드 (자리·크기 기억) |
 | `ascii`, `ascii-N` | 자리 비움 화면 (꾸미기 켜짐) | 모니터마다 1개, 무작위 장면(직전 것 빼고), 입력이 있으면 닫힘 |
@@ -81,7 +81,7 @@
 
 `settings_open(sec)` · `close_self` · `autostart(on?)` · `report_hit_rects(rects)` · `shelf_add(paths)` · `open_path(path)` · `board_open` · `fx(kind)` ·
 `link_status` · `link_apply` · `link_import` · `link_trust(fp)` · `link_pair(ok)` · `link_unpair` · `link_send(path, edge?, pos?)` · `link_plan` · `note_notepad(id)` ·
-`panel_fit(h)` · `panel_hide` · `toast_next` · `toast_done` · `toast_click` · `drag_file` · `drag_hide` · `pet_click`.
+`panel_fit(h)` · `panel_hide` · `toast_next` · `toast_done` · `toast_click` · `drag_file` · `drag_hide` · `pet_click` · `fx(kind)` · `cover(scene)`.
 
 ## 7. 시험
 

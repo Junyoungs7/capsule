@@ -168,7 +168,7 @@ pub(crate) fn ascii_close_all(app: &AppHandle) {
 }
 
 /// 자리 비움 화면: 모든 모니터를 무작위 장면(직전 것 빼고)으로 덮는다. 포커스는 뺏지 않고, 입력은 watch 루프가 감지해 닫는다.
-pub(crate) fn open_cover(app: &AppHandle) -> tauri::Result<()> {
+pub(crate) fn open_cover(app: &AppHandle, scene: Option<&str>) -> tauri::Result<()> {
     if !ascii_windows(app).is_empty() {
         return Ok(());
     }
@@ -177,7 +177,7 @@ pub(crate) fn open_cover(app: &AppHandle) -> tauri::Result<()> {
     // ponytail: 모든 모니터에 같은 장면 — 고르기·직전 피하기가 한 번이면 된다
     let mut b = [0u8; 4];
     let _ = getrandom::fill(&mut b);
-    let i = pick_cover(COVER_LAST.load(Ordering::Relaxed), u32::from_le_bytes(b));
+    let i = scene.and_then(|s| COVER_SCENES.iter().position(|x| *x == s)).unwrap_or_else(|| pick_cover(COVER_LAST.load(Ordering::Relaxed), u32::from_le_bytes(b)));
     COVER_LAST.store(i, Ordering::Relaxed);
     for (label, pos, size, logical) in cover_rects(&mons) {
         let win = builder(app, &label, format!("index.html?surface=ascii&scene={}", COVER_SCENES[i]), logical)
@@ -319,6 +319,14 @@ async fn fx(app: AppHandle, kind: String) -> Result<(), String> {
     open_fx(&app, &kind).map_err(|e| e.to_string())
 }
 
+/// 펫 메뉴 → 아스키 화면 지금 (잠깐 뒤부터 입력이 있으면 닫힌다 — watch::arm_cover)
+#[tauri::command]
+async fn cover(app: AppHandle, scene: String) -> Result<(), String> {
+    open_cover(&app, Some(&scene)).map_err(|e| e.to_string())?;
+    watch::arm_cover();
+    Ok(())
+}
+
 /* ── Hera Link (link.rs 엔진 · link_files.rs 파일 채널) ── */
 #[tauri::command]
 fn link_status() -> (link::Status, Option<String>) {
@@ -404,12 +412,12 @@ pub fn old_key(k: &str) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            tray::show(app, None); // 두 번째 실행 = 패널
+            tray::show(app, None, "main"); // 두 번째 실행 = 패널
         }))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx,
+            settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
             tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, pet::pet_click,
         ])
@@ -463,7 +471,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|t, e| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, position, .. } = e {
-                        tray::toggle(t.app_handle(), Some((position.x, position.y)));
+                        tray::toggle(t.app_handle(), Some((position.x, position.y)), "main");
                     }
                 })
                 .on_menu_event(|app, e| match e.id().as_ref() {

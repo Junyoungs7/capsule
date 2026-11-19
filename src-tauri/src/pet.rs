@@ -11,7 +11,7 @@ use windows::Win32::UI::Shell::{SHAppBarMessage, ABE_LEFT, ABE_RIGHT, ABE_TOP, A
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// 펫 창 (논리 px) — 펫 44×40 + 여유
-pub const SIZE: (f64, f64) = (52.0, 46.0);
+pub const SIZE: (f64, f64) = (48.0, 42.0);
 static HWND_PET: AtomicIsize = AtomicIsize::new(0);
 static SHOWN: AtomicBool = AtomicBool::new(true);
 /// 마지막으로 놓은 자리의 근거 (작업 표시줄 rect, 배율 %, 트레이 rect) — 같으면 옮기지 않는다
@@ -26,15 +26,14 @@ pub enum Edge {
     Right,
 }
 
-/// 작업 표시줄 rect · 방향 · 트레이 rect · 배율 → 펫 창 [x, y, w, h] (물리 px). 발은 작업 표시줄 가장자리에 4 논리 px 걸친다.
+/// 작업 표시줄 rect · 방향 · 트레이 rect · 배율 → 펫 창 [x, y, w, h] (물리 px). 작업 표시줄 안, 트레이 바로 앞 빈자리 (두께 가운데).
 pub fn pet_rect(bar: [i32; 4], edge: Edge, tray: [i32; 4], s: f64) -> [i32; 4] {
     let (w, h) = ((SIZE.0 * s).round() as i32, (SIZE.1 * s).round() as i32);
-    let (lap, gap) = ((4.0 * s).round() as i32, (8.0 * s).round() as i32);
+    let gap = (8.0 * s).round() as i32;
+    let (cy, cx) = ((bar[1] + bar[3] - h) / 2, (bar[0] + bar[2] - w) / 2);
     match edge {
-        Edge::Bottom => [tray[0] - gap - w, bar[1] - h + lap, w, h],
-        Edge::Top => [tray[0] - gap - w, bar[3] - lap, w, h],
-        Edge::Left => [bar[2] - lap, tray[1] - gap - h, w, h],
-        Edge::Right => [bar[0] - w + lap, tray[1] - gap - h, w, h],
+        Edge::Bottom | Edge::Top => [tray[0] - gap - w, cy, w, h],
+        Edge::Left | Edge::Right => [cx, tray[1] - gap - h, w, h],
     }
 }
 
@@ -141,13 +140,13 @@ pub fn tick(full: bool) {
     }
 }
 
-/// 펫 누름 → 패널 (펫 자리 쪽 모서리)
+/// 펫 누름 → 패널의 효과 메뉴 (펫 자리 쪽 모서리)
 #[tauri::command]
 pub fn pet_click(app: AppHandle) {
     let mut r = RECT::default();
     let h = HWND(HWND_PET.load(Ordering::Relaxed) as _);
     let at = unsafe { GetWindowRect(h, &mut r) }.ok().map(|_| (((r.left + r.right) / 2) as f64, ((r.top + r.bottom) / 2) as f64));
-    crate::tray::toggle(&app, at);
+    crate::tray::toggle(&app, at, "fx");
 }
 
 #[cfg(test)]
@@ -155,23 +154,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pet_sits_next_to_the_tray_on_every_taskbar_side() {
-        // 아래 작업 표시줄 1920×1080 (높이 48), 트레이 1700..1880
+    fn pet_sits_inside_the_taskbar_next_to_the_tray() {
+        // 아래 작업 표시줄 1920×1080 (높이 48), 트레이 1700..1880 → 트레이 왼쪽 8px, 두께 가운데 (위아래 3px)
         let r = pet_rect([0, 1032, 1920, 1080], Edge::Bottom, [1700, 1032, 1880, 1080], 1.0);
-        assert_eq!(r, [1700 - 8 - 52, 1032 - 46 + 4, 52, 46]);
-        assert!(r[1] + r[3] > 1032 && r[1] + r[3] <= 1040, "발이 작업 표시줄 위 가장자리에 걸친다");
+        assert_eq!(r, [1700 - 8 - 48, 1035, 48, 42]);
+        assert!(r[1] >= 1032 && r[1] + r[3] <= 1080, "작업 표시줄 밖으로 나가지 않는다");
         // 위
         let r = pet_rect([0, 0, 1920, 48], Edge::Top, [1700, 0, 1880, 48], 1.0);
-        assert_eq!((r[1], r[0] + r[2]), (44, 1692));
+        assert_eq!((r[1], r[0] + r[2]), (3, 1692));
         // 왼쪽 세로 (폭 62), 트레이 = 아래
         let r = pet_rect([0, 0, 62, 1080], Edge::Left, [0, 900, 62, 1080], 1.0);
-        assert_eq!((r[0], r[1] + r[3]), (58, 892));
+        assert_eq!((r[0], r[1] + r[3]), (7, 892));
         // 오른쪽 세로
         let r = pet_rect([1858, 0, 1920, 1080], Edge::Right, [1858, 900, 1920, 1080], 1.0);
-        assert_eq!(r[0] + r[2], 1862);
+        assert_eq!(r[0], 1865);
         // 150%: 크기·간격도 1.5배
         let r = pet_rect([0, 2088, 3840, 2160], Edge::Bottom, [3500, 2088, 3800, 2160], 1.5);
-        assert_eq!(r, [3500 - 12 - 78, 2088 - 69 + 6, 78, 69]);
+        assert_eq!(r, [3500 - 12 - 72, 2092, 72, 63]);
     }
 
     #[test]

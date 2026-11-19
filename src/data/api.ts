@@ -113,6 +113,8 @@ export const openSettings = (sec = 'general') => invoke('settings_open', { sec }
 export const autostart = (on?: boolean) => invoke<boolean>('autostart', { on })
 export const closeSelf = () => invoke('close_self')
 export const openFx = (kind: string) => invoke('fx', { kind })
+/** 아스키 화면 지금 (모든 모니터, 입력이 있으면 닫힘) */
+export const openCover = (scene: string) => invoke('cover', { scene })
 /** 덮개: 모든 모니터의 덮개 창에 닫기 */
 export const coverCloseAll = () => emit('ascii-close')
 

@@ -112,7 +112,7 @@ fn place_panel(app: &AppHandle, win: &WebviewWindow) {
 }
 
 /// 열기/닫기. at = 누른 자리 (트레이 아이콘 · 펫, 물리 px)
-pub fn toggle(app: &AppHandle, at: Option<(f64, f64)>) {
+pub fn toggle(app: &AppHandle, at: Option<(f64, f64)>, view: &str) {
     let Some(win) = app.get_webview_window("panel") else { return };
     if win.is_visible().unwrap_or(false) {
         return hide(app);
@@ -120,16 +120,17 @@ pub fn toggle(app: &AppHandle, at: Option<(f64, f64)>) {
     if HIDDEN_AT.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_millis(300)) {
         return; // 방금 이 클릭으로 포커스를 잃어 닫혔다
     }
-    show(app, at);
+    show(app, at, view);
 }
 
-pub fn show(app: &AppHandle, at: Option<(f64, f64)>) {
+/// view = "main" (트레이) | "fx" (펫: 효과 메뉴)
+pub fn show(app: &AppHandle, at: Option<(f64, f64)>, view: &str) {
     let Some(win) = app.get_webview_window("panel") else { return };
     if at.is_some() {
         *ANCHOR.lock().unwrap() = at;
     }
     place_panel(app, &win);
-    let _ = app.emit_to("panel", "panel-show", ());
+    let _ = app.emit_to("panel", "panel-show", view);
     let _ = win.show();
     let _ = win.set_focus();
 }
@@ -210,7 +211,7 @@ pub fn toast_done(app: AppHandle) {
 #[tauri::command]
 pub fn toast_click(app: AppHandle) {
     toast_done(app.clone());
-    show(&app, None);
+    show(&app, None, "main");
 }
 
 /// 패널 내용 높이가 바뀜 (논리 px) — 열려 있으면 같은 모서리에 붙인 채 크기만

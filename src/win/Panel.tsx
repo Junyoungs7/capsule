@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { invoke } from '@tauri-apps/api/core'
-import { boardOpen, isTauri, linkSend, onEvent, openPath, openSettings, shelfAdd, useItems, useValue, type ShelfFile } from '../data/api'
+import { boardOpen, isTauri, linkSend, onEvent, openCover, openFx, openPath, openSettings, shelfAdd, useItems, useValue, type ShelfFile } from '../data/api'
 import { NOTE_COLORS, enterCommits, freeSlot, nextColor, seedNotes, type Note } from '../surfaces/Notes'
-import { fetchWeather, geocode, type Weather } from '../surfaces/Fx'
+import { FX_LABEL, fetchWeather, geocode, type FxKind, type Weather } from '../surfaces/Fx'
 import { Ico } from './icons'
 import { linkLook, useLink, useShare } from './link'
 import { Sw } from './Settings'
@@ -27,7 +27,25 @@ const seedShelf: ShelfFile[] = [
   { id: 's2', path: 'C:\\Users\\me\\Downloads\\Hera\\스크린샷 2026-11-18.png', at: Date.now() - 3_600_000, from: 'mac' },
 ]
 
+/* 펫을 누르면 패널이 이 효과 메뉴로 열린다 (시안 pet-menu). 하나 누르면 바로 띄우고 닫힘. */
+const FX_ICON: Record<FxKind, string> = { snow: '❄️', rain: '🌧️', leaves: '🍁', dawn: '🌅', sunset: '🌇', moon: '🌙' }
+const ASCII: [string, string, string][] = [['xmas', '🎄', '성탄'], ['city', '🏙️', '도시'], ['autumn', '🍂', '가을'], ['calm', '🌊', '고요']]
+function FxMenu({ hide }: { hide: () => void }) {
+  const [weather] = useValue<Weather | null>('fx.weather', null)
+  const go = (f: () => Promise<unknown>) => (void f().catch(() => {}), hide())
+  return (
+    <div className="sec fxm">
+      <h4>날씨·계절 효과</h4>
+      <div className="chips">{(Object.keys(FX_LABEL) as FxKind[]).map((k) => <button key={k} data-fx={k} onClick={() => go(() => openFx(k))}><span>{FX_ICON[k]}</span>{FX_LABEL[k]}</button>)}</div>
+      <h4>아스키 화면 · 마우스를 움직이면 사라져요</h4>
+      <div className="chips">{ASCII.map(([k, i, t]) => <button key={k} data-cover={k} onClick={() => go(() => openCover(k))}><span>{i}</span>{t}</button>)}</div>
+      <div className="fxfoot"><span>{weather ? `지금 날씨: ${weather.text} ${weather.temp}°` : ''}</span><button className="link" data-deco-settings onClick={() => (void openSettings('deco'), hide())}>꾸미기 설정</button></div>
+    </div>
+  )
+}
+
 export function Panel() {
+  const [view, setView] = useState<'main' | 'fx'>('main')
   const link = useLink()
   const look = linkLook(link)
   const [getShare, setShare] = useShare()
@@ -55,7 +73,8 @@ export function Panel() {
   }, [])
   useEffect(() => {
     if (!isTauri) return
-    const offs = [onEvent('panel-show', () => {
+    const offs = [onEvent<string>('panel-show', (v) => {
+        setView(v === 'fx' ? 'fx' : 'main')
         // 보일 때마다 등장 애니메이션 (요소는 그대로 — 높이 재기가 끊기지 않게)
         const el = box.current
         if (el) el.classList.remove('in'), void el.offsetWidth, el.classList.add('in')
@@ -106,6 +125,7 @@ export function Panel() {
   ]
   return (
     <section className="pn" ref={box} role="dialog" aria-label="Hera">
+      {view === 'fx' ? <FxMenu hide={hide} /> : <>
       <div className="sec">
         <div className="peer" data-st={look.st}>
           <span className="dev"><Ico k="laptop" w={1.6} /><i /></span>
@@ -167,6 +187,7 @@ export function Panel() {
         <Sw on={deco} set={setDeco} label="꾸미기" />
         <button className="ib" data-settings onClick={() => (void openSettings('general'), hide())} aria-label="설정" title="설정"><Ico k="gear" /></button>
       </div>
+      </>}
       <UndoToast />
     </section>
   )
