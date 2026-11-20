@@ -117,3 +117,8 @@
 
 ## a21 설치 (2026-11-19 14:13)
 - b096838: 펫을 작업 표시줄 안(트레이 바로 왼쪽, 48×42)으로. 펫 누름 = 패널 효과 메뉴(눈·비·단풍·새벽·노을·달·별 / 아스키 성탄·도시·가을·고요, 손으로 연 아스키는 1.5초 뒤 입력 시 닫힘). 시안 pet-menu.html 사용자 승인. cargo 51 ok, clippy 깨끗, panel·pet-cdp ALL PASS, tsc OK.
+
+## a22 설치 (2026-11-19 17:39) — "헤라가 계속 종료됨"
+- 증상: 오류 이벤트·WER 보고서 없이 프로세스가 사라짐. 원인 후보 2: (1) 개편 뒤 늘 떠 있는 창이 없어 마지막 창이 닫히면 Tauri 가 앱 종료, (2) release panic = "abort" → 어느 스레드든 panic 이면 흔적 없이 종료.
+- 7be965b: ExitRequested(code 없음) → prevent_exit (트레이 '끝내기'만 종료), panic hook → %APPDATA%\dev.hera.dock\crash.log, 실행 중 값으로 범위를 정하는 clamp 6곳(crossing·drag) → max().min(). cargo 51 ok, clippy 깨끗.
+- 진단 실행 stderr: "link: unexpected end of file" 1줄 (종료와 무관, 계속 살아 있었음). 다음에 꺼지면 crash.log 확인.
