@@ -69,14 +69,14 @@ pub fn seg_dist(side: &str, e: [f64; 4], x: f64, y: f64) -> Option<(f64, (f64, f
                 return None;
             }
             let d = if side == "right" { e[0] - x } else { x - e[0] };
-            Some((d.max(0.0), (e[0], y.clamp(e[1], e[1] + e[3]))))
+            Some((d.max(0.0), (e[0], y.max(e[1]).min(e[1] + e[3]))))
         }
         _ => {
             if x < e[0] - m || x > e[0] + e[2] + m {
                 return None;
             }
             let d = if side == "down" { e[1] - y } else { y - e[1] };
-            Some((d.max(0.0), (x.clamp(e[0], e[0] + e[2]), e[1])))
+            Some((d.max(0.0), (x.max(e[0]).min(e[0] + e[2]), e[1])))
         }
     }
 }

@@ -409,7 +409,29 @@ pub fn old_key(k: &str) -> bool {
     OLD_KEYS.iter().any(|p| k.starts_with(p))
 }
 
+/// 꺼짐 기록: release 는 panic = "abort" 라 어느 스레드든 panic 하나면 앱이 말없이 꺼진다 → 꺼지기 전에 이유를 남긴다.
+/// %APPDATA%\dev.hera.dock\crash.log (64KB 넘으면 새로)
+fn crash_log(line: &str) {
+    let Some(dir) = std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join("dev.hera.dock")) else { return };
+    let p = dir.join("crash.log");
+    let _ = std::fs::create_dir_all(&dir);
+    if std::fs::metadata(&p).is_ok_and(|m| m.len() > 64 * 1024) {
+        let _ = std::fs::remove_file(&p);
+    }
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+        use std::io::Write;
+        let _ = writeln!(f, "[{t}] {line}");
+    }
+}
+
 pub fn run() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let th = std::thread::current().name().unwrap_or("?").to_string();
+        crash_log(&format!("panic in thread '{th}': {info}"));
+        prev(info);
+    }));
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             tray::show(app, None, "main"); // 두 번째 실행 = 패널
@@ -492,7 +514,13 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building hera")
-        .run(|_, _| {});
+        .run(|_, e| {
+            // 창이 모두 닫혀도 트레이 앱은 계속 (끝내기 = 트레이 메뉴 '끝내기' → exit(0) 만)
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = e {
+                crash_log("exit requested with no windows left — kept running");
+                api.prevent_exit();
+            }
+        });
 }
 
 #[cfg(test)]

@@ -50,10 +50,10 @@ pub fn leave_point(side: Side, samples: &[Sample], now: u64, bb: [i32; 4]) -> (i
     let mid = if side.horizontal() { (bb[0] + bb[2]) / 2 } else { (bb[1] + bb[3]) / 2 };
     let a = along.unwrap_or(mid);
     match side {
-        Side::Left => (bb[0], a.clamp(bb[1], bb[3] - 1)),
-        Side::Right => (bb[2] - 1, a.clamp(bb[1], bb[3] - 1)),
-        Side::Up => (a.clamp(bb[0], bb[2] - 1), bb[1]),
-        Side::Down => (a.clamp(bb[0], bb[2] - 1), bb[3] - 1),
+        Side::Left => (bb[0], a.max(bb[1]).min(bb[3] - 1)),
+        Side::Right => (bb[2] - 1, a.max(bb[1]).min(bb[3] - 1)),
+        Side::Up => (a.max(bb[0]).min(bb[2] - 1), bb[1]),
+        Side::Down => (a.max(bb[0]).min(bb[2] - 1), bb[3] - 1),
     }
 }
 
@@ -81,7 +81,7 @@ pub fn wall_for(side: Side, pt: (i32, i32), mons: &[([i32; 4], f64)]) -> Option<
         Side::Up => [m[0], m[1], m[2], d],
         Side::Down => [m[0], m[1] + m[3] - d, m[2], d],
     };
-    let u0 = if side.horizontal() { (x - m[0]).clamp(0, m[2] - 1) } else { (y - m[1]).clamp(0, m[3] - 1) } as f32;
+    let u0 = if side.horizontal() { (x - m[0]).max(0).min(m[2] - 1) } else { (y - m[1]).max(0).min(m[3] - 1) } as f32;
     Some(Wall { rect, u0, side })
 }
 
