@@ -153,3 +153,10 @@
 ## a30 설치 (2026-11-20 13:16)
 - 05775ef: 전체 톡(등록한 사람 + 맥, 기록은 이 PC talk.json 최근 500) · 빠른 톡(펫 오른쪽 클릭 → 친한 친구 ⭐, 저장 안 함, 받는 쪽 펫 위 얼굴 + 말풍선, 누르면 닫힘·답장 없음) · 초대(intro → 서로 등록) · 내 이름 카드 · 맥 규격 mac-design 2.5b.
 - 헤드리스 talk(26항목) 포함 전부 ALL PASS, cargo 54 ok. 설치 13:16:14, pid 64440. 두 번째 PC 없어 사람 사이 실제 톡은 미확인.
+
+## a31–a33 · 0.1.2 설치 (2026-11-20 14:21)
+- 2d313ef a31: IP로 사람 추가(people_pair_ip, 내 IP 안내), 등록한 사람 IP 기억 + 그 IP로 비콘 직접 → 브로드캐스트 막힌 망에서도 켜짐 보임. 0.1.1.
+- 4686fc7 a32: 자동 업데이트(tauri-plugin-updater, 1분 뒤 · 3시간마다 latest.json, 서명 확인, passive 설치 후 재시작, 끄는 중 · 전체화면이면 미룸, 설정 › 정보 업데이트 확인). 피드 주소는 빌드 때 HERA_UPDATE_URL(저장소 밖 release/update-base.txt), 서명 키 ~/.tauri/hera-updater.key. scripts/release.sh. 톡 창 capabilities 누락(실기에서 store · 이벤트 못 씀) 고침. 패널 연결 줄은 연결 켰을 때만.
+- 5753859 a33: 여러 기기 연결 — link.devices(예전 맥 하나에서 옮김), 기기마다 파일 채널 · 엔진 화면 · 배치, 역할 중심/받는 쪽(받는 쪽 = deskflow-core client, coreMode=1 · remoteHost, 중심 지문 trusted-servers). 보낼 곳 dev:<pk>. 0.1.2.
+- cargo 58 ok, 헤드리스 9개 ALL PASS. 이 PC 0.1.2 설치(pid 61576), 엔진 설정 = 예전 맥 링크 그대로 확인. 받는 쪽 엔진 INI 키는 죽은 포트로 띄워 로그로 확인.
+- release/ 에 0.1.2 exe · sig · latest.json 준비 — 사이트 배포는 준영님 말씀대로 개발 끝나면 한 번에. 두 PC(중심 + 노트북) 실기는 미확인.
