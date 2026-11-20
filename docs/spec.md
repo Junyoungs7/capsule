@@ -14,7 +14,7 @@
 | 4 | **메모** | 패널에서 빠른 메모 (Enter 저장, Shift+Enter 줄바꿈, 최근 3개), 메모 보드 창, 메모장으로 열기 | — |
 | 5 | **넘어갈 때 물결** | 커서가 맥으로 넘어가고 돌아올 때 화면 끝 물결 + 벽 일렁임 | `ripple.enabled` (기본 켬) |
 | 5 | **흔들어 커서 찾기** | 단추를 누르지 않고 마우스를 빠르게 흔들면 커서 둘레 물결 | `locator.enabled` (기본 켬) |
-| 6 | **꾸미기** | 하나의 스위치: 날씨·계절 자동 효과 + 자리 비움 화면(모든 모니터 아스키·효과) + 작업 표시줄 펫 | `deco.enabled` (기본 **꺼짐**) |
+| 6 | **꾸미기** | 하나의 스위치: 날씨·계절 자동 효과 + 자리 비움 화면(모든 모니터 아스키·효과). 펫은 스위치와 상관없이 항상 | `deco.enabled` (기본 **꺼짐**) |
 | 7 | **설정** | 일반(시작 시 실행 · 기능 3개 · 설정 폴더) · 연결(기기 · 화면 배치 · 키보드 · 고급) · 꾸미기(펫 고르기 · 도시 · 자리 비움 대기) · 정보 | — |
 
 ## 2. 화면 (윈도우 창 라벨 — 모두 `capabilities/default.json` 에 있어야 한다)
@@ -24,7 +24,7 @@
 | `panel` | 시작할 때 숨긴 채 만들어 상주 (웹뷰 1개) | 트레이 왼쪽 클릭 = 열기/닫기. 368px, 작업 표시줄이 있는 모니터의 트레이 쪽 모서리에서 12px. 바깥 클릭·Esc = 닫힘. 내용: 연결 줄(+스위치, 페어링 숫자) · 타일 3개(클립보드 공유 · 넘어갈 때 물결 · 흔들어 커서 찾기) · 선반(놓기 칸 + 목록) · 메모(입력 + 최근 3 + 모두 보기) · 꾸미기 스위치 + 설정 |
 | `drag` | 시작할 때 숨긴 채 상주, 파일을 끌 때만 그 모니터를 덮음 | 흔들어 받침(선반에 올리기 · 맥으로 보내기) + 맥 쪽 가장자리 포탈. 클릭 통과, 받침 rect 만 드롭 대상 |
 | `toast` | 그때만 만들고 사라지면 파괴 | 알림 카드 (오른쪽 아래, 작업 표시줄 위 — 패널이 열려 있으면 그 위): 받음 · 보냄 · 실패 · 연결됨/끊김 · 페어링(누르면 패널) |
-| `pet` | 꾸미기 켜짐일 때만 (끄면 파괴) | 주 작업 표시줄 **안**, 트레이 바로 왼쪽 빈자리(두께 가운데, 48×42). 펫만 누를 수 있음 → 패널이 효과 메뉴(`panel-show` = `"fx"`: 눈·비·단풍·새벽·노을·달·별 → `fx(kind)`, 아스키 성탄·도시·가을·고요 → `cover(scene)`, 1.5초 뒤 입력이 있으면 닫힘)로 열림. 트레이 아이콘 = `"main"`. 전체화면 앱 · 숨은 자동 숨김 작업 표시줄이면 숨김 |
+| `pet` | 항상 | 84×84 떠 있는 창. 기본 자리 = 주 모니터 오른쪽 아래, 작업 표시줄 위, 패널 자리 바로 왼쪽. 끌어서 옮기면 `pet.pos`(물리 px), 가장 가까운 작업 영역 안으로. 누르기 = 패널(`"main"`), 오른쪽 클릭 = 펫 메뉴(`"fx"`: 이미지 바꾸기 · 기본 펫으로 · 제자리로 + 효과 · 아스키). 그림 = 기본 펫 또는 내 이미지(`pet.kind` = `custom`, `%APPDATA%\dev.hera.dock\pet\custom.*`, 8MB). 전체화면 앱이면 숨김. 파일을 펫에 대면 둘레로 보낼 곳이 펼쳐짐 (`fan`) |
 | `settings` | 열 때 만들고 닫으면 파괴 | 보통 창 (제목 표시줄 · Alt+Tab) |
 | `notes` | '모두 보기' 때 만들고 닫으면 파괴 | 메모 보드 (자리·크기 기억) |
 | `ascii`, `ascii-N` | 자리 비움 화면 (꾸미기 켜짐) | 모니터마다 1개, 무작위 장면(직전 것 빼고), 입력이 있으면 닫힘 |
@@ -57,7 +57,10 @@
 | `note:<id>` | `{ id, text, color (0..5), x, y, w, h, at? }` — 보드 자리 + 만든 시각 |
 | `note.color` · `notes.board` | 고른 메모 색 · 예전 메모를 보드로 옮겼음 표시 |
 | `board.rect` | 메모 보드 창 [x, y, w, h] (물리 px) |
-| `pet.kind` | 기본 펫 키 (`cat`, `penguin` …) |
+| `pet.kind` | 기본 펫 키 (`cat`, `penguin` …) 또는 `custom` |
+| `pet.img` · `pet.pos` | 내 이미지 바꾼 시각 · 옮긴 자리 [x, y] |
+| `people:<pk>` | 등록한 사람 `{ id: pk, name, at }` |
+| `people.enabled` · `people.name` | 사람에게 보내기 (기본 켜짐) · 내 이름 (비면 Windows 사용자 이름) |
 | `fx.city` · `fx.coords` · `fx.weather` | 도시 · [위도, 경도] · `{ text, temp }` |
 | `ascii.idleMin` | 자리 비움 대기 분 (기본 10) |
 
@@ -81,9 +84,16 @@
 
 `settings_open(sec)` · `close_self` · `autostart(on?)` · `report_hit_rects(rects)` · `shelf_add(paths)` · `open_path(path)` · `board_open` · `fx(kind)` ·
 `link_status` · `link_apply` · `link_import` · `link_trust(fp)` · `link_pair(ok)` · `link_unpair` · `link_send(path, edge?, pos?)` · `link_plan` · `note_notepad(id)` ·
-`panel_fit(h)` · `panel_hide` · `toast_next` · `toast_done` · `toast_click` · `drag_file` · `drag_hide` · `pet_click` · `fx(kind)` · `cover(scene)`.
+`panel_fit(h)` · `panel_hide` · `toast_next` · `toast_done` · `toast_click` · `drag_file` · `drag_hide` · `pet_click(view)` · `pet_drag` · `pet_home` · `pet_set_image(name, data)` · `pet_image` · `people_pair(pk)` · `people_confirm(ok)` · `people_near` · `people_forget(pk)` · `people_send(pk, paths)` · `fx(kind)` · `cover(scene)`.
 
 ## 7. 시험
 
 - `cd src-tauri && cargo test --lib` (배치 · 흔들기 · 포탈 거리 · 선반 · 예전 키 · 권한 목록 · 파일 채널 루프백 …), `cargo clippy`, `npx tsc --noEmit -p .`
-- 헤드리스 (실제 마우스·키보드·창을 건드리지 않음): `node .omc/verify/{settings,panel,pad,portal,pet}-cdp.mjs`
+- 헤드리스 (실제 마우스·키보드·창을 건드리지 않음): `node .omc/verify/{settings,panel,pad,portal,pet,people,people-drag}-cdp.mjs`
+
+## 사람에게 보내기 (people.rs, 시안 `.omc/prototypes/people.html`)
+
+- 같은 네트워크의 다른 Hera. 발견 = UDP 24813 비콘 `{"hera-people":1,name,port,pk}` 3초마다, 10초 안 들리면 목록에서 빠짐. 전송 = TCP 24812, 맥 채널과 같은 `link_files` 규약(같은 키 · 숫자 비교 페어링). 맥 연결(24810/24811)과 따로.
+- **등록한 사람만** 주고받음: 모르는 사람의 접속은 '등록 요청'(받는 쪽 알림 + 패널 숫자 카드)까지만, 확인 전에는 파일이 오지 않음. 파일만 (클립보드 · 마우스는 맥 전용).
+- 보내는 자리 넷: 패널 '보낼 사람'(사람 위에 놓기) · 트레이 아이콘에 0.35초 대면 패널이 열림(놓은 뒤 1초에 닫힘) · 흔들기 받침의 사람 줄 · 가장자리 사람 포탈(`gates`, 켜진 사람이 있을 때, 맥이 왼쪽에 이어져 있으면 왼쪽 아니면 오른쪽, 큰 맥 포탈 대신 맥도 그 줄에) · 펫 둘레(`fan`).
+- 받으면 선반(`from` = 보낸 사람 이름) + 다운로드\Hera + 알림 "<이름>님이 파일을 보냈어요".

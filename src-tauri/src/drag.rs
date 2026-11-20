@@ -4,6 +4,9 @@
 //   0.4초 안에 안 오면(글자 고르기 · 창 옮기기 등) 오버레이를 숨기고 그 끌기는 잊는다. 창 옮기기(GUI_INMOVESIZE)는 시험도 안 한다.
 // 확정 뒤: 좌우 흔들기(0.7초 안에 방향 3번, 한 번에 25 논리 px 넘게) → 'pad-show', 맥과 이어진 가장자리 구간 근처 → 'portal' (가까울수록 커짐).
 // 놓기: 받침 = 오버레이 웹뷰의 네이티브 드롭, 가장자리 = edge.rs 띠 → 'portal-drop' (JS 가 빨려 들어가는 애니메이션 뒤 보냄).
+// 보낼 사람(people.rs)이 켜져 있으면 (시안 people):
+//   펫 위로 가져가면 'fan' (펫 둘레로 선반 · 내 맥 · 사람들), 가장자리로 가면 'gates' (사람 수만큼 세로로 둥근 포탈 — 큰 맥 포탈 대신),
+//   트레이 아이콘에 0.35초 대면 패널이 열리고 (놓으면 사람 · 선반), 단추를 떼면 1초 뒤 닫힌다.
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -18,6 +21,11 @@ pub const PORTAL_FAR: f64 = 220.0;
 pub const PORTAL_NEAR: f64 = 50.0;
 const PROBE: f64 = 48.0; // 시험 칸 (논리 px)
 const PROBE_MS: u64 = 400;
+/// 펼친 펫 둘레가 닫히는 거리 · 사람 포탈이 열리는/닫히는 가장자리 거리 (논리 px) · 트레이에 대고 있을 시간
+const FAN_OFF: f64 = 170.0;
+const GATES_ON: f64 = 90.0;
+const GATES_OFF: f64 = 260.0;
+const SPRING_MS: u64 = 350;
 
 static HWND_DRAG: AtomicIsize = AtomicIsize::new(0);
 /// JS 가 DragEnter(경로 있음)를 봤다
@@ -108,11 +116,17 @@ pub struct Drag {
     shake: DragShake,
     last: (i64, i64, i64),
     probe: Option<[f64; 4]>,
+    /// 이번 끌기: 켜진 사람이 있나 · 펫 둘레 펼침 · 사람 포탈 · 트레이에 댄 시각 · 패널을 열었나
+    people: bool,
+    fan: bool,
+    gates: bool,
+    tray_at: Option<Instant>,
+    sprung: bool,
 }
 
 impl Default for Drag {
     fn default() -> Self {
-        Drag { st: St::Idle, mon: [0.0; 4], s: 1.0, shake: DragShake::default(), last: (i64::MIN, 0, 0), probe: None }
+        Drag { st: St::Idle, mon: [0.0; 4], s: 1.0, shake: DragShake::default(), last: (i64::MIN, 0, 0), probe: None, people: false, fan: false, gates: false, tray_at: None, sprung: false }
     }
 }
 
@@ -190,6 +204,15 @@ impl Drag {
                     }
                 });
             }
+            if std::mem::take(&mut self.sprung) {
+                // 트레이에 대서 연 패널: 놓은 뒤 1초 (사람에게 놓았으면 보내는 중 표시를 볼 틈) 뒤 닫는다
+                let a = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(1000));
+                    crate::tray::hide(&a);
+                });
+            }
+            (self.fan, self.gates, self.tray_at) = (false, false, None);
             self.st = St::Idle;
             self.probe = None;
             return;
@@ -206,6 +229,8 @@ impl Drag {
                 }
                 FILE_OK.store(false, Ordering::Relaxed);
                 (self.mon, self.s, self.shake, self.last) = (m, sc, DragShake::default(), (i64::MIN, 0, 0));
+                (self.fan, self.gates, self.tray_at, self.sprung) = (false, false, None, false);
+                self.people = crate::people::online_count(app) > 0;
                 self.probe = Some(around(m));
                 show(m);
                 let _ = app.emit_to("drag", "drag-start", json!({ "scale": sc }));
@@ -225,7 +250,48 @@ impl Drag {
             }
             St::File(pad) => {
                 let local = |p: (f64, f64)| ((p.0 - self.mon[0]) / s, (p.1 - self.mon[1]) / s);
-                let portal = nearest_portal(x, y, s);
+                let mac = crate::link::files_connected().is_some();
+                let m = self.mon;
+                let on_mon = |p: (f64, f64)| p.0 >= m[0] && p.0 < m[0] + m[2] && p.1 >= m[1] && p.1 < m[1] + m[3];
+                // 펫 위 → 둘레로 펼침 (펫이 이 모니터에 있을 때)
+                if let Some(r) = crate::pet::rect() {
+                    let c = ((r[0] + r[2]) as f64 / 2.0, (r[1] + r[3]) as f64 / 2.0);
+                    let inside = x >= r[0] as f64 && x < r[2] as f64 && y >= r[1] as f64 && y < r[3] as f64;
+                    let want = on_mon(c) && if self.fan { (x - c.0).hypot(y - c.1) < FAN_OFF * s } else { inside };
+                    if want != self.fan {
+                        self.fan = want;
+                        let lc = local(c);
+                        let _ = app.emit_to("drag", "fan", json!({ "on": want, "x": lc.0, "y": lc.1, "mac": mac }));
+                    }
+                }
+                // 가장자리 사람 포탈 (켜진 사람이 있을 때): 맥이 왼쪽에 이어져 있으면 왼쪽, 아니면 오른쪽
+                if self.people {
+                    let left = mac && SEGS.lock().unwrap().iter().any(|(side, _)| side == "left");
+                    let d = if left { x - m[0] } else { m[0] + m[2] - x };
+                    let want = d < if self.gates { GATES_OFF } else { GATES_ON } * s;
+                    if want != self.gates {
+                        self.gates = want;
+                        let _ = app.emit_to("drag", "gates", json!({ "on": want, "side": if left { "left" } else { "right" }, "y": local((x, y)).1, "mac": mac }));
+                    }
+                }
+                // 트레이 아이콘에 대고 있으면 패널
+                let tray = app.tray_by_id("main").and_then(|t| t.rect().ok().flatten()).map(|r| {
+                    let (p, z) = (r.position.to_physical::<f64>(1.0), r.size.to_physical::<f64>(1.0));
+                    [p.x - 4.0, p.y - 4.0, p.x + z.width + 4.0, p.y + z.height + 4.0]
+                });
+                match tray.filter(|t| x >= t[0] && x < t[2] && y >= t[1] && y < t[3]) {
+                    Some(t) if !self.sprung => {
+                        let since = *self.tray_at.get_or_insert_with(Instant::now);
+                        if since.elapsed() >= Duration::from_millis(SPRING_MS) {
+                            self.sprung = true;
+                            crate::tray::show(app, Some(((t[0] + t[2]) / 2.0, (t[1] + t[3]) / 2.0)), "main");
+                        }
+                    }
+                    Some(_) => {}
+                    None => self.tray_at = None,
+                }
+                // 사람 포탈이 열려 있으면 큰 맥 포탈은 열지 않는다 (맥도 그 줄에 있다)
+                let portal = if self.gates { None } else { nearest_portal(x, y, s) };
                 if !pad && self.shake.push(t, pt.0, (25.0 * s) as i32) {
                     self.st = St::File(true);
                     let (lx, ly) = local((x, y));

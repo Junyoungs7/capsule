@@ -256,3 +256,30 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .near button:hover, .near button:focus-visible { background: var(--card2); }
 .near .av { width: 26px; height: 26px; font-size: 12px; }
 [data-people] .hint { margin-top: 6px; font-size: 12px; color: var(--t3); }
+/* 끌기 오버레이: 펫 둘레 (fan) · 사람 포탈 (gates) · 받침의 사람 줄 — 시안 people */
+.fo { position: fixed; z-index: 29; width: 64px; display: grid; justify-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 4px #000;
+  transform: translate(-50%, -50%) translate(var(--dx), var(--dy)); animation: fo-in 380ms cubic-bezier(.34, 1.56, .64, 1) backwards; }
+@keyframes fo-in { from { transform: translate(-50%, -50%) scale(.2); opacity: 0; } }
+.fo .av, .pchip .av { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; background: var(--c); box-shadow: 0 6px 16px rgba(0, 0, 0, .45); border: 2px solid rgba(255, 255, 255, .25); transition: transform 200ms cubic-bezier(.34, 1.56, .64, 1); }
+.fo.shelf .av { background: linear-gradient(160deg, #ffd66b, #f59f00); color: #3d2600; }
+.fo.mac .av { background: radial-gradient(circle, #0b1a3a 35%, #1d5fc4 70%, #59c3ff); }
+.fo.over .av, .pchip.over .av { transform: scale(1.22); border-color: #fff; box-shadow: 0 0 0 3px var(--accent), 0 10px 24px rgba(0, 0, 0, .5); }
+.fo.done .av, .pchip.done .av, .gate.done .ring { animation: gulp 420ms cubic-bezier(.34, 1.56, .64, 1); }
+.gate { position: fixed; z-index: 29; width: 0; height: 0; animation: gate-in 220ms ease-out backwards; }
+@keyframes gate-in { from { opacity: 0; } }
+.gate .ring { position: absolute; left: -58px; top: -58px; width: 116px; height: 116px; border-radius: 50%; transform: scale(.72); transition: transform 360ms cubic-bezier(.34, 1.56, .64, 1);
+  background: radial-gradient(circle, #050b1c 30%, color-mix(in srgb, var(--c) 70%, #000) 62%, var(--c) 80%, transparent 82%); box-shadow: 0 0 30px var(--c); }
+.gate.mac .ring { background: radial-gradient(circle, #050b1c 30%, #1d5fc4 62%, #59c3ff 80%, transparent 82%); box-shadow: 0 0 30px #59c3ff; }
+.gate .ring::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: conic-gradient(transparent, rgba(255, 255, 255, .7), transparent 40%, rgba(255, 255, 255, .4), transparent 70%);
+  -webkit-mask: radial-gradient(closest-side, transparent 82%, #000 84%); mask: radial-gradient(closest-side, transparent 82%, #000 84%); animation: spin 2.2s linear infinite; }
+.gate.over .ring { transform: scale(1); }
+.gate.over .ring::before { animation-duration: .7s; }
+.gate label { position: absolute; top: -12px; white-space: nowrap; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: rgba(0, 0, 0, .6); color: rgba(255, 255, 255, .85); transition: all 200ms; }
+.gate.right label { right: 50px; }
+.gate.left label { left: 50px; }
+.gate.over label { color: #fff; background: rgba(0, 0, 0, .8); }
+.pad .prow { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 312px; }
+.pchip { width: 70px; padding: 6px 0 4px; border-radius: 10px; background: var(--card); border: 1px solid var(--stroke); display: grid; justify-items: center; gap: 3px; font-size: 11px; color: var(--t2); }
+.pchip .av { width: 34px; height: 34px; font-size: 13px; color: #fff; box-shadow: none; }
+.pchip.over { color: var(--t1); background: color-mix(in srgb, var(--accent) 16%, var(--card)); }
+@media (prefers-reduced-motion: reduce) { .fo, .gate { animation: none; } .gate .ring::before { animation: none; } }

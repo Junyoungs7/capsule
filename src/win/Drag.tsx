@@ -1,16 +1,32 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri, linkSend, onEvent, reportHitRects, shelfAdd, useValue } from '../data/api'
 import { reducedMotion } from '../surfaces/util'
 import { colorOf, extOf } from './Panel'
+import { colorFor, initial, sendTo, targets, usePeople, type Target } from './people'
 
 /* 끌기 오버레이 (?surface=drag) — 파일을 끄는 동안만 그 모니터를 덮는 투명 창 (Rust drag.rs 가 보이고 숨긴다).
    - 받침: 흔들면 커서 위에 [선반에 올리기 | 맥으로 보내기] (시안 win-tray-v3 .pad, 스프링 등장). 놓기 = 네이티브 드롭(경로).
    - 포탈: 맥과 이어진 가장자리 구간 가까이 가면 커진다 (캔버스). 가장자리에 놓으면(edge.rs) 'portal-drop' → 빨려 들어감 · 섬광 · 충격파 → 보냄.
    - 받는 포탈 (시안 recv-portal): 맥에서 파일을 받으면 'recv-portal' — 맥 가장자리로 보냈으면 이어진 그 자리에 큰 포탈, 아니면 트레이 아이콘 위에 작은 둥근 포탈.
      입자가 밖으로 흘러나오고 파일이 튀어나와 포물선으로 트레이 아이콘에 들어간다 → 알림 카드는 Rust 가 띄운다.
+   - 보낼 사람 (시안 people): 펫 위로 가져가면 'fan' → 펫 둘레로 선반 · 내 맥 · 켜진 사람들 (가까운 화면 끝 반대쪽으로 반원, 가운데면 한 바퀴).
+     가장자리로 가면 'gates' → 켜진 사람 수만큼 둥근 포탈이 세로로 (맥도 그 줄에). 받침에도 사람들. 놓기 = 네이티브 드롭 → 그 사람에게.
    그리는 것은 끄는 중이거나 애니메이션 중일 때만 (rAF 는 스스로 멈춘다). */
+type Fan = { x: number; y: number; mac: boolean }
+type Gates = { side: 'left' | 'right'; y: number; mac: boolean }
+const FAN_R = 104, GATE_GAP = 128
+/** 펫 둘레 자리 (오버레이 좌표): 가까운 화면 끝 반대쪽 반원 (모서리면 좁게), 끝에서 멀면 한 바퀴. 화면 밖으로 안 나가게 */
+export function fanSpots(cx: number, cy: number, n: number, W: number, H: number): [number, number][] {
+  const k = FAN_R + 50
+  const ex = Number(cx < k) - Number(W - cx < k), ey = Number(cy < k) - Number(H - cy < k + 48)
+  const edge = !!(ex || ey), mid = Math.atan2(ey, ex), span = edge ? (ex && ey ? Math.PI * 0.6 : Math.PI) : Math.PI * 2
+  return Array.from({ length: n }, (_, i) => {
+    const a = edge ? mid - span / 2 + (span * i) / Math.max(n - 1, 1) : -Math.PI / 2 + (span * i) / n
+    return [Math.min(Math.max(cx + Math.cos(a) * FAN_R, 40), W - 40), Math.min(Math.max(cy + Math.sin(a) * FAN_R, 40), H - 44)]
+  })
+}
 type Side = 'right' | 'left' | 'up' | 'down'
 type Pad = { x: number; y: number; mac: boolean; to: [number, number] | null }
 const CW = 380, CH = 640 // 포탈 캔버스 (논리 px): 가장자리에서 안쪽으로 CW, 가장자리를 따라 CH
@@ -19,8 +35,12 @@ const IN: Record<Side, [number, number]> = { right: [-1, 0], left: [1, 0], up: [
 
 export function DragLayer() {
   const [pad, setPad] = useState<Pad | null>(null)
-  const [over, setOver] = useState<'shelf' | 'mac' | null>(null)
-  const [done, setDone] = useState<'shelf' | 'mac' | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const [fan, setFan] = useState<Fan | null>(null)
+  const [gates, setGates] = useState<Gates | null>(null)
+  const { people, online } = usePeople()
+  const live = (mac: boolean): Target[] => targets(mac ? peer || '내 맥' : null, people, online).filter((t) => t.on)
   const [hint, setHint] = useState(false)
   const [peer] = useValue<string | null>('link.peerName', null)
   const padRef = useRef<HTMLDivElement>(null)
@@ -32,7 +52,8 @@ export function DragLayer() {
   // 드롭을 받는 자리 = 받침 + 다 열린 포탈 그림 (나머지는 클릭 통과 — 그 아래 앱이 받는다)
   const hitPad = useRef<DOMRect | null>(null)
   const hitPortal = useRef<DOMRect | null>(null)
-  const sendHits = () => reportHitRects([hitPad.current, hitPortal.current].filter((r): r is DOMRect => !!r))
+  const hitMore = useRef<DOMRect[]>([]) // 펫 둘레 · 사람 포탈
+  const sendHits = () => reportHitRects([hitPad.current, hitPortal.current, ...hitMore.current].filter((r): r is DOMRect => !!r))
   /** 다 열린 포탈 그림 둘레 (가장자리에서 안쪽 140 · 가장자리를 따라 ±168) — Rust portal_drop_here 의 reach 와 같은 140 */
   const portalRect = () => {
     const { x, y, side } = P.current
@@ -192,8 +213,9 @@ export function DragLayer() {
   const settle = () => {
     const s = st.current
     if (s.ended && !s.sending && !P.current.run) {
-      setPad(null), setOver(null), setDone(null), setHint(false)
+      setPad(null), setOver(null), setDone(null), setHint(false), setFan(null), setGates(null)
       hitPad.current = hitPortal.current = null
+      hitMore.current = []
       reportHitRects([])
       if (isTauri) void invoke('drag_hide')
     }
@@ -303,11 +325,13 @@ export function DragLayer() {
     c.getContext('2d')!.setTransform(d, 0, 0, d, 0, 0)
     const zoneAt = (x: number, y: number) => {
       const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-z]')
-      return el && !el.hasAttribute('aria-disabled') ? (el.dataset.z as 'shelf' | 'mac') : null
+      return el && !el.hasAttribute('aria-disabled') ? el.dataset.z! : null
     }
     const offs = [
       onEvent('drag-start', () => ((st.current = { ended: false, sending: false }), (paths.current = []), setPad(null), setOver(null), setDone(null))),
       onEvent<Pad & { to: [number, number] | null }>('pad-show', (e) => setPad(e)),
+      onEvent<Fan & { on: boolean }>('fan', (e) => setFan(e.on ? e : null)),
+      onEvent<Gates & { on: boolean }>('gates', (e) => setGates(e.on ? e : null)),
       onEvent<{ k: number; side: Side; x: number; y: number }>('portal', (e) => {
         const p = P.current
         if (e.k > 0) (p.x = e.x), (p.y = e.y), (p.side = e.side), (p.round = p.out = false), place()
@@ -334,6 +358,13 @@ export function DragLayer() {
       if (!z && files.length && P.current.hot && !st.current.sending) return void invoke('portal_drop_here', { paths: files })
       if (!z || !files.length) return
       setDone(z)
+      const fromRing = !!document.querySelector(`.fo[data-z="${z}"], .gate[data-z="${z}"], .pchip[data-z="${z}"]`)
+      if (z !== 'shelf' && (z !== 'mac' || fromRing)) {
+        // 사람 (또는 펫 둘레 · 사람 포탈의 내 맥): 꿀꺽 → 보냄 (알림은 Rust)
+        sendTo(z, files)
+        window.setTimeout(() => ((st.current.ended = true), settle()), 420)
+        return
+      }
       if (z === 'shelf') {
         void shelfAdd(files)
         window.setTimeout(() => ((st.current.ended = true), settle()), 420)
@@ -353,11 +384,39 @@ export function DragLayer() {
   }, [])
   const padNow = useRef(pad)
   padNow.current = pad
+  // 펫 둘레 · 사람 포탈이 보이는 동안 그 동그라미들이 드롭 대상 (등장 스프링이 끝난 자리로 — data-x/y)
+  useLayoutEffect(() => {
+    hitMore.current = [...document.querySelectorAll<HTMLElement>('.fo, .gate')].map((el) => {
+      const r = Number(el.dataset.r)
+      return new DOMRect(Number(el.dataset.x) - r, Number(el.dataset.y) - r, r * 2, r * 2)
+    })
+    sendHits()
+  }, [fan, gates, people.length, online])
+  const fanT = fan ? [{ id: 'shelf', name: '선반', on: true }, ...live(fan.mac)] : []
+  const fanAt = fan ? fanSpots(fan.x, fan.y, fanT.length, innerWidth, innerHeight) : []
+  const gateT = gates ? live(gates.mac) : []
+  const gy0 = gates ? Math.min(Math.max(gates.y - ((gateT.length - 1) * GATE_GAP) / 2, 70), innerHeight - 70 - (gateT.length - 1) * GATE_GAP) : 0
+  const gx = gates?.side === 'left' ? 34 : innerWidth - 34
+  const padPeople = pad ? live(false) : []
 
   const [hx, hy] = IN[P.current.side]
   return (
     <>
       <canvas ref={cv} className="portal" aria-hidden />
+      {fan && fanT.map((t, i) => (
+        <div key={t.id} className={`fo ${t.id === 'shelf' ? 'shelf' : ''} ${t.id === 'mac' ? 'mac' : ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
+          data-x={fanAt[i][0]} data-y={fanAt[i][1]} data-r={30}
+          style={{ left: fan.x, top: fan.y, '--dx': `${fanAt[i][0] - fan.x}px`, '--dy': `${fanAt[i][1] - fan.y}px`, '--c': colorFor(t.id), animationDelay: `${i * 35}ms` } as CSSProperties}>
+          <span className="av">{t.id === 'shelf' ? '▤' : t.id === 'mac' ? '⌘' : initial(t.name)}</span>{t.name}
+        </div>
+      ))}
+      {gates && gateT.map((t, i) => (
+        <div key={t.id} className={`gate ${gates.side} ${t.id === 'mac' ? 'mac' : ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
+          data-x={gx} data-y={gy0 + i * GATE_GAP} data-r={58}
+          style={{ left: gx, top: gy0 + i * GATE_GAP, '--c': colorFor(t.id), animationDelay: `${i * 60}ms` } as CSSProperties}>
+          <i className="ring" /><label>{t.name}</label>
+        </div>
+      ))}
       <div className={`portal-hint ${hint ? 'on' : ''}`} style={{ left: P.current.x + hx * 118, top: P.current.y + hy * 118 }}>놓으면 {peer || '맥'}으로</div>
       {pad && (
         <div ref={padRef} className="pad on" style={{ left, top }} data-pad>
@@ -372,6 +431,15 @@ export function DragLayer() {
               맥으로 보내기<small>{pad.mac ? `${peer || '맥'} · 포탈` : '맥 Hera 연결 필요'}</small>
             </div>
           </div>
+          {padPeople.length > 0 && (
+            <div className="prow">
+              {padPeople.map((t) => (
+                <div key={t.id} className={`pchip ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id} style={{ '--c': colorFor(t.id) } as CSSProperties}>
+                  <span className="av">{initial(t.name)}</span>{t.name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </>

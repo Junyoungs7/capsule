@@ -87,6 +87,12 @@ fn changed(app: &AppHandle) {
     let _ = app.emit("people-near", near_json(app));
 }
 
+/// 지금 켜져 있는 등록한 사람 수 (끌기 오버레이: 가장자리 사람 포탈을 열지)
+pub fn online_count(app: &AppHandle) -> usize {
+    let ks: Vec<String> = known(app).iter().map(|k| lf::hex(k)).collect();
+    NEAR.lock().unwrap().iter().filter(|x| x.seen.elapsed() < GONE && ks.contains(&x.pk)).count()
+}
+
 fn addr_of(pk: &str) -> Option<SocketAddr> {
     NEAR.lock().unwrap().iter().find(|x| x.pk == pk && x.seen.elapsed() < GONE).map(|x| x.addr)
 }
