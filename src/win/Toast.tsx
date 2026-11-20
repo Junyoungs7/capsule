@@ -4,9 +4,10 @@ import { isTauri, onEvent } from '../data/api'
 import { Ico, type IcoKey } from './icons'
 
 /* 알림 카드 (오른쪽 아래, 작업 표시줄 위). Rust 가 그때만 만들고, 사라지면 toast_done 으로 파괴한다.
-   kind: recv 받음 · sent 보냄 · fail 실패 · link 연결 바뀜 · pair 페어링(누르면 패널 — 숫자 확인). */
-type T = { kind: 'recv' | 'sent' | 'fail' | 'link' | 'pair'; title: string; sub: string }
-const ICON: Record<T['kind'], IcoKey> = { recv: 'down', sent: 'send', fail: 'x', link: 'laptop', pair: 'link' }
+   kind: recv 받음 · sent 보냄 · fail 실패 · link 연결 바뀜 · pair 페어링(누르면 패널 — 숫자 확인) · talk 톡(누르면 톡 창). */
+type T = { kind: 'recv' | 'sent' | 'fail' | 'link' | 'pair' | 'talk'; title: string; sub: string }
+const ICON: Record<T['kind'], IcoKey> = { recv: 'down', sent: 'send', fail: 'x', link: 'laptop', pair: 'link', talk: 'chat' }
+const CLICK = ['pair', 'talk']
 const MS = 4000
 
 export function Toast() {
@@ -30,9 +31,9 @@ export function Toast() {
   useEffect(() => (isTauri ? onEvent<{ kind: string; state?: string }>('link-files', (e) => e.kind === 'peer' && e.state !== 'pairing' && setT((x) => (x?.kind === 'pair' ? (setOut(true), x) : x))) : undefined), [])
   if (!t) return null
   return (
-    <div key={n} className={`toast ${out ? 'out' : 'in'} ${t.kind === 'pair' ? 'click' : ''}`} data-kind={t.kind} role="status"
+    <div key={n} className={`toast ${out ? 'out' : 'in'} ${CLICK.includes(t.kind) ? 'click' : ''}`} data-kind={t.kind} role="status"
       onAnimationEnd={() => out && isTauri && void invoke('toast_done')}
-      onClick={() => t.kind === 'pair' && isTauri && void invoke('toast_click')}>
+      onClick={() => CLICK.includes(t.kind) && isTauri && void invoke('toast_click', { kind: t.kind })}>
       <span className="ti"><Ico k={ICON[t.kind]} /></span>
       <span className="tx"><b>{t.title}</b><small>{t.sub}</small></span>
     </div>

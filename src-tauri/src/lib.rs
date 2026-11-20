@@ -24,6 +24,7 @@ mod link_files;
 mod link_layout;
 mod notes; // 메모 보드 · 메모장으로 열기
 mod people; // 사람에게 파일 보내기 (같은 네트워크의 다른 Hera)
+mod talk; // 전체 톡 · 빠른 톡 · 초대
 mod tray; // 트레이 아이콘 · 패널 · 알림 카드
 mod ui;
 
@@ -317,6 +318,30 @@ async fn shelf_folder(app: AppHandle) -> Result<(), String> {
     open_path(dir.display().to_string()).await
 }
 
+/// 전체 톡 창 (보통 창, 380×560, 닫으면 파괴). 있으면 앞으로
+pub(crate) fn open_talk(app: &AppHandle) -> tauri::Result<()> {
+    if let Some(w) = app.get_webview_window("talk") {
+        let _ = w.unminimize();
+        w.show()?;
+        return w.set_focus();
+    }
+    let win = WebviewWindowBuilder::new(app, "talk", WebviewUrl::App("index.html?surface=talk".into()))
+        .title("Hera 전체 톡")
+        .inner_size(380.0, 560.0)
+        .min_inner_size(320.0, 360.0)
+        .maximizable(false)
+        .visible(false)
+        .build()?;
+    let _ = ui::low_memory(&win);
+    win.show()?;
+    win.set_focus()
+}
+
+#[tauri::command]
+async fn talk_open(app: AppHandle) -> Result<(), String> {
+    open_talk(&app).map_err(|e| e.to_string())
+}
+
 /// async: 창 만들기를 동기 명령(메인 스레드)에서 하면 Windows 에서 멈춘다 (모두 보기가 안 열리던 원인)
 #[tauri::command]
 async fn board_open(app: AppHandle) -> Result<(), String> {
@@ -452,6 +477,7 @@ pub fn run() {
             settings_open, close_self, autostart, report_hit_rects, shelf_add, shelf_folder, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
             tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_press, pet::pet_home, pet::pet_set_image, pet::pet_image,
+            talk::talk_list, talk::talk_send, talk::talk_file, talk::talk_clear, talk::talk_invite, talk::poke_send, talk::talk_read, talk_open,
             people::people_pair, people::people_confirm, people::people_near, people::people_forget, people::people_send,
         ])
         .setup(|app| {

@@ -651,6 +651,8 @@ fn on_msg(app: &AppHandle, m: &Value) {
                 crossing_fx(app, &read_cfg(app).1.side, m["enter"] != true, Some((x as i32, y as i32)));
             }
         }
+        // 전체 톡 (맥도 같은 방)
+        "talk" | "poke" => crate::talk::received(app, "mac", &files_connected().unwrap_or_else(|| "내 맥".into()), m),
         _ => {}
     }
 }
@@ -808,7 +810,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
     let app = app.clone();
     Arc::new(move |e: lf::Event| {
         match &e {
-            lf::Event::Peer { state, name, code } if state == "pairing" => {
+            lf::Event::Peer { state, name, code, .. } if state == "pairing" => {
                 crate::tray::toast(&app, "pair", &format!("{name} 연결 확인"), &format!("숫자 {} {} · 눌러서 확인", &code[..code.len().min(3)], &code[code.len().min(3)..]));
             }
             lf::Event::Xfer { dir, id, name, .. } if dir == "out" => {

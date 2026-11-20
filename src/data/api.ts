@@ -123,6 +123,16 @@ export type ShelfFile = { id: string; path: string; at: number; from?: 'pc' | 'm
 export const shelfAdd = (paths: string[]) => invoke('shelf_add', { paths })
 export const openPath = (path: string) => invoke('open_path', { path })
 export const shelfFolder = () => invoke('shelf_folder')
+/* 전체 톡 · 빠른 톡 (Rust talk.rs) */
+export type TalkMsg = { id: string; at: number; from: string; name?: string; text?: string; file?: { name: string; size: number } | null }
+export const talkOpen = () => invoke('talk_open')
+export const talkList = () => invoke<TalkMsg[]>('talk_list')
+export const talkSend = (text: string) => invoke('talk_send', { text })
+export const talkFile = (paths: string[]) => invoke('talk_file', { paths })
+export const talkClear = () => invoke('talk_clear')
+export const talkRead = () => invoke('talk_read')
+export const talkInvite = (pks: string[]) => invoke<string[]>('talk_invite', { pks })
+export const pokeSend = (text: string) => invoke<number>('poke_send', { text })
 export const boardOpen = () => invoke('board_open')
 /** 메모장으로 열기 (Rust: %APPDATA%\Hera\notes\<id>.txt 에 쓰고 notepad.exe, 고치면 메모에 다시 읽어 넣음) */
 export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id })

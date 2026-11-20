@@ -47,6 +47,28 @@ pub fn my_name(app: &AppHandle) -> String {
         .unwrap_or_else(|| "Hera".into())
 }
 
+/// 내 공개키 hex
+pub fn my_pk(app: &AppHandle) -> String {
+    lf::hex(&lf::public_of(&crate::link::files_cfg(app).secret))
+}
+
+/// 등록한 사람 (pk, 이름)
+pub fn registered(app: &AppHandle) -> Vec<(String, String)> {
+    let Ok(s) = app.store("hera.json") else { return vec![] };
+    s.entries().into_iter().filter_map(|(k, v)| Some((k.strip_prefix("people:")?.to_string(), v["name"].as_str().unwrap_or("?").to_string()))).collect()
+}
+
+/// 지금 켜진 등록한 사람 pk (fav = 친한 친구 ⭐ 만)
+pub fn online(app: &AppHandle, fav: bool) -> Vec<String> {
+    let Ok(s) = app.store("hera.json") else { return vec![] };
+    let n = NEAR.lock().unwrap();
+    n.iter()
+        .filter(|x| x.seen.elapsed() < GONE)
+        .filter(|x| s.get(format!("people:{}", x.pk)).is_some_and(|v| !fav || v["fav"] == true))
+        .map(|x| x.pk.clone())
+        .collect()
+}
+
 fn known(app: &AppHandle) -> Vec<[u8; 32]> {
     let Ok(s) = app.store("hera.json") else { return vec![] };
     s.keys().iter().filter_map(|k| k.strip_prefix("people:").and_then(lf::unhex32)).collect()
@@ -185,10 +207,10 @@ enum Mode {
 /// 연결 1개의 이벤트 처리
 fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
     let app = app.clone();
-    let peer = Arc::new(Mutex::new(String::new()));
+    let peer = Arc::new(Mutex::new((String::new(), String::new()))); // (이름, pk)
     Arc::new(move |e: lf::Event| match e {
-        lf::Event::Peer { state, name, code } => {
-            *peer.lock().unwrap() = name.clone();
+        lf::Event::Peer { state, name, code, pk } => {
+            *peer.lock().unwrap() = (name.clone(), pk);
             if state == "pairing" && mode != Mode::Send {
                 let code: String = code.chars().take(4).collect();
                 let _ = app.emit("people-pair", json!({ "name": name, "code": code }));
@@ -209,7 +231,7 @@ fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
             changed(&app);
         }
         lf::Event::Received { path, .. } => {
-            let from = peer.lock().unwrap().clone();
+            let from = peer.lock().unwrap().0.clone();
             let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             crate::shelve(&app, std::slice::from_ref(&path), &from);
             let _ = app.emit_to("pet", "pet-react", "recv");
@@ -217,6 +239,11 @@ fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
         }
         lf::Event::Sent { ok: true, .. } => {
             let _ = app.emit_to("pet", "pet-react", "sent");
+        }
+        // 톡 · 빠른 톡 · 초대 — 준비된(= 등록한 사람끼리의) 연결에서만 온다
+        lf::Event::Msg { msg } => {
+            let (name, pk) = peer.lock().unwrap().clone();
+            crate::talk::received(&app, &pk, &name, &msg);
         }
         _ => {}
     })
@@ -272,48 +299,69 @@ pub fn people_forget(app: AppHandle, pk: String) {
     changed(&app);
 }
 
-/// 파일들을 등록한 사람에게 (블로킹 → 스레드). 실패는 알림으로.
+/// 등록한 사람에게 접속해 준비된 연결 (6초). 상대가 나를 지웠으면 숫자 확인으로 넘어가지 않고 실패
+fn open(app: &AppHandle, pk: &str) -> Result<Arc<Conn>, String> {
+    let addr = addr_of(pk).ok_or("지금 Hera가 꺼져 있거나 근처에 없어요")?;
+    let s = TcpStream::connect_timeout(&addr, Duration::from_secs(4)).map_err(|e| e.to_string())?;
+    let (tx, rx) = channel::<Arc<Conn>>();
+    let tx = Mutex::new(Some(tx));
+    let a = app.clone();
+    std::thread::spawn(move || {
+        let _ = lf::run(s, false, &cfg(&a), sink(&a, Mode::Send), &|c| match c {
+            Some(c) if c.is_ready() => {
+                if let Some(t) = tx.lock().unwrap().take() {
+                    let _ = t.send(c);
+                }
+            }
+            Some(c) => c.close(),
+            None => {}
+        });
+    });
+    rx.recv_timeout(Duration::from_secs(6)).map_err(|_| "상대가 받지 않았어요 (서로 등록되어 있어야 해요)".to_string())
+}
+
+/// 제어 메시지 하나를 여러 사람에게 (사람마다 스레드 · 접속 → 보내기 → 닫기). 꺼진 사람은 조용히 건너뜀
+pub fn deliver(app: &AppHandle, pks: Vec<String>, msg: Value) {
+    for pk in pks {
+        let (a, m) = (app.clone(), msg.clone());
+        std::thread::spawn(move || {
+            if let Ok(c) = open(&a, &pk) {
+                let _ = c.send(m);
+                std::thread::sleep(Duration::from_millis(200));
+                c.close();
+            }
+        });
+    }
+}
+
+/// 파일들을 한 사람에게 (블로킹). 실패는 알림으로, 성공은 '보냈어요' 알림
+pub fn send_files(app: &AppHandle, pk: &str, paths: &[String]) {
+    let who = app.store("hera.json").ok().and_then(|s| s.get(format!("people:{pk}"))).and_then(|v| v["name"].as_str().map(String::from));
+    let first = paths.first().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let fail = |e: &str| crate::tray::toast(app, "fail", "보내지 못했어요", &format!("{} · {first} · {e}", who.as_deref().unwrap_or("?")));
+    let Some(who) = who.clone() else { return fail("등록한 사람이 아니에요") };
+    let c = match open(app, pk) {
+        Ok(c) => c,
+        Err(e) => return fail(&e),
+    };
+    let mut sent = 0;
+    for p in paths {
+        match c.send_file(Path::new(p), &sink(app, Mode::Send)) {
+            Ok(()) => sent += 1,
+            Err(e) => fail(&e),
+        }
+    }
+    c.close();
+    if sent > 0 {
+        let more = if sent > 1 { format!(" 외 {}개", sent - 1) } else { String::new() };
+        crate::tray::toast(app, "sent", &format!("{who}님에게 보냈어요"), &format!("{first}{more} · 상대 선반에 들어갔어요"));
+    }
+}
+
+/// 파일들을 등록한 사람에게 (스레드)
 #[tauri::command]
 pub fn people_send(app: AppHandle, pk: String, paths: Vec<String>) {
-    std::thread::spawn(move || {
-        let who = app.store("hera.json").ok().and_then(|s| s.get(format!("people:{pk}"))).and_then(|v| v["name"].as_str().map(String::from));
-        let first = paths.first().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let fail = |e: &str| crate::tray::toast(&app, "fail", "보내지 못했어요", &format!("{} · {first} · {e}", who.as_deref().unwrap_or("?")));
-        let Some(who) = who.clone() else { return fail("등록한 사람이 아니에요") };
-        let Some(addr) = addr_of(&pk) else { return fail("지금 Hera가 꺼져 있거나 근처에 없어요") };
-        let s = match TcpStream::connect_timeout(&addr, Duration::from_secs(4)) {
-            Ok(s) => s,
-            Err(e) => return fail(&e.to_string()),
-        };
-        let (tx, rx) = channel::<Arc<Conn>>();
-        let tx = Mutex::new(Some(tx));
-        let a = app.clone();
-        std::thread::spawn(move || {
-            let _ = lf::run(s, false, &cfg(&a), sink(&a, Mode::Send), &|c| match c {
-                Some(c) if c.is_ready() => {
-                    if let Some(t) = tx.lock().unwrap().take() {
-                        let _ = t.send(c);
-                    }
-                }
-                Some(c) => c.close(), // 등록이 풀린 사이 → 숫자 확인으로 넘어가지 않고 끝
-                None => {}
-            });
-        });
-        // 등록한 사이면 바로 준비된다 (상대가 나를 지웠으면 숫자 확인으로 넘어가 준비되지 않음)
-        let Ok(c) = rx.recv_timeout(Duration::from_secs(6)) else { return fail("상대가 받지 않았어요 (서로 등록되어 있어야 해요)") };
-        let mut sent = 0;
-        for p in &paths {
-            match c.send_file(Path::new(p), &sink(&app, Mode::Send)) {
-                Ok(()) => sent += 1,
-                Err(e) => fail(&e),
-            }
-        }
-        c.close();
-        if sent > 0 {
-            let more = if sent > 1 { format!(" 외 {}개", sent - 1) } else { String::new() };
-            crate::tray::toast(&app, "sent", &format!("{who}님에게 보냈어요"), &format!("{first}{more} · 상대 선반에 들어갔어요"));
-        }
-    });
+    std::thread::spawn(move || send_files(&app, &pk, &paths));
 }
 
 #[cfg(test)]

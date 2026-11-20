@@ -28,8 +28,8 @@ const T_CHUNK: u8 = 2;
 #[derive(Clone, Serialize, PartialEq, Debug)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Event {
-    /// state: pairing(코드 확인 대기) / ready / closed
-    Peer { state: String, name: String, code: String },
+    /// state: pairing(코드 확인 대기) / ready / closed. pk = 상대 공개키 hex (사람에게 보내기: 누가 보냈는지)
+    Peer { state: String, name: String, code: String, pk: String },
     /// 새로 페어링됨 → 저장할 것 (pk hex, 상대 엔진 TLS 지문)
     Paired { pk: String, name: String, fp: String },
     Xfer { dir: String, id: u32, name: String, bytes: u64, size: u64 },
@@ -359,13 +359,13 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     if !(cfg.accept_any || known && st["paired"] == true) {
         // 숫자 비교 페어링: 양쪽 화면의 코드가 같으면 사용자가 양쪽에서 확인 → pair-ok 교환
         on_conn(Some(conn.clone()));
-        sink(Event::Peer { state: "pairing".into(), name: peer_name.clone(), code: k.code.clone() });
+        sink(Event::Peer { state: "pairing".into(), name: peer_name.clone(), code: k.code.clone(), pk: hex(&ppk) });
         let ok = crx.recv_timeout(Duration::from_secs(120)).unwrap_or(false);
         conn.json(json!({ "t": if ok { "pair-ok" } else { "pair-no" } }))?;
         let (kind, body) = rx.recv()?;
         let r: Value = serde_json::from_slice(&body).unwrap_or_default();
         if !ok || kind != T_JSON || r["t"] != "pair-ok" {
-            sink(Event::Peer { state: "closed".into(), name: peer_name, code: String::new() });
+            sink(Event::Peer { state: "closed".into(), name: peer_name, code: String::new(), pk: hex(&ppk) });
             conn.close();
             return Ok(());
         }
@@ -373,12 +373,12 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     }
     conn.ready.store(true, Ordering::Relaxed);
     on_conn(Some(conn.clone()));
-    sink(Event::Peer { state: "ready".into(), name: peer_name.clone(), code: String::new() });
+    sink(Event::Peer { state: "ready".into(), name: peer_name.clone(), code: String::new(), pk: hex(&ppk) });
     let r = recv_loop(&mut rx, &conn, cfg, &sink);
     conn.ready.store(false, Ordering::Relaxed);
     conn.close(); // 남은 Arc 가 있어도 소켓은 닫는다 → 상대 쪽 읽기가 바로 끝남
     on_conn(None);
-    sink(Event::Peer { state: "closed".into(), name: peer_name, code: String::new() });
+    sink(Event::Peer { state: "closed".into(), name: peer_name, code: String::new(), pk: hex(&ppk) });
     r
 }
 

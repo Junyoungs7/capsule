@@ -311,6 +311,30 @@ impl Drag {
     }
 }
 
+/// 빠른 톡을 받음: 펫이 있는 모니터를 오버레이로 덮고 펫 위로 보낸 사람 얼굴 + 말풍선 ('poke'). 끄는 중이면 false → 알림 카드로.
+/// from = 보낸 사람 pk (얼굴 색) 또는 "mac"
+pub fn poke_show(app: &AppHandle, from: &str, name: &str, text: &str) -> bool {
+    let h = HWND(HWND_DRAG.load(Ordering::Relaxed) as _);
+    if h.0.is_null() || crate::watch::left_down() {
+        return false;
+    }
+    let Some(p) = crate::pet::rect() else { return false };
+    let c = ((p[0] + p[2]) as f64 / 2.0, p[1] as f64);
+    let inside = |q: (f64, f64), m: &[f64; 4]| q.0 >= m[0] && q.0 < m[0] + m[2] && q.1 >= m[1] && q.1 < m[1] + m[3];
+    let Some((_, m, s, _)) = crate::watch::monitors().into_iter().find(|(_, m, _, _)| inside((c.0, c.1 + 1.0), m)) else { return false };
+    // 이미 보이면(다른 말풍선 · 받는 포탈) 그 모니터가 펫 모니터일 때만 얹는다
+    if unsafe { IsWindowVisible(h) }.as_bool() {
+        let mut r = windows::Win32::Foundation::RECT::default();
+        let _ = unsafe { GetWindowRect(h, &mut r) };
+        if (r.left as f64, r.top as f64) != (m[0], m[1]) {
+            return false;
+        }
+    } else {
+        show(m);
+    }
+    app.emit_to("drag", "poke", json!({ "from": from, "name": name, "text": text, "x": (c.0 - m[0]) / s, "y": (c.1 - m[1]) / s })).is_ok()
+}
+
 /// 맥에서 받은 파일: 포탈(맥 가장자리로 보냈으면 이어진 그 자리, 아니면 트레이 아이콘 위)이 열리고 파일이 나와 트레이 아이콘으로 (시안 recv-portal).
 /// edge = 이어진 PC 가장자리 점(물리 px)과 PC 쪽 방향. 오버레이가 끌기에 쓰이는 중이면 false → 애니메이션 없이.
 pub fn recv_portal(app: &AppHandle, edge: Option<(f64, f64, &str)>, name: &str) -> bool {

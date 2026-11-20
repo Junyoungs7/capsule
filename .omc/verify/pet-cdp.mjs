@@ -26,7 +26,7 @@ try {
   n = h.calls.length
   await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 42, y: 60, button: 'right', buttons: 2, clickCount: 1 })
   await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 42, y: 60, button: 'right', buttons: 0, clickCount: 1 })
-  ok('right-click → pet menu (pet_click fx)', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'fx')))
+  ok('right-click → quick talk (pet_click quick)', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'quick')))
   n = h.calls.length
   await p.mouse('mouseMoved', 42, 60)
   await p.mouse('mousePressed', 42, 60)

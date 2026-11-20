@@ -15,6 +15,9 @@ import { colorFor, initial, sendTo, targets, usePeople, type Target } from './pe
      가장자리로 가면 'gates' → 켜진 사람 수만큼 둥근 포탈이 세로로 (맥도 그 줄에). 받침에도 사람들. 놓기 = 네이티브 드롭 → 그 사람에게.
    그리는 것은 끄는 중이거나 애니메이션 중일 때만 (rAF 는 스스로 멈춘다). */
 type Fan = { x: number; y: number; mac: boolean }
+/** 받은 빠른 톡 (시안 quick): 펫 위(x, y = 펫 위 가운데)에 보낸 사람 얼굴 + 말풍선, 6초 (마우스를 올리면 머무름) · 누르면 닫힘 · 답장 없음 */
+type Poke = { k: number; from: string; name: string; text: string; x: number; y: number; out?: boolean }
+const POKE_MS = 6000
 type Gates = { side: 'left' | 'right'; y: number; mac: boolean }
 const FAN_R = 104, GATE_GAP = 128
 /** 펫 둘레 자리 (오버레이 좌표): 가까운 화면 끝 반대쪽 반원 (모서리면 좁게), 끝에서 멀면 한 바퀴. 화면 밖으로 안 나가게 */
@@ -40,6 +43,12 @@ export function DragLayer() {
   const [fan, setFan] = useState<Fan | null>(null)
   const [gates, setGates] = useState<Gates | null>(null)
   const { people, near, online } = usePeople()
+  const [pokes, setPokes] = useState<Poke[]>([])
+  const pokesNow = useRef<Poke[]>([])
+  pokesNow.current = pokes
+  const dragging = useRef(false)
+  const hitPokes = useRef<DOMRect[]>([])
+  const pokeTimers = useRef(new Map<number, number>())
   const live = (mac: boolean): Target[] => targets(mac ? peer || '내 맥' : null, people, online).filter((t) => t.on)
   const [hint, setHint] = useState(false)
   const [peer] = useValue<string | null>('link.peerName', null)
@@ -53,7 +62,7 @@ export function DragLayer() {
   const hitPad = useRef<DOMRect | null>(null)
   const hitPortal = useRef<DOMRect | null>(null)
   const hitMore = useRef<DOMRect[]>([]) // 펫 둘레 · 사람 포탈
-  const sendHits = () => reportHitRects([hitPad.current, hitPortal.current, ...hitMore.current].filter((r): r is DOMRect => !!r))
+  const sendHits = () => reportHitRects([hitPad.current, hitPortal.current, ...hitMore.current, ...hitPokes.current].filter((r): r is DOMRect => !!r))
   /** 다 열린 포탈 그림 둘레 (가장자리에서 안쪽 140 · 가장자리를 따라 ±168) — Rust portal_drop_here 의 reach 와 같은 140 */
   const portalRect = () => {
     const { x, y, side } = P.current
@@ -212,7 +221,7 @@ export function DragLayer() {
   /* ── 끝: 끌기도 애니메이션도 끝나면 숨김 ── */
   const settle = () => {
     const s = st.current
-    if (s.ended && !s.sending && !P.current.run) {
+    if (s.ended && !s.sending && !P.current.run && !pokesNow.current.length) {
       setPad(null), setOver(null), setDone(null), setHint(false), setFan(null), setGates(null)
       hitPad.current = hitPortal.current = null
       hitMore.current = []
@@ -328,7 +337,12 @@ export function DragLayer() {
       return el && !el.hasAttribute('aria-disabled') ? el.dataset.z! : null
     }
     const offs = [
-      onEvent('drag-start', () => ((st.current = { ended: false, sending: false }), (paths.current = []), setPad(null), setOver(null), setDone(null))),
+      onEvent<Omit<Poke, 'k'>>('poke', (e) => {
+        if (!dragging.current) st.current.ended = true
+        const k = Date.now() + Math.random()
+        setPokes((all) => [...all.slice(-3), { ...e, k }])
+      }),
+      onEvent('drag-start', () => ((dragging.current = true), (st.current = { ended: false, sending: false }), (paths.current = []), setPad(null), setOver(null), setDone(null))),
       onEvent<Pad & { to: [number, number] | null }>('pad-show', (e) => setPad(e)),
       onEvent<Fan & { on: boolean }>('fan', (e) => setFan(e.on ? e : null)),
       onEvent<Gates & { on: boolean }>('gates', (e) => setGates(e.on ? e : null)),
@@ -342,7 +356,7 @@ export function DragLayer() {
         suck(e.paths, [e.x, e.y], () => e.paths.forEach((f) => void linkSend(f, e.edge, e.pos).catch(() => {})))),
       // 단추를 뗌: 가장자리 드롭(portal-drop)이 곧 올 수 있다 → 잠깐 기다렸다 정리
       onEvent<{ edge: Side | null; x: number; y: number; to: [number, number]; name: string }>('recv-portal', (e) => void recv(e)),
-      onEvent('drag-end', () => window.setTimeout(() => ((st.current.ended = true), setPortal(0), settle()), 200)),
+      onEvent('drag-end', () => ((dragging.current = false), window.setTimeout(() => ((st.current.ended = true), setPortal(0), settle()), 200))),
     ]
     const off = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload
@@ -384,6 +398,21 @@ export function DragLayer() {
   }, [])
   const padNow = useRef(pad)
   padNow.current = pad
+  // 빠른 톡 말풍선: 6초 뒤 사라짐 (마우스를 올리면 멈춤) → 다 사라지면 오버레이 숨김
+  const dropPoke = (k: number) => {
+    clearTimeout(pokeTimers.current.get(k))
+    setPokes((all) => all.map((p) => (p.k === k ? { ...p, out: true } : p)))
+    window.setTimeout(() => setPokes((all) => all.filter((p) => p.k !== k)), REDUCE ? 0 : 380)
+  }
+  const armPoke = (k: number) => (clearTimeout(pokeTimers.current.get(k)), pokeTimers.current.set(k, window.setTimeout(() => dropPoke(k), POKE_MS)))
+  useEffect(() => {
+    for (const p of pokes) if (!pokeTimers.current.has(p.k)) armPoke(p.k)
+    if (!pokes.length) settle()
+  }, [pokes])
+  useLayoutEffect(() => {
+    hitPokes.current = [...document.querySelectorAll<HTMLElement>('.poke')].map((el) => el.getBoundingClientRect())
+    sendHits()
+  }, [pokes])
   // 펫 둘레 · 사람 포탈이 보이는 동안 그 동그라미들이 드롭 대상 (등장 스프링이 끝난 자리로 — data-x/y)
   useLayoutEffect(() => {
     hitMore.current = [...document.querySelectorAll<HTMLElement>('.fo, .gate')].map((el) => {
@@ -415,6 +444,13 @@ export function DragLayer() {
           data-x={gx} data-y={gy0 + i * GATE_GAP} data-r={58}
           style={{ left: gx, top: gy0 + i * GATE_GAP, '--c': colorFor(t.id), animationDelay: `${i * 60}ms` } as CSSProperties}>
           <i className="ring" /><label>{t.name}</label>
+        </div>
+      ))}
+      {pokes.map((p, i) => (
+        <div key={p.k} className={`poke ${p.out ? 'out' : ''}`} data-poke={p.from} style={{ left: p.x, top: p.y - 6 - (pokes.length - 1 - i) * 66 }}
+          onMouseEnter={() => clearTimeout(pokeTimers.current.get(p.k))} onMouseLeave={() => armPoke(p.k)} onClick={() => dropPoke(p.k)} role="status">
+          <span className={`av ${p.from === 'mac' ? 'mac' : ''}`} style={{ '--c': colorFor(p.from) } as CSSProperties}>{p.from === 'mac' ? '⌘' : initial(p.name)}</span>
+          <span className="bb"><small>{p.name}</small>{p.text}</span>
         </div>
       ))}
       <div className={`portal-hint ${hint ? 'on' : ''}`} style={{ left: P.current.x + hx * 118, top: P.current.y + hy * 118 }}>놓으면 {peer || '맥'}으로</div>

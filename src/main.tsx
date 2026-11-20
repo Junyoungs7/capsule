@@ -10,6 +10,7 @@ import { Panel } from './win/Panel'
 import { Toast } from './win/Toast'
 import { DragLayer } from './win/Drag'
 import { PetBar } from './win/PetBar'
+import { TalkWin } from './win/Talk'
 import { NoteBoard } from './surfaces/Notes'
 import { UndoToast } from './surfaces/Undo'
 import { AsciiFull, SCENES, seasonOf, type SceneId } from './surfaces/Ascii'
@@ -40,6 +41,7 @@ function App() {
   if (surface === 'toast') return <Toast />
   if (surface === 'drag') return <DragLayer />
   if (surface === 'pet') return <PetBar />
+  if (surface === 'talk') return <TalkWin />
   if (surface === 'notes')
     return (
       <div className="hx boardwin">

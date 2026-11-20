@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { invoke } from '@tauri-apps/api/core'
-import { boardOpen, isTauri, linkSend, onEvent, openCover, openFx, openPath, openSettings, shelfAdd, shelfFolder, useItems, useValue, type ShelfFile } from '../data/api'
+import { boardOpen, isTauri, linkSend, onEvent, openCover, openFx, openPath, openSettings, pokeSend, shelfAdd, shelfFolder, talkOpen, useItems, useValue, type ShelfFile } from '../data/api'
 import { NOTE_COLORS, enterCommits, freeSlot, nextColor, seedNotes, type Note } from '../surfaces/Notes'
 import { FX_LABEL, fetchWeather, geocode, type FxKind, type Weather } from '../surfaces/Fx'
 import { Ico } from './icons'
@@ -52,8 +52,38 @@ function FxMenu({ hide }: { hide: () => void }) {
   )
 }
 
+/* 펫 오른쪽 클릭 = 빠른 톡 (시안 quick): 켜진 친한 친구(⭐)에게 한마디, Enter → 보내고 닫힘. 저장 안 함. ⋯ = 펫 메뉴 */
+function QuickTalk({ hide }: { hide: () => void }) {
+  const { people, online } = usePeople()
+  const [text, setText] = useState('')
+  const [more, setMore] = useState(false)
+  const inp = useRef<HTMLInputElement>(null)
+  const to = people.filter((p) => p.fav && online(p.id))
+  useEffect(() => void window.setTimeout(() => inp.current?.focus(), 30), [])
+  const send = () => {
+    const t = text.trim()
+    if (!t || !to.length) return
+    void pokeSend(t).catch(() => {})
+    setText('')
+    hide()
+  }
+  return (
+    <div className="sec qt" data-quick>
+      <div className="to">
+        {to.slice(0, 5).map((p) => <span key={p.id} className="av" style={{ '--c': colorFor(p.id) } as CSSProperties}>{initial(p.name)}</span>)}
+        <span data-quick-to>{to.length ? `친한 친구 ${to.length}명에게` : people.some((p) => p.fav) ? '켜져 있는 친한 친구가 없어요' : '패널 보낼 사람에서 ⭐로 친한 친구를 정해 주세요'}</span>
+        <button className="ib" data-quick-more aria-expanded={more} onClick={() => setMore(!more)} title="펫 메뉴" aria-label="펫 메뉴">⋯</button>
+      </div>
+      <input ref={inp} className="inp" data-quick-in value={text} maxLength={200} disabled={!to.length} placeholder="친한 친구에게 한마디 · Enter" aria-label="빠른 톡"
+        onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && (e.preventDefault(), send())} />
+      <small>저장되지 않아요 · 지금 켜진 친구 화면에 잠깐 떠요</small>
+      {more && <FxMenu hide={hide} />}
+    </div>
+  )
+}
+
 export function Panel() {
-  const [view, setView] = useState<'main' | 'fx'>('main')
+  const [view, setView] = useState<'main' | 'fx' | 'quick'>('main')
   const link = useLink()
   const look = linkLook(link)
   const [getShare, setShare] = useShare()
@@ -66,7 +96,10 @@ export function Panel() {
   const [over, setOver] = useState(false)
   const box = useRef<HTMLElement>(null)
   const mac = !!link.filesPeer
-  const { people, near, pair, online } = usePeople()
+  const { people, near, pair, online, toggleFav } = usePeople()
+  const [unread] = useValue<number>('talk.unread', 0)
+  const [myName, setMyName] = useValue('people.name', '')
+  const [nameDraft, setNameDraft] = useState('')
   const [adding, setAdding] = useState(false)
   const [overP, setOverP] = useState<string | null>(null)
   const tg = targets(link.filesPeer || null, people, online)
@@ -89,7 +122,7 @@ export function Panel() {
   useEffect(() => {
     if (!isTauri) return
     const offs = [onEvent<string>('panel-show', (v) => {
-        setView(v === 'fx' ? 'fx' : 'main')
+        setView(v === 'fx' || v === 'quick' ? v : 'main')
         // 보일 때마다 등장 애니메이션 (요소는 그대로 — 높이 재기가 끊기지 않게)
         const el = box.current
         if (el) el.classList.remove('in'), void el.offsetWidth, el.classList.add('in')
@@ -148,7 +181,7 @@ export function Panel() {
   return (
     <section className="pn" ref={box} role="dialog" aria-label="Hera">
       <div ref={inner}>
-      {view === 'fx' ? <FxMenu hide={hide} /> : <>
+      {view === 'quick' ? <QuickTalk hide={hide} /> : view === 'fx' ? <FxMenu hide={hide} /> : <>
       <div className="sec">
         <div className="peer" data-st={look.st}>
           <span className="dev"><Ico k="laptop" w={1.6} /><i /></span>
@@ -170,13 +203,24 @@ export function Panel() {
       </div>
 
       <div className="sec" data-people>
-        <div className="sh"><b>보낼 사람</b><button className="link" data-people-add aria-expanded={adding} onClick={() => setAdding(!adding)}>{adding ? '닫기' : '+ 사람 추가'}</button></div>
+        {!myName.trim() && (
+          <div className="myname" data-myname>
+            <span><b>내 이름을 정해 주세요</b>다른 사람 Hera에 보이는 이름이에요</span>
+            <input className="inp" value={nameDraft} maxLength={20} placeholder="예: 김준영" aria-label="내 이름" onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && nameDraft.trim() && setMyName(nameDraft.trim())} />
+            <button className="btn pri" data-myname-save disabled={!nameDraft.trim()} onClick={() => setMyName(nameDraft.trim())}>저장</button>
+          </div>
+        )}
+        <div className="sh"><b>보낼 사람</b><span className="acts2">
+          <button className="talkbtn" data-talk onClick={() => (void talkOpen().catch(() => {}), hide())} title="전체 톡"><Ico k="chat" />톡{unread > 0 && <span className="badge" data-unread>{unread > 99 ? '99+' : unread}</span>}</button>
+          <button className="link" data-people-add aria-expanded={adding} onClick={() => setAdding(!adding)}>{adding ? '닫기' : '+ 사람 추가'}</button></span></div>
         {tg.length > 0 ? (
           <div className="ppl">
             {tg.map((t) => (
               <div key={t.id} className={`pp ${t.on ? '' : 'off'} ${t.id === 'mac' ? 'mac' : ''} ${overP === t.id ? 'over' : ''}`} data-person={t.id} title={t.on ? `파일을 놓으면 ${t.name}${t.id === 'mac' ? '으로' : '님에게'} 보내요` : `${t.name} · 지금 Hera가 꺼져 있거나 근처에 없어요`}>
                 <span className="av" style={{ '--c': colorFor(t.id) } as CSSProperties}>{t.id === 'mac' ? <Ico k="laptop" w={1.6} /> : initial(t.name)}</span>
                 <span className="nm">{t.name}</span>
+                {t.id !== 'mac' && <button className="star" data-fav={t.id} aria-pressed={!!people.find((p) => p.id === t.id)?.fav} onClick={() => toggleFav(t.id)} aria-label={`${t.name} 친한 친구`} title="친한 친구 (빠른 톡을 받는 사람)"><Ico k="star" /></button>}
                 {t.id !== 'mac' && <button className="x" data-people-del={t.id} onClick={() => void peopleForget(t.id)} aria-label={`${t.name} 등록 지우기`} title="등록 지우기"><Ico k="x" /></button>}
               </div>
             ))}
@@ -200,7 +244,7 @@ export function Panel() {
             {!near.some((n) => !n.known) && <p className="ppl-empty">근처에 다른 Hera가 없어요 — 같은 네트워크에서 Hera가 켜져 있어야 해요</p>}
           </div>
         )}
-        {tg.length > 0 && <div className="hint">파일을 사람 위에 놓으면 그 사람 선반으로 가요</div>}
+        {tg.length > 0 && <div className="hint">파일을 사람 위에 놓으면 그 사람 선반으로 · ⭐ 친한 친구 = 펫 빠른 톡을 받는 사람</div>}
       </div>
 
       <div className="sec">

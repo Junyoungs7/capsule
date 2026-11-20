@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hera 빠른 톡 시안</title>
+<style>
+:root{--card:rgba(255,255,255,.055);--card2:rgba(255,255,255,.1);--stroke:rgba(255,255,255,.08);--t1:#fff;--t2:rgba(255,255,255,.79);--t3:rgba(255,255,255,.55);--accent:#60cdff;--onacc:#003049;--panel:rgba(32,32,32,.92);--solid:#2b2b2b;--spring:cubic-bezier(.34,1.56,.64,1)}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{font:14px/1.43 'Segoe UI Variable Text','Segoe UI','Malgun Gothic',sans-serif;color:var(--t1);overflow:hidden;background:radial-gradient(1200px 700px at 30% 20%,#3a5f8a,#1b2a40 60%,#0f1622)}
+.cap{position:fixed;left:24px;top:20px;max-width:560px;color:var(--t2);font-size:13px}
+.cap b{color:var(--t1);font-size:15px;display:block;margin-bottom:4px}
+.cap ol{margin:6px 0 0;padding-left:18px}.cap li b{display:inline;font-size:13px}
+.bar{position:fixed;left:0;right:0;bottom:0;height:48px;background:rgba(28,28,28,.92);border-top:1px solid var(--stroke)}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:600;color:#fff;background:var(--c);position:relative;flex:none}
+.mac{background:radial-gradient(circle,#0b1a3a 35%,#1d5fc4 70%,#59c3ff)!important}
+/* 펫 */
+.pet{position:fixed;width:84px;height:84px;cursor:pointer;display:grid;place-items:end center}
+.pet svg{width:72px;height:68px;transform-origin:50% 100%;animation:breathe 3.2s ease-in-out infinite}
+.pet.hop svg{animation:hop 480ms var(--spring)}
+@keyframes breathe{50%{transform:scaleY(1.04)}}@keyframes hop{40%{transform:translateY(-12px) scaleY(1.06)}}
+/* 빠른 톡 입력 (펫 오른쪽 클릭) */
+.qt{position:fixed;width:320px;padding:10px;border-radius:14px;background:var(--panel);backdrop-filter:blur(40px);border:1px solid var(--stroke);box-shadow:0 16px 40px rgba(0,0,0,.5);
+ transform-origin:70% 100%;transform:translateY(10px) scale(.6);opacity:0;pointer-events:none;transition:transform 300ms var(--spring),opacity 140ms}
+.qt.on{transform:none;opacity:1;pointer-events:auto}
+.qt::after{content:"";position:absolute;right:70px;bottom:-7px;width:14px;height:14px;transform:rotate(45deg);background:#262626;border-right:1px solid var(--stroke);border-bottom:1px solid var(--stroke)}
+.qt .to{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t3);margin:0 2px 8px}
+.qt .to .av{width:20px;height:20px;font-size:10px;margin-left:-6px;border:2px solid #262626}.qt .to .av:first-of-type{margin-left:0}
+.qt .to button{all:unset;cursor:pointer;margin-left:auto;color:var(--t3);padding:0 4px;border-radius:4px;font-size:16px;line-height:1}
+.qt .to button:hover{color:var(--t1);background:var(--card2)}
+.qt input{width:100%;height:38px;border-radius:19px;border:1px solid var(--stroke);background:rgba(255,255,255,.05);color:var(--t1);font:inherit;padding:0 14px;outline:none}
+.qt input:focus{border-color:var(--accent)}
+.qt small{display:block;margin:6px 4px 0;font-size:11px;color:var(--t3)}
+.pm{position:fixed;width:200px;padding:4px;border-radius:8px;background:var(--panel);border:1px solid var(--stroke);box-shadow:0 12px 30px rgba(0,0,0,.5);display:none;z-index:5}
+.pm.on{display:block}.pm button{all:unset;display:block;width:100%;box-sizing:border-box;padding:7px 10px;border-radius:5px;font-size:13px;cursor:pointer}.pm button:hover{background:var(--card2)}
+/* 보낸 말이 날아감 */
+.fly{position:fixed;padding:7px 12px;border-radius:14px;background:var(--accent);color:var(--onacc);font-size:13px;pointer-events:none;z-index:9}
+/* 받는 쪽: 보낸 사람 얼굴 + 말풍선 (펫 위) */
+.pop{position:fixed;display:flex;align-items:flex-end;gap:8px;pointer-events:auto;z-index:8;cursor:pointer}
+.pop .av{width:44px;height:44px;font-size:16px;box-shadow:0 8px 20px rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.3);animation:pop-av 560ms var(--spring) backwards}
+.pop .bb{max-width:260px;padding:9px 13px;border-radius:16px 16px 16px 4px;background:#fff;color:#1b1b1b;font-size:14px;box-shadow:0 10px 26px rgba(0,0,0,.4);transform-origin:0 100%;animation:pop-bb 420ms var(--spring) 180ms backwards}
+.pop .bb small{display:block;font-size:11px;color:#666;margin-bottom:1px}
+.pop.out{animation:pop-out 380ms ease-in forwards}
+@keyframes pop-av{from{transform:translateY(30px) scale(.2);opacity:0}60%{transform:translateY(-6px) scale(1.08)}}
+@keyframes pop-bb{from{transform:scale(.2);opacity:0}}
+@keyframes pop-out{to{transform:translateY(-16px);opacity:0}}
+.pop+.pop{}
+/* 패널: 친한 친구 · 내 이름 */
+.pn{position:fixed;right:12px;bottom:60px;width:360px;padding:14px;border-radius:8px;background:var(--panel);border:1px solid var(--stroke);box-shadow:0 16px 40px rgba(0,0,0,.45)}
+.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.sh b{font-size:14px}
+.lnk{all:unset;cursor:pointer;color:var(--accent);font-size:12px}
+.me{display:flex;gap:8px;align-items:center;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--accent) 10%,var(--card));border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);margin-bottom:10px}
+.me div{flex:1;font-size:12px;color:var(--t2)}.me div b{display:block;color:var(--t1);font-size:13px}
+.me input{width:110px;height:30px;border-radius:5px;border:1px solid var(--stroke);background:rgba(255,255,255,.06);color:var(--t1);font:inherit;font-size:13px;padding:0 8px;outline:none}
+.me button{all:unset;cursor:pointer;height:30px;padding:0 10px;border-radius:5px;background:var(--accent);color:var(--onacc);font-size:12px;font-weight:600}
+.ppl{display:flex;gap:4px}
+.pp{position:relative;width:62px;padding:8px 0 6px;display:grid;justify-items:center;gap:4px;font-size:11px;color:var(--t2)}
+.pp .star{all:unset;position:absolute;right:6px;top:2px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:12px;cursor:pointer;color:rgba(255,255,255,.35);background:var(--solid)}
+.pp .star[aria-pressed=true]{color:#ffc83d}
+.hint{font-size:12px;color:var(--t3);margin-top:6px}
+.ctl{position:fixed;left:24px;bottom:72px;display:flex;gap:8px}
+.ctl button{all:unset;cursor:pointer;padding:6px 12px;border-radius:6px;background:var(--card2);font-size:12px}
+</style></head><body>
+<div class="cap"><b>시안 — 빠른 톡 (펫 오른쪽 클릭)</b>
+<ol><li><b>펫 오른쪽 클릭</b> → 펫 위에 한 줄 입력. 쓰고 <b>Enter</b> = 친한 친구(⭐)에게만. 말이 펫에서 날아가요. Esc = 닫기</li>
+<li><b>받는 사람 화면</b>: 그 사람 펫 위로 보낸 사람 얼굴이 톡 튀어나오고 말풍선. 6초 뒤 사라짐(마우스를 올리면 머무름) · 누르면 바로 닫힘 · 답장 없음 · 저장 안 함</li>
+<li>패널 '보낼 사람'에서 <b>⭐ = 친한 친구</b>. 처음에는 <b>내 이름</b>부터 정해요 (다른 사람 화면에 보이는 이름)</li>
+<li>펫 메뉴(이미지 · 효과 · 제자리)는 입력 오른쪽 <b>⋯</b></li></ol></div>
+
+<section class="pn">
+  <div class="me" id="me"><div><b>내 이름을 정해 주세요</b>다른 사람 Hera에 보이는 이름이에요</div><input id="myname" placeholder="예: 김준영" maxlength="20"><button id="saveName">저장</button></div>
+  <div class="sh"><b>보낼 사람</b><span><button class="lnk">💬 전체 톡</button> &nbsp;<button class="lnk">+ 사람 추가</button></span></div>
+  <div class="ppl" id="ppl"></div>
+  <div class="hint">⭐ 친한 친구 = 펫 빠른 톡을 받는 사람</div>
+</section>
+
+<div class="pet" id="pet" title="오른쪽 클릭 = 빠른 톡"><svg viewBox="0 0 36 34"><path d="M7 33c-2-6-1-13 3-17l-1-9 6 5c2-.6 4-.6 6 0l6-5-1 9c4 4 5 11 3 17z" fill="#f2a65a"/><circle cx="14" cy="21" r="1.6" fill="#2b1a0e"/><circle cx="22" cy="21" r="1.6" fill="#2b1a0e"/><path d="M16.5 25q1.5 1.2 3 0" stroke="#2b1a0e" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg></div>
+<div class="qt" id="qt"><div class="to" id="to"></div><input id="qin" placeholder="친한 친구에게 한마디 · Enter" maxlength="200"><small>저장되지 않아요 · 지금 켜진 친구에게만 보여요</small></div>
+<div class="pm" id="pm"><button>이미지 바꾸기</button><button>효과 · 아스키</button><button>제자리로</button></div>
+<div class="ctl"><button id="recv">친구 말 받기 (받는 쪽 화면)</button></div>
+<div class="bar"></div>
+<script>
+const $=s=>document.querySelector(s)
+const P=[{id:'mac',n:'내 맥',i:'⌘',on:1,star:0},{id:'jy',n:'박지윤',i:'지',c:'#d97706',on:1,star:1},{id:'mh',n:'이민호',i:'민',c:'#7c3aed',on:1,star:1},{id:'sh',n:'최서현',i:'서',c:'#0f9d58',on:0,star:1}]
+const av=p=>`<span class="av ${p.id==='mac'?'mac':''}" style="--c:${p.c||''}">${p.i}</span>`
+function drawP(){$('#ppl').innerHTML=P.filter(p=>p.id!=='mac').map(p=>`<div class="pp" style="${p.on?'':'opacity:.45'}">${av(p)}${p.n}<button class="star" aria-pressed="${!!p.star}" data-s="${p.id}" title="친한 친구">★</button></div>`).join('')}
+drawP()
+$('#ppl').onclick=e=>{const b=e.target.closest('[data-s]');if(!b)return;const p=P.find(x=>x.id===b.dataset.s);p.star^=1;drawP()}
+$('#saveName').onclick=()=>{const v=$('#myname').value.trim();if(!v)return;$('#me').innerHTML=`<div><b>${v}</b>다른 사람에게 이렇게 보여요</div><button class="lnk" style="background:none;color:var(--accent)">바꾸기</button>`}
+const pet=$('#pet'),qt=$('#qt')
+const home=()=>{pet.style.left=innerWidth-12-380-20-84+'px';pet.style.top=innerHeight-48-12-84+'px'}
+home();addEventListener('resize',home)
+const hop=()=>{pet.classList.remove('hop');void pet.offsetWidth;pet.classList.add('hop')}
+let replyTo=null
+function openQt(to){replyTo=to||null;const r=pet.getBoundingClientRect();qt.style.left=Math.min(r.left+42-250,innerWidth-330)+'px';qt.style.top=r.top-120+'px'
+  const fr=replyTo?[replyTo]:P.filter(p=>p.star&&p.on)
+  $('#to').innerHTML=fr.map(av).join('')+`<span>${replyTo?replyTo.n+'님에게 답장':'친한 친구 '+fr.length+'명에게'}</span><button title="펫 메뉴" id="more">⋯</button>`
+  $('#more').onclick=e=>{e.stopPropagation();const q=qt.getBoundingClientRect();$('#pm').style.left=q.right-200+'px';$('#pm').style.top=q.top-130+'px';$('#pm').classList.toggle('on')}
+  qt.classList.add('on');setTimeout(()=>$('#qin').focus(),50)}
+pet.oncontextmenu=e=>{e.preventDefault();openQt()}
+addEventListener('keydown',e=>{if(e.key==='Escape'){qt.classList.remove('on');$('#pm').classList.remove('on')}})
+document.addEventListener('mousedown',e=>{if(!qt.contains(e.target)&&!$('#pm').contains(e.target)&&!e.target.closest('.pop')){qt.classList.remove('on');$('#pm').classList.remove('on')}})
+$('#qin').onkeydown=e=>{if(e.key!=='Enter'||e.isComposing)return;const v=e.target.value.trim();if(!v)return
+  const r=e.target.getBoundingClientRect(),f=document.createElement('div');f.className='fly';f.textContent=v;f.style.left=r.left+'px';f.style.top=r.top+'px';document.body.append(f)
+  f.animate([{transform:'none',opacity:1},{transform:`translate(${innerWidth-r.left}px,-260px) scale(.4) rotate(-8deg)`,opacity:0}],{duration:620,easing:'cubic-bezier(.5,0,.75,0)'}).onfinish=()=>f.remove()
+  e.target.value='';qt.classList.remove('on');hop()}
+// 받는 쪽
+let stack=0
+function pop(p,text){const r=pet.getBoundingClientRect(),el=document.createElement('div');el.className='pop'
+  el.innerHTML=`${av(p)}<div class="bb"><small>${p.n}</small>${text}</div>`;el.style.left=r.left-40+'px';el.style.top=r.top-70-stack*66+'px';stack++
+  document.body.append(el);hop()
+  let t;const out=()=>{t=setTimeout(()=>{el.classList.add('out');setTimeout(()=>{el.remove();stack=Math.max(0,stack-1)},380)},6000)}
+  out();el.onmouseenter=()=>clearTimeout(t);el.onmouseleave=out;el.onclick=()=>{clearTimeout(t);el.classList.add('out');setTimeout(()=>{el.remove();stack=Math.max(0,stack-1)},380)} // 누르면 닫기만 (답장 없음)}
+const LINES=[['jy','점심 뭐 먹어요? 🍜'],['mh','회의 3시로 미뤄졌어요'],['jy','오 좋아요 ㅋㅋ']];let k=0
+$('#recv').onclick=()=>{const [id,t]=LINES[k++%LINES.length];pop(P.find(p=>p.id===id),t)}
+</script>
+</body></html>

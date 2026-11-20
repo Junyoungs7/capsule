@@ -285,3 +285,81 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .pchip .av { width: 34px; height: 34px; font-size: 13px; color: #fff; box-shadow: none; }
 .pchip.over { color: var(--t1); background: color-mix(in srgb, var(--accent) 16%, var(--card)); }
 @media (prefers-reduced-motion: reduce) { .fo, .gate { animation: none; } .gate .ring::before { animation: none; } }
+/* 톡 단추 · 안 읽은 수 · 친한 친구 ⭐ · 내 이름 — 시안 talk · quick */
+.sh .acts2 { display: flex; align-items: center; gap: 10px; }
+.talkbtn { all: unset; cursor: pointer; display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: 12px; background: var(--card2); font-size: 12px; color: var(--t1); }
+.talkbtn:hover, .talkbtn:focus-visible { background: color-mix(in srgb, var(--t1) 16%, transparent); }
+.talkbtn svg { width: 14px; height: 14px; }
+.badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #e81123; color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+.pp .star { all: unset; position: absolute; left: 4px; top: 2px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--solid); color: color-mix(in srgb, var(--t1) 30%, transparent); cursor: pointer; opacity: 0; transition: opacity 100ms; }
+.pp .star svg { width: 11px; height: 11px; }
+.pp .star[aria-pressed='true'] { color: #ffc83d; opacity: 1; }
+.pp .star[aria-pressed='true'] svg { fill: currentColor; }
+.pp:hover .star, .pp .star:focus-visible { opacity: 1; }
+.myname { display: flex; align-items: center; gap: 8px; padding: 10px; margin-bottom: 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.myname span { flex: 1; font-size: 12px; color: var(--t2); }
+.myname span b { display: block; font-size: 13px; color: var(--t1); }
+.myname .inp { width: 104px; height: 30px; }
+/* 빠른 톡 (펫 오른쪽 클릭 — 패널이 펫 위에 작게) */
+.qt .to { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--t3); margin: 0 2px 8px; }
+.qt .to .av { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #fff; background: var(--c); margin-left: -6px; border: 2px solid var(--bg); }
+.qt .to .av:first-child { margin-left: 0; }
+.qt .to .ib { margin-left: auto; font-size: 16px; line-height: 1; }
+.qt .inp { width: 100%; height: 38px; border-radius: 19px; padding: 0 14px; }
+.qt small { display: block; margin: 6px 4px 0; font-size: 11px; color: var(--t3); }
+.qt .fxm { margin-top: 10px; padding: 10px 0 0; border-top: 1px solid var(--stroke); }
+/* 받은 빠른 톡: 펫 위로 보낸 사람 얼굴 + 말풍선 (끌기 오버레이) */
+.poke { position: fixed; z-index: 31; display: flex; align-items: flex-end; gap: 8px; cursor: pointer; transform: translate(-50%, -100%); }
+.poke .av { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; font-weight: 600; color: #fff; background: var(--c); box-shadow: 0 8px 20px rgba(0, 0, 0, .45); border: 2px solid rgba(255, 255, 255, .3); flex: none; animation: poke-av 560ms cubic-bezier(.34, 1.56, .64, 1) backwards; }
+.poke .av.mac { background: radial-gradient(circle, #0b1a3a 35%, #1d5fc4 70%, #59c3ff); }
+.poke .bb { max-width: 260px; padding: 9px 13px; border-radius: 16px 16px 16px 4px; background: #fff; color: #1b1b1b; font-size: 14px; line-height: 1.4; box-shadow: 0 10px 26px rgba(0, 0, 0, .4); transform-origin: 0 100%; white-space: pre-wrap; word-break: break-word; animation: poke-bb 420ms cubic-bezier(.34, 1.56, .64, 1) 180ms backwards; }
+.poke .bb small { display: block; font-size: 11px; color: #666; margin-bottom: 1px; }
+.poke.out { animation: poke-out 380ms ease-in forwards; }
+@keyframes poke-av { from { transform: translateY(30px) scale(.2); opacity: 0; } 60% { transform: translateY(-6px) scale(1.08); } }
+@keyframes poke-bb { from { transform: scale(.2); opacity: 0; } }
+@keyframes poke-out { to { transform: translate(-50%, -100%) translateY(-16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .poke .av, .poke .bb, .poke.out { animation: none; } }
+
+/* 전체 톡 창 (?surface=talk) — 시안 talk.html */
+.talkwin { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--bg); user-select: text; }
+.talkwin .tb { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--stroke); font-size: 13px; }
+.talkwin .tb small { color: var(--t3); font-size: 12px; }
+.talkwin .who { display: flex; margin-left: auto; margin-right: 4px; }
+.talkwin .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 600; color: #fff; background: var(--c); }
+.talkwin .av.mac { background: radial-gradient(circle, #0b1a3a 35%, #1d5fc4 70%, #59c3ff); }
+.talkwin .who .av { width: 22px; height: 22px; font-size: 10px; margin-left: -5px; border: 2px solid var(--bg); }
+.talkwin .ib.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.talkwin .inv { display: grid; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--stroke); background: var(--card); font-size: 13px; }
+.talkwin .inv small { color: var(--t3); font-size: 11px; }
+.talkwin .inv label { display: flex; align-items: center; gap: 8px; }
+.talkwin .inv label.off { color: var(--t3); }
+.talkwin .inv em { font-style: normal; font-size: 11px; }
+.talkwin .inv .btn { justify-self: end; }
+.talkwin .list { flex: 1; overflow: hidden auto; padding: 12px 12px 4px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--t1) 22%, transparent) transparent; }
+.talkwin .row { display: contents; }
+.talkwin .empty { margin: auto; color: var(--t3); font-size: 12px; text-align: center; }
+.talkwin .day { align-self: center; font-size: 11px; color: var(--t3); margin: 8px 0 4px; }
+.talkwin .sys { align-self: center; font-size: 11px; color: var(--t3); padding: 2px 0; text-align: center; }
+.talkwin .m { display: flex; gap: 8px; align-items: flex-end; max-width: 86%; animation: m-in 260ms var(--spring); }
+@keyframes m-in { from { opacity: 0; transform: translateY(8px) scale(.97); } }
+.talkwin .m .col { display: grid; gap: 2px; min-width: 0; }
+.talkwin .m .nm { font-size: 11px; color: var(--t3); margin-left: 2px; }
+.talkwin .m .b { padding: 7px 11px; border-radius: 14px 14px 14px 4px; background: var(--card2); font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+.talkwin .m time { font-size: 10px; color: var(--t3); white-space: nowrap; margin-bottom: 2px; }
+.talkwin .m.cont .av { visibility: hidden; }
+.talkwin .m.cont .nm { display: none; }
+.talkwin .m.me { align-self: flex-end; flex-direction: row-reverse; }
+.talkwin .m.me .av, .talkwin .m.me .nm { display: none; }
+.talkwin .m.me .b { background: var(--accent); color: var(--onacc); border-radius: 14px 14px 4px 14px; }
+.talkwin .file { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--stroke); font-size: 12.5px; word-break: break-all; }
+.talkwin .file i { width: 28px; height: 34px; flex: none; border-radius: 4px; color: #fff; font: 700 9px/34px 'Segoe UI', sans-serif; text-align: center; font-style: normal; }
+.talkwin .file small { display: block; color: var(--t3); font-size: 11px; }
+.talkwin .m.me .file { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.talkwin .hint { font-size: 11px; color: var(--t3); padding: 0 12px 6px; }
+.talkwin .inbox { flex: none; border-top: 1px solid var(--stroke); padding: 10px; display: flex; gap: 8px; align-items: flex-end; }
+.talkwin .inbox textarea { flex: 1; resize: none; min-height: 36px; max-height: 100px; padding: 7px 10px; font-size: 13.5px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--t1) 22%, transparent) transparent; }
+.talkwin .inbox .btn { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; }
+.talkwin .inbox .btn svg { width: 18px; height: 18px; }
+.talkwin .dropover { position: absolute; inset: 44px 0 0; display: none; place-items: center; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px dashed var(--accent); font-size: 14px; pointer-events: none; }
+.talkwin.drop .dropover { display: grid; }
+@media (prefers-reduced-motion: reduce) { .talkwin .m { animation: none; } }

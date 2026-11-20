@@ -18,6 +18,8 @@ const P: Record<string, string> = {
   play: 'M7 5l12 7-12 7z',
   minus: 'M5 12h14',
   plus: 'M12 5v14M5 12h14',
+  chat: 'M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z',
 }
 export type IcoKey = keyof typeof P
 export const Ico = ({ k, w = 1.7 }: { k: IcoKey; w?: number }) => (

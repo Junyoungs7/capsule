@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hera 전체 톡 시안</title>
+<style>
+:root{--card:rgba(255,255,255,.055);--card2:rgba(255,255,255,.1);--stroke:rgba(255,255,255,.08);--t1:#fff;--t2:rgba(255,255,255,.79);--t3:rgba(255,255,255,.55);--accent:#60cdff;--onacc:#003049;--panel:rgba(32,32,32,.9);--solid:#2b2b2b;--spring:cubic-bezier(.34,1.56,.64,1)}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{font:14px/1.43 'Segoe UI Variable Text','Segoe UI','Malgun Gothic',sans-serif;color:var(--t1);overflow:hidden;background:radial-gradient(1200px 700px at 30% 20%,#3a5f8a,#1b2a40 60%,#0f1622)}
+.cap{position:fixed;left:24px;top:20px;max-width:520px;color:var(--t2);font-size:13px}
+.cap b{color:var(--t1);font-size:15px;display:block;margin-bottom:4px}
+.cap ol{margin:6px 0 0;padding-left:18px}
+.bar{position:fixed;left:0;right:0;bottom:0;height:48px;background:rgba(28,28,28,.92);border-top:1px solid var(--stroke)}
+/* 패널 일부 */
+.pn{position:fixed;right:12px;bottom:60px;width:360px;padding:14px;border-radius:8px;background:var(--panel);border:1px solid var(--stroke);box-shadow:0 16px 40px rgba(0,0,0,.45)}
+.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.sh b{font-size:14px}
+.sh .r{display:flex;gap:10px;align-items:center}
+.lnk{all:unset;cursor:pointer;color:var(--accent);font-size:12px}
+.talkbtn{all:unset;cursor:pointer;position:relative;display:flex;align-items:center;gap:5px;font-size:12px;padding:3px 9px;border-radius:12px;background:var(--card2)}
+.talkbtn:hover{background:rgba(255,255,255,.16)}
+.badge{min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#e81123;color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center}
+.ppl{display:flex;gap:4px}
+.pp{width:62px;padding:8px 0 6px;display:grid;justify-items:center;gap:4px;font-size:11px;color:var(--t2)}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:600;color:#fff;background:var(--c);position:relative;flex:none}
+.pp .av::after{content:"";position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:50%;background:#6ccb5f;border:2px solid var(--solid)}
+.pp.off{opacity:.45}.pp.off .av::after{background:#8a8a8a}
+.mac{background:radial-gradient(circle,#0b1a3a 35%,#1d5fc4 70%,#59c3ff)!important}
+.fake{margin-top:12px;height:120px;border-radius:6px;background:var(--card);border:1px solid var(--stroke);display:grid;place-items:center;color:var(--t3);font-size:12px}
+/* 톡 창 */
+.win{position:fixed;right:390px;bottom:60px;width:380px;height:560px;border-radius:8px;background:#202020;border:1px solid rgba(255,255,255,.1);box-shadow:0 24px 60px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden;
+ opacity:0;transform:translateY(10px) scale(.98);pointer-events:none;transition:opacity 140ms,transform 240ms cubic-bezier(.1,.9,.2,1)}
+.win.on{opacity:1;transform:none;pointer-events:auto}
+.tb{height:40px;display:flex;align-items:center;padding:0 6px 0 14px;gap:8px;border-bottom:1px solid var(--stroke);font-size:13px}
+.tb b{font-weight:600}.tb small{color:var(--t3);font-size:12px}
+.tb .who{display:flex;margin-left:auto;margin-right:4px}.tb .who .av{width:22px;height:22px;font-size:10px;margin-left:-5px;border:2px solid #202020}
+.tb button{all:unset;cursor:pointer;width:32px;height:28px;display:grid;place-items:center;border-radius:4px;color:var(--t2)}
+.tb button:hover{background:var(--card2)}
+.list{flex:1;overflow:auto;padding:12px 12px 4px;display:flex;flex-direction:column;gap:2px}
+.list::-webkit-scrollbar,.inbox textarea::-webkit-scrollbar{width:6px}.inbox textarea::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:3px}.inbox textarea::-webkit-scrollbar-track{background:transparent}.inbox textarea{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}.list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:3px}.list::-webkit-scrollbar-track{background:transparent}
+.day{align-self:center;font-size:11px;color:var(--t3);margin:6px 0}
+.m{display:flex;gap:8px;align-items:flex-end;max-width:86%;animation:min 260ms var(--spring)}
+@keyframes min{from{opacity:0;transform:translateY(8px) scale(.97)}}
+.m .av{width:28px;height:28px;font-size:12px}
+.m .col{display:grid;gap:2px}
+.m .nm{font-size:11px;color:var(--t3);margin-left:2px}
+.m .b{padding:7px 11px;border-radius:14px 14px 14px 4px;background:var(--card2);font-size:13.5px;white-space:pre-wrap;word-break:break-word}
+.m time{font-size:10px;color:var(--t3);white-space:nowrap;margin-bottom:2px}
+.m.cont .av{visibility:hidden}.m.cont .nm{display:none}.m.cont .b{border-radius:4px 14px 14px 4px}
+.m.me{align-self:flex-end;flex-direction:row-reverse}
+.m.me .av,.m.me .nm{display:none}
+.m.me .b{background:var(--accent);color:var(--onacc);border-radius:14px 14px 4px 14px}
+.m .file{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:var(--card);border:1px solid var(--stroke);font-size:12.5px}
+.m .file i{width:28px;height:34px;border-radius:4px;background:#c42b1c;color:#fff;font:700 9px/34px sans-serif;text-align:center;font-style:normal}
+.m .file small{display:block;color:var(--t3);font-size:11px}
+.m.me .file{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+.sys{align-self:center;font-size:11px;color:var(--t3);padding:2px 0}
+.inbox{border-top:1px solid var(--stroke);padding:10px;display:flex;gap:8px;align-items:flex-end}
+.inbox textarea{flex:1;resize:none;border:1px solid var(--stroke);border-radius:6px;background:rgba(255,255,255,.04);color:var(--t1);font:inherit;font-size:13.5px;padding:7px 10px;height:36px;max-height:100px;outline:none}
+.inbox textarea:focus{border-bottom:2px solid var(--accent)}
+.inbox button{all:unset;cursor:pointer;width:36px;height:36px;border-radius:6px;background:var(--accent);color:var(--onacc);display:grid;place-items:center}
+.inbox button:disabled{opacity:.35;cursor:default}
+.hint{font-size:11px;color:var(--t3);padding:0 12px 8px}
+.inv{display:none;padding:10px 14px;border-bottom:1px solid var(--stroke);background:rgba(255,255,255,.03);font-size:13px}.inv.on{display:grid;gap:6px}.inv small{color:var(--t3);font-size:11px}.inv em{color:var(--t3);font-style:normal;font-size:11px}.inv button{all:unset;cursor:pointer;justify-self:end;padding:5px 12px;border-radius:5px;background:var(--accent);color:var(--onacc);font-size:12px;font-weight:600}
+.dropover{position:absolute;inset:40px 0 0;background:rgba(96,205,255,.12);border:2px dashed var(--accent);border-radius:0 0 8px 8px;display:none;place-items:center;font-size:14px;color:var(--t1)}
+.win.drop .dropover{display:grid}
+/* 알림 카드 */
+.toast{position:fixed;right:16px;bottom:60px;width:340px;padding:12px 14px;border-radius:8px;background:#2b2b2b;border:1px solid var(--stroke);box-shadow:0 12px 30px rgba(0,0,0,.5);display:flex;gap:10px;opacity:0;transform:translateX(20px);transition:all 260ms cubic-bezier(.1,.9,.2,1);cursor:pointer;z-index:50}
+.toast.on{opacity:1;transform:none}
+.toast .av{width:32px;height:32px;font-size:13px}
+.toast b{display:block;font-size:13px}.toast span{font-size:13px;color:var(--t2)}
+.ctl{position:fixed;left:24px;bottom:72px;display:flex;gap:8px}
+.ctl button{all:unset;cursor:pointer;padding:6px 12px;border-radius:6px;background:var(--card2);font-size:12px}
+</style></head><body>
+<div class="cap"><b>시안 — 전체 톡</b>
+등록한 사람들과 내 맥이 한 방에서 이야기해요. 서버 없이 PC끼리 직접 보내고, 지금 켜진 사람에게만 바로 가요.
+<ol><li>패널 '보낼 사람' 옆 <b style="display:inline;font-size:13px">💬 톡</b> (안 읽은 수) → 톡 창</li>
+<li>Enter = 보내기 · Shift+Enter = 줄바꿈 · 파일을 창에 끌어 놓으면 켜진 사람 모두에게</li>
+<li>메시지가 오면 알림 카드 → 누르면 톡 창. 톡 창을 보고 있으면 알림 없음</li></ol></div>
+
+<section class="pn">
+  <div class="sh"><b>보낼 사람</b><span class="r"><button class="talkbtn" id="talkBtn">💬 톡 <span class="badge" id="badge">2</span></button><button class="lnk">+ 사람 추가</button></span></div>
+  <div class="ppl">
+    <div class="pp"><span class="av mac">⌘</span>내 맥</div>
+    <div class="pp"><span class="av" style="--c:#d97706">지</span>박지윤</div>
+    <div class="pp"><span class="av" style="--c:#7c3aed">민</span>이민호</div>
+    <div class="pp off"><span class="av" style="--c:#0f9d58">서</span>최서현</div>
+  </div>
+  <div class="fake">선반 · 메모 (지금 그대로)</div>
+</section>
+
+<section class="win" id="win" aria-label="전체 톡">
+  <div class="tb"><b>전체 톡</b><small id="cnt">4명 · 3명 켜짐</small>
+    <span class="who"><span class="av mac">⌘</span><span class="av" style="--c:#d97706">지</span><span class="av" style="--c:#7c3aed">민</span></span>
+    <button title="초대 — 내가 등록한 사람들이 서로 자동으로 등록돼요" id="invite" style="width:auto;padding:0 8px;font-size:12px;color:var(--accent)">+ 초대</button><button title="닫기" id="close">✕</button></div>
+  <div class="inv" id="inv"><small>초대할 사람 — 톡 사람들과 서로 등록돼요</small><label><input type="checkbox" checked> 최서현</label><label><input type="checkbox"> 정다운 <em>(근처 · 아직 등록 안 함 → 숫자 확인 먼저)</em></label><button id="invGo">초대하기</button></div>
+  <div class="list" id="list"></div>
+  <div class="hint" id="hint">최서현님은 지금 꺼져 있어 받지 못해요</div>
+  <div class="inbox"><textarea id="in" placeholder="메시지 · Enter 보내기" rows="1"></textarea><button id="send" disabled title="보내기">➤</button></div>
+  <div class="dropover">놓으면 켜진 사람 모두에게 보내요</div>
+</section>
+
+<div class="toast" id="toast"><span class="av" style="--c:#7c3aed">민</span><div><b>이민호 · 전체 톡</b><span id="tt">회의 3시로 미뤄졌어요</span></div></div>
+<div class="ctl"><button id="fakeIn">상대 메시지 받기</button><button id="fakeFile">파일 끌어 놓기</button></div>
+<div class="bar"></div>
+<script>
+const $=s=>document.querySelector(s)
+const P={jy:['박지윤','지','#d97706'],mh:['이민호','민','#7c3aed'],mac:['내 맥','⌘','']}
+const msgs=[['jy','점심 뭐 먹어요?','11:42'],['jy','저는 국밥 생각 중','11:42'],['me','좋아요 12시에 내려가요','11:43'],['mac','(맥에서) 회의록 정리했어요','11:50'],['jy',{f:'견적서_v2.pdf',s:'1.2MB'},'11:51']]
+let unread=2
+function row(m,prev){const [w,t,at]=m,me=w==='me',cont=prev&&prev[0]===w
+  const p=P[w]||[],body=typeof t==='string'?`<div class="b">${t.replace(/</g,'&lt;')}</div>`:`<div class="file"><i>PDF</i><div>${t.f}<small>${t.s} · 선반에 들어갔어요</small></div></div>`
+  return `<div class="m ${me?'me':''} ${cont?'cont':''}"><span class="av ${w==='mac'?'mac':''}" style="--c:${p[2]}">${p[1]||''}</span><div class="col"><span class="nm">${p[0]||''}</span>${body}</div><time>${at}</time></div>`}
+function draw(){$('#list').innerHTML='<div class="day">오늘</div>'+msgs.map((m,i)=>row(m,msgs[i-1])).join('');$('#list').scrollTop=1e9}
+draw()
+const open=()=>{$('#win').classList.add('on');unread=0;$('#badge').style.display='none';$('#in').focus()}
+$('#talkBtn').onclick=open;$('#close').onclick=()=>$('#win').classList.remove('on');$('#toast').onclick=()=>{$('#toast').classList.remove('on');open()}
+const now=()=>new Date().toTimeString().slice(0,5)
+$('#in').oninput=e=>{$('#send').disabled=!e.target.value.trim();e.target.style.height='36px';e.target.style.height=Math.min(100,e.target.scrollHeight+2)+'px'}
+const send=()=>{const v=$('#in').value.trim();if(!v)return;msgs.push(['me',v,now()]);$('#in').value='';$('#send').disabled=true;$('#in').style.height='36px';draw()}
+$('#in').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}}
+$('#send').onclick=send
+$('#invite').onclick=()=>$('#inv').classList.toggle('on')
+$('#invGo').onclick=()=>{$('#inv').classList.remove('on');$('#list').insertAdjacentHTML('beforeend','<div class="sys">최서현님을 초대했어요 — 박지윤 · 이민호와 서로 등록됐어요</div>');$('#list').scrollTop=1e9}
+$('#fakeIn').onclick=()=>{const t='회의 3시로 미뤄졌어요';msgs.push(['mh',t,now()]);draw()
+  if(!$('#win').classList.contains('on')){unread++;$('#badge').textContent=unread;$('#badge').style.display='';$('#tt').textContent=t;$('#toast').classList.add('on');clearTimeout(window._t);window._t=setTimeout(()=>$('#toast').classList.remove('on'),4000)}}
+$('#fakeFile').onclick=()=>{open();$('#win').classList.add('drop');setTimeout(()=>{$('#win').classList.remove('drop');msgs.push(['me',{f:'회의자료.pdf',s:'820KB'},now()]);msgs.push(['sys']);draw();
+  $('#list').insertAdjacentHTML('beforeend','<div class="sys">내 맥 · 박지윤 · 이민호에게 보냈어요</div>');$('#list').scrollTop=1e9},900)}
+// sys 줄은 그리지 않는다
+const _row=row;row=(m,p)=>m[0]==='sys'?'':_row(m,p)
+</script>
+</body></html>

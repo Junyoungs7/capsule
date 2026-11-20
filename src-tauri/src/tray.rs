@@ -103,11 +103,30 @@ pub fn create_panel(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// 빠른 톡(펫 오른쪽 클릭): 패널이 펫 바로 위(자리가 없으면 아래)에 작은 입력으로 뜬다
+static QUICK: AtomicBool = AtomicBool::new(false);
+
+/// 작업 영역 [x, y, w, h] · 배율 · 펫 rect [l, t, r, b] · 크기(논리) → 펫 위 가운데 (물리 px)
+pub fn above_rect(wa: [i32; 4], s: f64, pet: [i32; 4], size: (f64, f64)) -> [i32; 4] {
+    let (w, h, g) = ((size.0 * s).round() as i32, (size.1 * s).round() as i32, (GAP * s).round() as i32);
+    let x = ((pet[0] + pet[2]) / 2 - w / 2).max(wa[0] + g).min(wa[0] + wa[2] - g - w);
+    let up = pet[1] - (6.0 * s) as i32 - h;
+    let y = if up >= wa[1] + g { up } else { (pet[3] + (6.0 * s) as i32).min(wa[1] + wa[3] - g - h) };
+    [x, y, w, h]
+}
+
 fn place_panel(app: &AppHandle, win: &WebviewWindow) {
     let at = *ANCHOR.lock().unwrap();
     let Some((wa, s)) = work_area(app, at) else { return };
+    let size = (PANEL_W, PANEL_H.load(Ordering::Relaxed) as f64);
+    if QUICK.load(Ordering::Relaxed) {
+        if let Some(p) = crate::pet::rect() {
+            let r = above_rect(wa, s, p, size);
+            return crate::ui::set_bounds(win, r[0], r[1], r[2], r[3]);
+        }
+    }
     let at = at.unwrap_or(((wa[0] + wa[2]) as f64, (wa[1] + wa[3]) as f64));
-    let r = panel_rect(wa, s, at, (PANEL_W, PANEL_H.load(Ordering::Relaxed) as f64));
+    let r = panel_rect(wa, s, at, size);
     crate::ui::set_bounds(win, r[0], r[1], r[2], r[3]);
 }
 
@@ -130,6 +149,7 @@ pub static PANEL_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 pub fn show(app: &AppHandle, at: Option<(f64, f64)>, view: &str) {
     let Some(win) = app.get_webview_window("panel") else { return };
     PANEL_ON.store(true, Ordering::Relaxed);
+    QUICK.store(view == "quick", Ordering::Relaxed);
     if at.is_some() {
         *ANCHOR.lock().unwrap() = at;
     }
@@ -212,11 +232,15 @@ pub fn toast_done(app: AppHandle) {
     }
 }
 
-/// 알림 카드 누름 → 패널 (페어링 숫자 확인 등)
+/// 알림 카드 누름 → 패널 (페어링 숫자 확인 등) · 톡이면 톡 창
 #[tauri::command]
-pub fn toast_click(app: AppHandle) {
+pub async fn toast_click(app: AppHandle, kind: Option<String>) {
     toast_done(app.clone());
-    show(&app, None, "main");
+    if kind.as_deref() == Some("talk") {
+        let _ = crate::open_talk(&app);
+    } else {
+        show(&app, None, "main");
+    }
 }
 
 /// 패널 내용 높이가 바뀜 (논리 px) — 열려 있으면 같은 모서리에 붙인 채 크기만
