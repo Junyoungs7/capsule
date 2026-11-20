@@ -40,6 +40,18 @@ pub mod pet {
     pub fn sync(_: &AppHandle) {}
     #[tauri::command]
     pub fn pet_click() {}
+    #[tauri::command]
+    pub fn pet_drag() {}
+    #[tauri::command]
+    pub fn pet_home() {}
+    #[tauri::command]
+    pub fn pet_set_image() -> Result<(), String> {
+        Err(super::NA.into())
+    }
+    #[tauri::command]
+    pub fn pet_image() -> Option<String> {
+        None
+    }
 }
 
 pub mod launch {

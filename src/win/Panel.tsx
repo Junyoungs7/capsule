@@ -27,14 +27,21 @@ const seedShelf: ShelfFile[] = [
   { id: 's2', path: 'C:\\Users\\me\\Downloads\\Hera\\스크린샷 2026-11-18.png', at: Date.now() - 3_600_000, from: 'mac' },
 ]
 
-/* 펫을 누르면 패널이 이 효과 메뉴로 열린다 (시안 pet-menu). 하나 누르면 바로 띄우고 닫힘. */
+/* 펫을 오른쪽 클릭하면 패널이 이 펫 메뉴로 열린다 (시안 pet-menu · people). 하나 누르면 바로 하고 닫힘. */
 const FX_ICON: Record<FxKind, string> = { snow: '❄️', rain: '🌧️', leaves: '🍁', dawn: '🌅', sunset: '🌇', moon: '🌙' }
 const ASCII: [string, string, string][] = [['xmas', '🎄', '성탄'], ['city', '🏙️', '도시'], ['autumn', '🍂', '가을'], ['calm', '🌊', '고요']]
 function FxMenu({ hide }: { hide: () => void }) {
   const [weather] = useValue<Weather | null>('fx.weather', null)
+  const [kind, setKind] = useValue('pet.kind', 'cat')
   const go = (f: () => Promise<unknown>) => (void f().catch(() => {}), hide())
   return (
     <div className="sec fxm">
+      <h4>펫</h4>
+      <div className="chips">
+        <button data-pet-img onClick={() => go(() => openSettings('deco'))}><span>🖼️</span>이미지 바꾸기</button>
+        {kind === 'custom' && <button data-pet-default onClick={() => (setKind('cat'), hide())}><span>🐱</span>기본 펫으로</button>}
+        <button data-pet-home onClick={() => go(() => (isTauri ? invoke('pet_home') : Promise.resolve()))}><span>↘</span>제자리로</button>
+      </div>
       <h4>날씨·계절 효과</h4>
       <div className="chips">{(Object.keys(FX_LABEL) as FxKind[]).map((k) => <button key={k} data-fx={k} onClick={() => go(() => openFx(k))}><span>{FX_ICON[k]}</span>{FX_LABEL[k]}</button>)}</div>
       <h4>아스키 화면 · 마우스를 움직이면 사라져요</h4>

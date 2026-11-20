@@ -1,6 +1,6 @@
-// Taskbar pet suite — HEADLESS only (headless.mjs, mocked IPC). The `pet` window (created by Rust only while 꾸미기 is on — pet.rs, cargo tests
-// cover placement on every taskbar side/DPI and auto-hide): built-in pet from pet.kind, hit rect = the pet only, click → pet_click (panel),
-// sleeps after a quiet spell with no animation running, short reactions on file received / sent.   node .omc/verify/pet-cdp.mjs
+// Pet suite — HEADLESS only (headless.mjs, mocked IPC). The `pet` window (always there — pet.rs, cargo tests cover the home spot and
+// keeping a moved pet on a monitor): built-in pet from pet.kind, hit rect = the pet box, click → pet_click main (panel), right-click → pet menu,
+// drag > 6px → pet_drag (and no click), custom image from pet_image, sleeps after a quiet spell, short reactions on file received / sent.   node .omc/verify/pet-cdp.mjs
 import { start, sleep, suite } from './headless.mjs'
 
 const { ok, until, done } = suite('pet')
@@ -8,13 +8,32 @@ const h = await start()
 const called = (cmd, n0) => h.calls.slice(n0).some((c) => c[1] === cmd)
 try {
   h.store.set('pet.kind', 'penguin')
-  const p = await h.open('pet', { geo: { x: 1580, y: 990, w: 52, h: 46 } })
+  const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  h.handlers.pet_image = () => IMG
+  const p = await h.open('pet', { geo: { x: 1440, y: 940, w: 84, h: 84 } })
   await until(() => p.eval(`!!document.querySelector('.petbar .pet')`), 8000)
   ok('built-in pet from pet.kind (penguin)', await until(() => p.eval(`document.querySelector('.pet').dataset.pet === 'penguin'`)))
-  ok('hit rect = the pet only (rest of the window clicks through)', await until(() => { const r = h.hits.get('pet'); return r?.length === 1 && r[0][2] <= 52 && r[0][3] <= 46 && r[0][2] >= 30 }))
+  ok('hit rect = the pet only (rest of the window clicks through)', await until(() => { const r = h.hits.get('pet'); return r?.length === 1 && r[0][2] === 84 && r[0][3] === 84 }))
+  ok('built-in pet drawn big enough for the floating window', (await p.eval(`document.querySelector('.pet').getBoundingClientRect().width`)) > 60)
   let n = h.calls.length
   await p.clickSel('.petbar')
-  ok('click → pet_click (opens the panel)', await until(() => called('pet_click', n)))
+  ok('click → pet_click main (opens the panel)', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'main')))
+  n = h.calls.length
+  await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 42, y: 60, button: 'right', buttons: 2, clickCount: 1 })
+  await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 42, y: 60, button: 'right', buttons: 0, clickCount: 1 })
+  ok('right-click → pet menu (pet_click fx)', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'fx')))
+  n = h.calls.length
+  await p.mouse('mouseMoved', 42, 60)
+  await p.mouse('mousePressed', 42, 60)
+  for (const x of [44, 46, 50, 55]) await p.mouse('mouseMoved', x, 60, { buttons: 1 })
+  await p.mouse('mouseReleased', 55, 60)
+  ok('drag > 6px → pet_drag, and that press is not a click', (await until(() => called('pet_drag', n))) && !called('pet_click', n))
+  h.store.set('pet.kind', 'custom')
+  await h.emit('store://change', { path: 'hera.json', resourceId: 1, key: 'pet.kind', value: 'custom', exists: true })
+  ok('custom image from pet_image', await until(() => p.eval(`document.querySelector('.petbar .pimg')?.src.startsWith('data:image/png')`)))
+  h.store.set('pet.kind', 'penguin')
+  await h.emit('store://change', { path: 'hera.json', resourceId: 1, key: 'pet.kind', value: 'penguin', exists: true })
+  ok('back to a built-in pet', await until(() => p.eval(`!document.querySelector('.pimg') && document.querySelector('.pet')?.dataset.pet === 'penguin'`)))
   ok('awake: idle pose, animating', (await p.eval(`document.querySelector('.pet').dataset.s`)) === 'idle' && (await p.eval(`document.getAnimations().length`)) > 0)
   await h.emitTo('pet', 'pet-react', 'recv')
   ok('file received → shelf pose (box)', await until(() => p.eval(`document.querySelector('.pet').dataset.s === 'shelf'`)))

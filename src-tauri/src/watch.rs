@@ -363,7 +363,7 @@ pub fn start(app: AppHandle) {
                 }
             }
 
-            // 작업 표시줄 펫 (꾸미기): 0.3초마다 자리 · 숨김 (전체화면 · 자동 숨김 작업 표시줄)
+            // 펫: 0.3초마다 자리 · 숨김 (전체화면)
             n = n.wrapping_add(1);
             if n.is_multiple_of(10) {
                 crate::pet::tick(full);

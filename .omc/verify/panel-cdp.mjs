@@ -76,6 +76,7 @@ try {
   ok('꾸미기 switch → deco.enabled = true', await until(() => h.store.get('deco.enabled') === true))
   await h.emitTo('panel', 'panel-show', 'fx')
   ok('pet click (panel-show "fx") → effects menu: 6 effects + 4 ascii, main panel hidden', await until(() => p.eval(`document.querySelectorAll('.pn [data-fx]').length === 6 && document.querySelectorAll('.pn [data-cover]').length === 4 && !document.querySelector('.pn .tile')`)))
+  ok('pet menu has pet actions (image · home)', await p.eval(`!!document.querySelector('.pn [data-pet-img]') && !!document.querySelector('.pn [data-pet-home]')`))
   n = h.calls.length
   await p.eval(`document.querySelector('.pn [data-fx=snow]').click()`)
   ok('눈 → fx(snow) + panel hides', await until(() => called('fx', n, (a) => a.kind === 'snow') && called('panel_hide', n)))

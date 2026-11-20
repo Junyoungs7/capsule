@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { getVersion } from '@tauri-apps/api/app'
+import { invoke } from '@tauri-apps/api/core'
 import { appDataDir } from '@tauri-apps/api/path'
 import { autostart, isTauri, onEvent, openFx, openPath, useValue, type LinkCfg } from '../data/api'
 import { KeyRows, MAC_LABEL, MonitorCanvas, PRESETS, WIN_LABEL, mapped } from '../surfaces/LinkExtras'
@@ -189,12 +190,25 @@ function Deco({ say }: { say: (t: string) => void }) {
   useEffect(() => setDraft(city), [city])
   const save = () => draft.trim() && draft.trim() !== city && setCity(draft.trim())
   const [tab, setTab] = useState<PetStyle>(PETS[pet]?.style ?? 'flat')
+  const [ver] = useValue<number>('pet.img', 0)
+  const [mine, setMine] = useState<string | null>(null)
+  useEffect(() => void (isTauri && invoke<string | null>('pet_image').then(setMine, () => {})), [ver])
+  const pick = (f: File | undefined) => {
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => void invoke('pet_set_image', { name: f.name, data: String(r.result).split(',')[1] ?? '' }).then(() => say('펫을 내 이미지로 바꿨어요'), (e) => say(String(e)))
+    r.readAsDataURL(f)
+  }
   return (
     <>
       <h1>꾸미기</h1>
-      <Row t="꾸미기" s="날씨·계절 효과 · 자리 비움 화면 · 작업 표시줄 펫 — 한 번에 켜고 꺼요"><Sw on={on} set={setOn} label="꾸미기" /></Row>
-      {!on && <p className="note-line">꺼져 있어요 — 켜면 아래 설정대로 움직여요.</p>}
-      <h2>작업 표시줄 펫</h2>
+      <h2>펫</h2>
+      <p className="note-line">펫은 항상 화면에 있어요 — 누르면 패널, 오른쪽 클릭은 펫 메뉴, 끌어서 어디든 옮겨요. 파일을 펫에 대면 보낼 곳이 둥글게 펼쳐져요.</p>
+      <Row t="내 이미지" s="PNG · GIF(움직이는 것도) · WebP · JPG, 8MB까지 — 펫 대신 보여요">
+        {mine && <button className="pet-mine" role="radio" aria-checked={pet === 'custom'} aria-label="내 이미지 쓰기" data-pet-mine onClick={() => setPet('custom')}><img src={mine} alt="" /></button>}
+        <label className="btn" data-pet-pick><Ico k="down" />이미지 고르기<input type="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden onChange={(e) => (pick(e.target.files?.[0]), (e.target.value = ''))} /></label>
+      </Row>
+      <Row t="자리" s="기본 자리는 오른쪽 아래(작업 표시줄 위)예요"><button className="btn" data-pet-home onClick={() => (isTauri && void invoke('pet_home'), say('펫을 오른쪽 아래로 옮겼어요'))}>제자리로</button></Row>
       <div className="tabs" role="tablist">
         {(Object.keys(STYLES) as PetStyle[]).map((k) => <button key={k} role="tab" data-pettab={k} aria-selected={tab === k} onClick={() => setTab(k)}>{STYLES[k]}</button>)}
       </div>
@@ -205,12 +219,13 @@ function Deco({ say }: { say: (t: string) => void }) {
           </button>
         ))}
       </div>
-      <h2>날씨·계절 효과</h2>
+      <h2>날씨·계절 효과 · 자리 비움 화면</h2>
+      <Row t="꾸미기" s="날씨·계절 효과 · 자리 비움 화면 — 한 번에 켜고 꺼요"><Sw on={on} set={setOn} label="꾸미기" /></Row>
+      {!on && <p className="note-line">꺼져 있어요 — 켜면 아래 설정대로 움직여요.</p>}
       <Row t="도시" s={`${city} · ${weather ? `${weather.text} ${weather.temp}°` : '날씨 정보 없음'} · 눈·비가 오기 시작할 때, 노을, 달이 뜰 때 잠깐 보여요`}>
         <input className="inp" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()} style={{ width: 140 }} aria-label="도시" />
       </Row>
       <Row t="지금 한 번 보기" s="지금 날씨·시간대에 맞는 효과를 띄워요"><button className="btn" onClick={() => (void openFx(pickFx(new Date(), weather)), say('바탕화면에 효과를 띄웠어요'))}><Ico k="play" />보기</button></Row>
-      <h2>자리 비움 화면</h2>
       <Row t="대기 시간" s="입력이 없으면 모든 모니터를 그림으로 가려요 · 마우스를 움직이면 사라져요"><Step value={idle} set={setIdle} max={120} unit="분" label="대기 시간" /></Row>
     </>
   )

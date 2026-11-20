@@ -7,7 +7,7 @@ mod edge;
 #[cfg(windows)]
 mod launch;
 #[cfg(windows)]
-mod pet; // 작업 표시줄 펫 (꾸미기)
+mod pet; // 펫 (항상 · 옮길 수 있음 · 내 이미지)
 #[cfg(windows)]
 mod ripple;
 #[cfg(windows)]
@@ -441,7 +441,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
-            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click,
+            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_drag, pet::pet_home, pet::pet_set_image, pet::pet_image,
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -474,14 +474,10 @@ pub fn run() {
             link::start(h.clone());
             link::files_start(h);
             notes::migrate(h);
-            pet::sync(h); // 꾸미기가 켜져 있으면 작업 표시줄 펫
-            let a = h.clone();
+            pet::sync(h); // 펫 (항상)
             listen_store(h, move |k, _| {
                 if matches!(k, "ascii.idleMin" | "deco.enabled" | "locator.enabled") {
                     watch::RECHECK.store(true, Ordering::Relaxed); // 2초 기다리지 않고 바로 적용
-                }
-                if k == "deco.enabled" {
-                    pet::sync(&a);
                 }
             });
 
