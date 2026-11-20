@@ -8,6 +8,8 @@ import { colorOf, extOf } from './Panel'
 /* 끌기 오버레이 (?surface=drag) — 파일을 끄는 동안만 그 모니터를 덮는 투명 창 (Rust drag.rs 가 보이고 숨긴다).
    - 받침: 흔들면 커서 위에 [선반에 올리기 | 맥으로 보내기] (시안 win-tray-v3 .pad, 스프링 등장). 놓기 = 네이티브 드롭(경로).
    - 포탈: 맥과 이어진 가장자리 구간 가까이 가면 커진다 (캔버스). 가장자리에 놓으면(edge.rs) 'portal-drop' → 빨려 들어감 · 섬광 · 충격파 → 보냄.
+   - 받는 포탈 (시안 recv-portal): 맥에서 파일을 받으면 'recv-portal' — 맥 가장자리로 보냈으면 이어진 그 자리에 큰 포탈, 아니면 트레이 아이콘 위에 작은 둥근 포탈.
+     입자가 밖으로 흘러나오고 파일이 튀어나와 포물선으로 트레이 아이콘에 들어간다 → 알림 카드는 Rust 가 띄운다.
    그리는 것은 끄는 중이거나 애니메이션 중일 때만 (rAF 는 스스로 멈춘다). */
 type Side = 'right' | 'left' | 'up' | 'down'
 type Pad = { x: number; y: number; mac: boolean; to: [number, number] | null }
@@ -25,16 +27,18 @@ export function DragLayer() {
   const cv = useRef<HTMLCanvasElement>(null)
   const paths = useRef<string[]>([])
   const st = useRef({ ended: false, sending: false })
-  const P = useRef({ k: 0, target: 0, x: 0, y: 0, side: 'right' as Side, hot: false, flash: 0, shock: 0, spin: 0, run: false, last: 0, parts: [] as { a: number; r: number; v: number; s: number; h: number }[] })
+  const P = useRef({ k: 0, target: 0, x: 0, y: 0, side: 'right' as Side, round: false, out: false, hot: false, flash: 0, shock: 0, spin: 0, run: false, last: 0, parts: [] as { a: number; r: number; v: number; s: number; h: number }[] })
   const REDUCE = reducedMotion()
 
   /* ── 포탈 캔버스 ── */
   const place = () => {
     const c = cv.current, p = P.current
     if (!c) return
-    c.style.left = `${p.x - CW}px`
+    const ex = p.round ? CW / 2 : CW
+    c.style.left = `${p.x - ex}px`
     c.style.top = `${p.y - CH / 2}px`
-    c.style.transform = `rotate(${ROT[p.side]}deg)`
+    c.style.transformOrigin = `${ex}px ${CH / 2}px`
+    c.style.transform = p.round ? 'none' : `rotate(${ROT[p.side]}deg)`
   }
   const setPortal = (target: number) => {
     const p = P.current
@@ -73,9 +77,10 @@ export function DragLayer() {
     if (!c || !cx) return
     const p = P.current
     cx.clearRect(0, 0, CW, CH)
-    const k = p.k, ex = CW, ey = CH / 2
+    const k = p.k, ex = p.round ? CW / 2 : CW, ey = CH / 2
     if (k <= 0.001 && p.shock <= 0) return
-    const rx = 104 * k, ry = 168 * k
+    const [RX, RY] = p.round ? [46, 46] : [104, 168]
+    const rx = RX * k, ry = RY * k, dir = p.out ? -1 : 1 // 받을 때는 거꾸로 돌고 입자가 밖으로
     const spill = cx.createRadialGradient(ex, ey, 0, ex, ey, 300 * Math.max(k, 0.2))
     spill.addColorStop(0, `rgba(80,170,255,${0.32 * k + p.flash * 0.4})`)
     spill.addColorStop(1, 'rgba(80,170,255,0)')
@@ -86,7 +91,7 @@ export function DragLayer() {
     line.addColorStop(0.5, `rgba(170,230,255,${0.75 * k})`)
     line.addColorStop(1, 'rgba(150,220,255,0)')
     cx.fillStyle = line
-    cx.fillRect(ex - 2, ey - 260, 2, 520)
+    if (!p.round) cx.fillRect(ex - 2, ey - 260, 2, 520)
     if (k > 0.01) {
       cx.save()
       cx.translate(ex, ey)
@@ -107,23 +112,25 @@ export function DragLayer() {
       for (let arm = 0; arm < 4; arm++) {
         cx.beginPath()
         for (let t = 0; t <= 1; t += 0.02) {
-          const a = p.spin * (arm % 2 ? 1 : 1.2) + (arm * Math.PI) / 2 + t * 4.2
+          const a = dir * p.spin * (arm % 2 ? 1 : 1.2) + (arm * Math.PI) / 2 + t * 4.2
           const rr = (1 - t) * 0.95
           const px = Math.cos(a) * rx * rr, py = Math.sin(a) * ry * rr
           t === 0 ? cx.moveTo(px, py) : cx.lineTo(px, py)
         }
         cx.strokeStyle = `rgba(${arm % 2 ? '120,200,255' : '190,235,255'},${0.16 + 0.12 * k + p.flash * 0.3})`
-        cx.lineWidth = 2.2 * k
+        cx.lineWidth = 2.2 * k * (p.round ? 0.6 : 1)
         cx.stroke()
       }
       const sp = (p.hot ? 1.8 : 1) * (st.current.sending ? 2.6 : 1)
       for (const q of p.parts) {
-        if (!REDUCE) (q.r -= q.v * dt * 0.55 * sp), (q.a += dt * (1.4 + (1 - q.r) * 3) * sp)
+        if (!REDUCE) (q.r -= dir * q.v * dt * 0.55 * sp), (q.a += dir * dt * (1.4 + (1 - q.r) * 3) * sp)
         if (q.r < 0.04) (q.r = 0.95 + Math.random() * 0.15), (q.a = Math.random() * Math.PI * 2)
+        if (q.r > 1.1) (q.r = 0.04 + Math.random() * 0.1), (q.a = Math.random() * Math.PI * 2)
         const px = Math.cos(q.a) * rx * q.r, py = Math.sin(q.a) * ry * q.r
-        cx.fillStyle = `hsla(${q.h},100%,${70 + 20 * (1 - q.r)}%,${Math.min(1, q.r * 1.6) * (0.55 + 0.45 * k)})`
+        const al = p.out ? Math.min(1, (1.1 - q.r) * 2) : Math.min(1, q.r * 1.6)
+        cx.fillStyle = `hsla(${q.h},100%,${70 + 20 * (1 - q.r)}%,${al * (0.55 + 0.45 * k)})`
         cx.beginPath()
-        cx.arc(px, py, q.s * (0.6 + 0.6 * q.r) * Math.max(k, 0.4), 0, Math.PI * 2)
+        cx.arc(px, py, q.s * (0.6 + 0.6 * q.r) * Math.max(k, 0.4) * (p.round ? 0.7 : 1), 0, Math.PI * 2)
         cx.fill()
       }
       cx.save()
@@ -137,7 +144,7 @@ export function DragLayer() {
       cx.stroke()
       cx.shadowBlur = 0
       for (let i = 0; i < 3; i++) {
-        const a0 = p.spin * 1.7 + i * 2.1
+        const a0 = dir * p.spin * 1.7 + i * 2.1
         cx.strokeStyle = `rgba(255,255,255,${0.85 * k})`
         cx.lineWidth = 2
         cx.beginPath()
@@ -161,11 +168,12 @@ export function DragLayer() {
       const s = p.shock
       cx.save()
       cx.translate(ex, ey)
-      cx.scale(1, 1.55)
+      cx.scale(1, p.round ? 1 : 1.55)
       cx.strokeStyle = `rgba(160,225,255,${(1 - s) * 0.9})`
       cx.lineWidth = 6 * (1 - s) + 1
       cx.beginPath()
-      cx.arc(0, 0, 60 + s * 260, Math.PI / 2, Math.PI * 1.5)
+      if (p.round) cx.arc(0, 0, 30 + s * 110, 0, Math.PI * 2)
+      else cx.arc(0, 0, 60 + s * 260, Math.PI / 2, Math.PI * 1.5)
       cx.stroke()
       cx.restore()
     }
@@ -184,6 +192,8 @@ export function DragLayer() {
   /** 빨려 들어가기: from(오버레이 좌표) → 포탈 가운데, 그다음 섬광 · 충격파 → send */
   const suck = (files: string[], from: [number, number], send: () => void) => {
     const s = st.current, p = P.current
+    p.round = p.out = false
+    place()
     s.sending = true
     setHint(false)
     setPortal(1)
@@ -215,6 +225,55 @@ export function DragLayer() {
     }
   }
 
+  /** 받기: 포탈이 열리고 → 파일이 튀어나와 → 포물선으로 트레이 아이콘(to)에 쏙 (시안 recv-portal) */
+  const recv = async (e: { edge: Side | null; x: number; y: number; to: [number, number]; name: string }) => {
+    const p = P.current
+    if (st.current.sending) return
+    st.current = { ended: true, sending: true }
+    const wait = (ms: number) => new Promise((r) => window.setTimeout(r, REDUCE ? 0 : ms))
+    const [tx, ty] = e.to
+    p.round = !e.edge
+    p.out = true
+    p.side = e.edge ?? 'right'
+    ;[p.x, p.y] = e.edge ? [e.x, e.y] : [tx, ty - 110]
+    place()
+    setPortal(1)
+    await wait(420)
+    p.flash = 1
+    p.shock = 0.001
+    const g = document.createElement('div')
+    g.className = 'suck'
+    g.dataset.recv = e.name
+    g.textContent = (extOf(e.name) || '파일').toUpperCase().slice(0, 4)
+    g.style.background = colorOf(e.name)
+    g.style.left = g.style.top = '0'
+    document.body.append(g)
+    const [ix, iy] = IN[p.side]
+    const out: [number, number] = e.edge ? [p.x + ix * 190, p.y + iy * 190 - 40] : [p.x - 4, p.y - 65]
+    const T = (x: number, y: number, r: number, k: number) => `translate(${x - 22}px, ${y - 27}px) rotate(${r}deg) scale(${k})`
+    await g.animate([{ transform: T(p.x, p.y, -300, 0.1), opacity: 0 }, { transform: T(...out, -20, 1.12), opacity: 1, offset: 0.75 }, { transform: T(...out, 0, 1), opacity: 1 }],
+      { duration: REDUCE ? 1 : 620, easing: 'cubic-bezier(.2,.9,.3,1.2)', fill: 'forwards' }).finished
+    setPortal(0)
+    await wait(260)
+    const kf: Keyframe[] = [], peak = Math.min(out[1], ty) - 90
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24, x = out[0] + (tx - out[0]) * t, y = (1 - t) * (1 - t) * out[1] + 2 * (1 - t) * t * peak + t * t * ty
+      kf.push({ transform: T(x, y, t * 25, 1 - 0.8 * t), opacity: t > 0.9 ? (1 - t) * 10 : 1 })
+    }
+    await g.animate(kf, { duration: REDUCE ? 1 : 700, easing: 'cubic-bezier(.45,0,.55,1)', fill: 'forwards' }).finished
+    g.remove()
+    // 트레이 아이콘 자리에 빛 고리 (아이콘 자체는 셸 것이라 움직일 수 없다)
+    const ring = document.createElement('div')
+    ring.className = 'recv-ring'
+    ring.style.left = `${tx}px`
+    ring.style.top = `${ty}px`
+    document.body.append(ring)
+    await wait(560)
+    ring.remove()
+    st.current.sending = false
+    settle()
+  }
+
   const left = pad ? Math.min(Math.max(pad.x, 170), innerWidth - 170) : 0
   const top = pad ? Math.max(pad.y, 190) : 0
   useLayoutEffect(() => {
@@ -240,12 +299,13 @@ export function DragLayer() {
       onEvent<Pad & { to: [number, number] | null }>('pad-show', (e) => setPad(e)),
       onEvent<{ k: number; side: Side; x: number; y: number }>('portal', (e) => {
         const p = P.current
-        if (e.k > 0) (p.x = e.x), (p.y = e.y), (p.side = e.side), place()
+        if (e.k > 0) (p.x = e.x), (p.y = e.y), (p.side = e.side), (p.round = p.out = false), place()
         if (!st.current.sending) setPortal(e.k)
       }),
       onEvent<{ paths: string[]; edge: string; pos: number; x: number; y: number }>('portal-drop', (e) =>
         suck(e.paths, [e.x, e.y], () => e.paths.forEach((f) => void linkSend(f, e.edge, e.pos).catch(() => {})))),
       // 단추를 뗌: 가장자리 드롭(portal-drop)이 곧 올 수 있다 → 잠깐 기다렸다 정리
+      onEvent<{ edge: Side | null; x: number; y: number; to: [number, number]; name: string }>('recv-portal', (e) => void recv(e)),
       onEvent('drag-end', () => window.setTimeout(() => ((st.current.ended = true), setPortal(0), settle()), 200)),
     ]
     const off = getCurrentWebview().onDragDropEvent((e) => {

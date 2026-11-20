@@ -842,17 +842,29 @@ fn sink(app: &AppHandle) -> lf::Sink {
                 crate::shelve(&app, std::slice::from_ref(path), "mac"); // 받은 파일 → 선반 (다운로드\Hera 에도 있음)
                 let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let _ = app.emit_to("pet", "pet-react", "recv");
-                crate::tray::toast(&app, "recv", "맥에서 파일을 받았어요", &format!(r"{name} · 선반과 다운로드\Hera에 있어요"));
-                // 맥 가장자리로 끌어 보낸 파일: 이어진 PC 가장자리 그 자리에 진한 물결
+                // 받는 포탈 (시안 recv-portal): 맥 가장자리로 보냈으면 이어진 PC 가장자리 그 자리, 아니면 트레이 아이콘 위.
+                // 파일이 트레이 아이콘으로 들어간 뒤 알림 카드. 전체화면 앱 중이면 애니메이션 없이 (알림도 tray::toast 가 거른다).
                 #[cfg(windows)]
-                if meta["via"] == "edge" {
-                    if let (Some(side), Some(pos)) = (meta["edge"].as_str(), meta["pos"].as_f64()) {
-                        if let Some((x, y, wside)) = ll::mac_to_win(&plan(&app).1.segs, side, pos) {
-                            crate::ripple::show(x as i32, y as i32, Some(wside), crate::ripple::Kind::Enter);
-                        }
-                    }
-                }
+                let shown = !crate::watch::FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) && {
+                    let edge = (meta["via"] == "edge")
+                        .then(|| meta["edge"].as_str().zip(meta["pos"].as_f64()))
+                        .flatten()
+                        .and_then(|(side, pos)| ll::mac_to_win(&plan(&app).1.segs, side, pos));
+                    crate::drag::recv_portal(&app, edge, &name)
+                };
+                #[cfg(not(windows))]
+                let shown = false;
                 let _ = meta;
+                let sub = format!(r"{name} · 선반과 다운로드\Hera에 있어요");
+                if shown {
+                    let a = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1900));
+                        crate::tray::toast(&a, "recv", "맥에서 파일을 받았어요", &sub);
+                    });
+                } else {
+                    crate::tray::toast(&app, "recv", "맥에서 파일을 받았어요", &sub);
+                }
             }
             lf::Event::Msg { msg } => on_msg(&app, msg),
             lf::Event::Peer { state, .. } if state == "ready" => {
@@ -936,7 +948,15 @@ pub fn unpair(app: &AppHandle) {
 
 /// 파일을 맥으로 (블로킹 — spawn_blocking 에서). edge = 가장자리 포탈로 보냄 (맥 쪽 방향, 그 가장자리 위 0..1) → 맥이 그 자리에 물결
 pub fn send_file(app: &AppHandle, path: &str, edge: Option<(String, f64)>) -> Result<(), String> {
-    let c = CONN.lock().unwrap().clone().filter(|c| c.is_ready()).ok_or("맥과 연결되어 있지 않아요")?;
+    // 보내기 전 실패(연결 없음 · 파일 못 읽음)는 여기서 알린다 — 보낸 뒤의 거절·응답 없음은 Sent 이벤트가 알린다.
+    // ponytail: 보내는 도중 끊김은 따로 알리지 않는다 (연결 상태 줄이 '끊김'으로 바뀜)
+    let fail = |e: String| {
+        let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        crate::tray::toast(app, "fail", "보내지 못했어요", &format!("{name} · {e}"));
+        e
+    };
+    let c = CONN.lock().unwrap().clone().filter(|c| c.is_ready()).ok_or_else(|| fail("맥 Hera와 연결되어 있지 않아요".into()))?;
+    std::fs::File::open(path).map_err(|e| fail(e.to_string()))?;
     match edge {
         Some((side, pos)) => c.send_file_meta(Path::new(path), &sink(app), json!({ "via": "edge", "edge": side, "pos": pos })),
         None => c.send_file(Path::new(path), &sink(app)),

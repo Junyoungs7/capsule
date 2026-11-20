@@ -233,6 +233,39 @@ impl Drag {
     }
 }
 
+/// 맥에서 받은 파일: 포탈(맥 가장자리로 보냈으면 이어진 그 자리, 아니면 트레이 아이콘 위)이 열리고 파일이 나와 트레이 아이콘으로 (시안 recv-portal).
+/// edge = 이어진 PC 가장자리 점(물리 px)과 PC 쪽 방향. 오버레이가 끌기에 쓰이는 중이면 false → 애니메이션 없이.
+pub fn recv_portal(app: &AppHandle, edge: Option<(f64, f64, &str)>, name: &str) -> bool {
+    let h = HWND(HWND_DRAG.load(Ordering::Relaxed) as _);
+    if h.0.is_null() || unsafe { IsWindowVisible(h) }.as_bool() || crate::watch::left_down() {
+        return false;
+    }
+    let tray = app.tray_by_id("main").and_then(|t| t.rect().ok().flatten()).map(|r| {
+        let (p, z) = (r.position.to_physical::<f64>(1.0), r.size.to_physical::<f64>(1.0));
+        (p.x + z.width / 2.0, p.y + z.height / 2.0)
+    });
+    // 가장자리 점은 모니터 경계 위 → 1px 안쪽으로
+    let anchor = match edge {
+        Some((x, y, side)) => match side {
+            "right" => (x - 1.0, y),
+            "down" => (x, y - 1.0),
+            _ => (x, y),
+        },
+        None => match tray {
+            Some(t) => t,
+            None => return false,
+        },
+    };
+    let inside = |p: (f64, f64), m: &[f64; 4]| p.0 >= m[0] && p.0 < m[0] + m[2] && p.1 >= m[1] && p.1 < m[1] + m[3];
+    let Some((_, m, s, _)) = crate::watch::monitors().into_iter().find(|(_, m, _, _)| inside(anchor, m)) else { return false };
+    let local = |p: (f64, f64)| ((p.0 - m[0]) / s, (p.1 - m[1]) / s);
+    // ponytail: 트레이가 다른 모니터면 이 모니터 오른쪽 아래 모서리로 날아간다 (창은 모니터 하나만 덮는다)
+    let to = tray.filter(|t| inside(*t, &m)).map(local).unwrap_or((m[2] / s - 28.0, m[3] / s - 24.0));
+    let at = local(anchor);
+    show(m);
+    app.emit_to("drag", "recv-portal", json!({ "edge": edge.map(|e| e.2), "x": at.0, "y": at.1, "to": [to.0, to.1], "name": name })).is_ok()
+}
+
 /// edge.rs 띠에 놓음 → 오버레이가 빨려 들어가는 애니메이션 뒤 보낸다 (오버레이가 안 보이면 false → 바로 보내기)
 pub fn portal_drop(app: &AppHandle, paths: &[String], mac_side: &str, pos: f64, pt: (i32, i32)) -> bool {
     let h = HWND(HWND_DRAG.load(Ordering::Relaxed) as _);

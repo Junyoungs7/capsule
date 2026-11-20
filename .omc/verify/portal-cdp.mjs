@@ -29,7 +29,7 @@ try {
   /* 가장자리에 놓음 */
   await h.emitTo('drag', 'portal', { k: 1, side: 'right', x: 1920, y: 600 })
   await until(async () => (await k()) === 1)
-  const n = h.calls.length
+  let n = h.calls.length
   await h.emitTo('drag', 'portal-drop', { paths: ['C:\\x\\견적서_최종.pdf'], edge: 'left', pos: 0.42, x: 1916, y: 600 })
   ok('edge drop → ghost spirals into the portal', await until(() => d.eval(`!!document.querySelector('.suck')`), 1500))
   ok('…not sent yet while the animation plays', !called('link_send', n))
@@ -37,6 +37,21 @@ try {
   await h.emitTo('drag', 'drag-end', null)
   ok('drag ended + animation done → drag_hide', await until(() => called('drag_hide', n), 4000))
   ok('render loop stopped, canvas cleared', (await until(() => d.eval(`document.querySelector('canvas.portal').dataset.run === '0'`), 4000)) && (await lit()) === 0)
+
+  /* 받는 포탈 (맥 → 윈도우) */
+  n = h.calls.length
+  await h.emitTo('drag', 'recv-portal', { edge: 'right', x: 1920, y: 400, to: [1800, 1055], name: '회의록.docx' })
+  ok('recv via Mac edge → big portal at that edge point, particles flow out', await until(() => d.eval(`(() => { const c = document.querySelector('canvas.portal').getBoundingClientRect(); return Math.round(c.right) === 1920 && Math.round(c.top + c.height / 2) === 400 && Number(document.querySelector('canvas.portal').dataset.k) > 0.5 })()`), 3000))
+  ok('…the file pops out of it', await until(() => d.eval(`!!document.querySelector('.suck[data-recv="회의록.docx"]')`), 2000))
+  ok('…flies into the tray icon (ring there), then drag_hide', (await until(() => d.eval(`(() => { const r = document.querySelector('.recv-ring'); return !!r && r.style.left === '1800px' && r.style.top === '1055px' })()`), 4000)) && (await until(() => called('drag_hide', n), 4000)))
+  ok('…nothing sent while receiving', !called('link_send', n))
+  n = h.calls.length
+  await h.emitTo('drag', 'recv-portal', { edge: null, x: 1800, y: 1055, to: [1800, 1055], name: '사진.png' })
+  ok('normal recv → small round portal just above the tray icon', await until(() => d.eval(`(() => { const c = document.querySelector('canvas.portal'), b = c.getBoundingClientRect(); return c.style.transform === 'none' && Math.round(b.left + b.width / 2) === 1800 && Math.round(b.top + b.height / 2) === 945 })()`), 3000))
+  ok('…then into the tray icon and hidden', (await until(() => d.eval(`!!document.querySelector('.recv-ring')`), 4000)) && (await until(() => called('drag_hide', n), 4000)))
+  await h.emitTo('drag', 'portal', { k: 1, side: 'right', x: 1920, y: 300 })
+  ok('a send after a receive → normal edge portal again (not round)', await until(() => d.eval(`document.querySelector('canvas.portal').style.transform !== 'none' && Math.round(document.querySelector('canvas.portal').getBoundingClientRect().right) === 1920`)), await d.eval(`document.querySelector('canvas.portal').style.cssText`))
+  await h.emitTo('drag', 'portal', { k: 0, side: 'right', x: 1920, y: 300 })
 
   /* 움직임 줄이기 */
   const r = await h.open('drag', { label: 'drag2', geo: { x: 0, y: 0, w: 1920, h: 1079 }, reduced: true })

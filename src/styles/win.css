@@ -221,3 +221,7 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .fxm .chips button:active { transform: scale(.96); }
 .fxm .chips button:focus-visible { outline: 2px solid var(--t1); }
 .fxfoot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--stroke); padding-top: 8px; font-size: 12px; color: var(--t3); }
+/* 받는 포탈: 파일이 들어간 트레이 아이콘 자리에 빛 고리 */
+.recv-ring { position: fixed; z-index: 27; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none; box-shadow: 0 0 0 2px rgba(150, 220, 255, .9), 0 0 18px 4px rgba(96, 205, 255, .6); animation: recv-ring 560ms cubic-bezier(.2, .8, .3, 1) both; }
+@keyframes recv-ring { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .recv-ring { animation: none; opacity: 0; } }
