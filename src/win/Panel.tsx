@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { invoke } from '@tauri-apps/api/core'
-import { boardOpen, isTauri, linkSend, onEvent, openCover, openFx, openPath, openSettings, shelfAdd, useItems, useValue, type ShelfFile } from '../data/api'
+import { boardOpen, isTauri, linkSend, onEvent, openCover, openFx, openPath, openSettings, shelfAdd, shelfFolder, useItems, useValue, type ShelfFile } from '../data/api'
 import { NOTE_COLORS, enterCommits, freeSlot, nextColor, seedNotes, type Note } from '../surfaces/Notes'
 import { FX_LABEL, fetchWeather, geocode, type FxKind, type Weather } from '../surfaces/Fx'
 import { Ico } from './icons'
@@ -202,7 +202,7 @@ export function Panel() {
       </div>
 
       <div className="sec">
-        <div className="sh"><b>선반</b><small data-shelf-n>{files.length ? `${files.length}개` : '비어 있음'}</small></div>
+        <div className="sh"><b>선반<small data-shelf-n>{files.length ? `${files.length}개` : '비어 있음'}</small></b><button className="link" data-shelf-folder title="받은 파일이 쌓이는 폴더 (다운로드\Hera)" onClick={() => (void shelfFolder().catch(() => {}), hide())}>더 보기</button></div>
         <div className={`drop ${over ? 'over' : ''}`} data-drop>파일을 여기에 놓으면 올려 둬요{mac ? ' · 맥으로 보낼 수 있어요' : ''}</div>
         {files.length > 0 && (
           <ul className="files">

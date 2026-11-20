@@ -122,6 +122,7 @@ export const coverCloseAll = () => emit('ascii-close')
 export type ShelfFile = { id: string; path: string; at: number; from?: 'pc' | 'mac'; sent?: boolean }
 export const shelfAdd = (paths: string[]) => invoke('shelf_add', { paths })
 export const openPath = (path: string) => invoke('open_path', { path })
+export const shelfFolder = () => invoke('shelf_folder')
 export const boardOpen = () => invoke('board_open')
 /** 메모장으로 열기 (Rust: %APPDATA%\Hera\notes\<id>.txt 에 쓰고 notepad.exe, 고치면 메모에 다시 읽어 넣음) */
 export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id })

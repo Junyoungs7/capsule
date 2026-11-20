@@ -39,7 +39,7 @@ export function DragLayer() {
   const [done, setDone] = useState<string | null>(null)
   const [fan, setFan] = useState<Fan | null>(null)
   const [gates, setGates] = useState<Gates | null>(null)
-  const { people, online } = usePeople()
+  const { people, near, online } = usePeople()
   const live = (mac: boolean): Target[] => targets(mac ? peer || '내 맥' : null, people, online).filter((t) => t.on)
   const [hint, setHint] = useState(false)
   const [peer] = useValue<string | null>('link.peerName', null)
@@ -391,7 +391,7 @@ export function DragLayer() {
       return new DOMRect(Number(el.dataset.x) - r, Number(el.dataset.y) - r, r * 2, r * 2)
     })
     sendHits()
-  }, [fan, gates, people.length, online])
+  }, [fan, gates, people.length, near])
   const fanT = fan ? [{ id: 'shelf', name: '선반', on: true }, ...live(fan.mac)] : []
   const fanAt = fan ? fanSpots(fan.x, fan.y, fanT.length, innerWidth, innerHeight) : []
   const gateT = gates ? live(gates.mac) : []

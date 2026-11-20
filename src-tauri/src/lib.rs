@@ -309,6 +309,14 @@ async fn open_path(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || launch::sta(move || launch::launch(&path))).await.map_err(|e| e.to_string())?
 }
 
+/// 선반 '더 보기': 받은 파일이 쌓이는 폴더 (다운로드\Hera — 맥 · 사람에게서 받은 파일) 를 탐색기로. 없으면 만든다
+#[tauri::command]
+async fn shelf_folder(app: AppHandle) -> Result<(), String> {
+    let dir = link::files_cfg(&app).downloads;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    open_path(dir.display().to_string()).await
+}
+
 #[tauri::command]
 fn board_open(app: AppHandle) -> Result<(), String> {
     open_board(&app).map_err(|e| e.to_string())
@@ -440,7 +448,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx, cover,
+            settings_open, close_self, autostart, report_hit_rects, shelf_add, shelf_folder, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
             tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_drag, pet::pet_home, pet::pet_set_image, pet::pet_image,
             people::people_pair, people::people_confirm, people::people_near, people::people_forget, people::people_send,

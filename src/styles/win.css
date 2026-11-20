@@ -52,6 +52,7 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .sh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .sh b { font-size: 14px; font-weight: 600; }
 .sh small { color: var(--t3); font-size: 12px; }
+.sh b small { font-weight: 400; margin-left: 6px; }
 .peer { display: flex; align-items: center; gap: 12px; }
 .peer .dev { width: 36px; height: 36px; border-radius: 6px; background: var(--card2); display: grid; place-items: center; border: 1px solid var(--stroke); flex: none; position: relative; }
 .peer .dev svg { width: 20px; height: 20px; }

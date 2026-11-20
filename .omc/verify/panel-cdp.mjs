@@ -36,6 +36,10 @@ try {
   let n = h.calls.length
   await p.eval(`document.querySelector('[data-send=a]').click()`)
   ok('send → link_send(path) + "맥에 보냄" badge', (await until(() => called('link_send', n, (a) => a.path.endsWith('기획안_v3.pdf')))) && (await until(() => h.store.get('shelf:a')?.sent === true && p.eval(`/맥에 보냄/.test(document.querySelector('[data-file=a]').textContent)`))))
+  ok('선반 count next to the title', await p.eval(`/2개/.test(document.querySelector('[data-shelf-n]').textContent)`))
+  n = h.calls.length
+  await p.eval(`document.querySelector('[data-shelf-folder]').click()`)
+  ok('더 보기 → shelf_folder (opens 다운로드\Hera in Explorer)', await until(() => called('shelf_folder', n)))
   n = h.calls.length
   await p.eval(`document.querySelector('[data-open=b]').click()`)
   ok('열기 → open_path', await until(() => called('open_path', n, (a) => a.path.endsWith('IMG_2041.png'))))
