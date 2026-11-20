@@ -119,6 +119,12 @@ fn addr_of(pk: &str) -> Option<SocketAddr> {
     NEAR.lock().unwrap().iter().find(|x| x.pk == pk && x.seen.elapsed() < GONE).map(|x| x.addr)
 }
 
+/// 등록할 때 기억한 IP 들 — 비콘을 이 주소로도 직접 보낸다 (브로드캐스트가 막혀도 서로 '켜짐'이 보이게)
+fn stored_ips(app: &AppHandle) -> Vec<std::net::IpAddr> {
+    let Ok(s) = app.store("hera.json") else { return vec![] };
+    s.entries().into_iter().filter(|(k, _)| k.starts_with("people:")).filter_map(|(_, v)| v["ip"].as_str()?.parse().ok()).collect()
+}
+
 /// 시작 때 한 번 (켜져 있을 때): 받기 대기 · 비콘 보내기 · 비콘 듣기
 pub fn start(app: &AppHandle) {
     if !enabled(app) || STARTED.set(()).is_err() {
@@ -131,8 +137,9 @@ pub fn start(app: &AppHandle) {
             std::thread::spawn(move || {
                 for s in listener.incoming().flatten() {
                     let a = a.clone();
+                    let peer = s.peer_addr().ok().map(|x| x.ip());
                     std::thread::spawn(move || {
-                        let r = lf::run(s, true, &cfg(&a), sink(&a, Mode::Incoming), &hold_pairing);
+                        let r = lf::run(s, true, &cfg(&a), sink(&a, Mode::Incoming, peer), &hold_pairing);
                         if let Err(e) = r {
                             eprintln!("people: {e}");
                         }
@@ -148,6 +155,11 @@ pub fn start(app: &AppHandle) {
         if enabled(&a) {
             let msg = json!({ "hera-people": 1, "name": my_name(&a), "port": PORT, "pk": pk }).to_string();
             lf::broadcast(msg.as_bytes(), BEACON);
+            if let Ok(u) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) {
+                for ip in stored_ips(&a) {
+                    let _ = u.send_to(msg.as_bytes(), (ip, BEACON));
+                }
+            }
         }
         std::thread::sleep(Duration::from_secs(3));
     });
@@ -164,6 +176,13 @@ pub fn start(app: &AppHandle) {
             if let Ok((n, from)) = sock.recv_from(&mut buf) {
                 if let Some((pk, name, port)) = parse_beacon(&buf[..n], &me) {
                     let addr = SocketAddr::new(from.ip(), port);
+                    // 등록한 사람의 IP 가 바뀌었으면 기억도 바꾼다 (DHCP)
+                    if let Ok(s) = a.store("hera.json") {
+                        if let Some(mut v) = s.get(format!("people:{pk}")).filter(|v| v["ip"].as_str() != Some(&from.ip().to_string())) {
+                            v["ip"] = json!(from.ip().to_string());
+                            s.set(format!("people:{pk}"), v);
+                        }
+                    }
                     let mut l = NEAR.lock().unwrap();
                     match l.iter_mut().find(|x| x.pk == pk) {
                         Some(x) => (x.name, x.addr, x.seen) = (name, addr, Instant::now()),
@@ -205,7 +224,8 @@ enum Mode {
 }
 
 /// 연결 1개의 이벤트 처리
-fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
+/// ip = 상대 주소 (등록할 때 기억 — 자동 찾기가 막힌 망에서도 다시 찾게)
+fn sink(app: &AppHandle, mode: Mode, ip: Option<std::net::IpAddr>) -> lf::Sink {
     let app = app.clone();
     let peer = Arc::new(Mutex::new((String::new(), String::new()))); // (이름, pk)
     Arc::new(move |e: lf::Event| match e {
@@ -224,7 +244,7 @@ fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
         lf::Event::Paired { pk, name, .. } => {
             if let Ok(s) = app.store("hera.json") {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-                s.set(format!("people:{pk}"), json!({ "id": pk, "name": name, "at": now }));
+                s.set(format!("people:{pk}"), json!({ "id": pk, "name": name, "at": now, "ip": ip.map(|i| i.to_string()) }));
             }
             let _ = app.emit("people-pair", Value::Null);
             crate::tray::toast(&app, "sent", &format!("{name}님을 등록했어요"), "이제 서로 파일을 보낼 수 있어요");
@@ -253,9 +273,36 @@ fn sink(app: &AppHandle, mode: Mode) -> lf::Sink {
 #[tauri::command]
 pub fn people_pair(app: AppHandle, pk: String) -> Result<(), String> {
     let addr = addr_of(&pk).ok_or("지금 근처에 없어요")?;
-    let s = TcpStream::connect_timeout(&addr, Duration::from_secs(4)).map_err(|e| format!("연결하지 못했어요: {e}"))?;
+    pair_at(app, addr)
+}
+
+/// IP 주소로 등록 요청 ("192.168.0.12" 또는 "192.168.0.12:24812") — 자동 찾기(브로드캐스트)가 막힌 망
+#[tauri::command]
+pub fn people_pair_ip(app: AppHandle, ip: String) -> Result<(), String> {
+    pair_at(app, parse_addr(&ip).ok_or("IP 주소를 확인해 주세요 (예: 192.168.0.12)")?)
+}
+
+/// "1.2.3.4" · "1.2.3.4:5" · 호스트 이름 → 주소 (포트가 없으면 PORT)
+pub fn parse_addr(s: &str) -> Option<SocketAddr> {
+    use std::net::ToSocketAddrs;
+    let s = s.trim();
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return None;
+    }
+    let with_port = if s.contains(':') { s.to_string() } else { format!("{s}:{PORT}") };
+    with_port.to_socket_addrs().ok()?.find(|a| a.is_ipv4())
+}
+
+/// 내 IP (다른 사람이 IP 로 추가할 때 알려 줄 주소)
+#[tauri::command]
+pub fn people_my_ip() -> Option<String> {
+    lf::lan_ip().map(|i| i.to_string())
+}
+
+fn pair_at(app: AppHandle, addr: SocketAddr) -> Result<(), String> {
+    let s = TcpStream::connect_timeout(&addr, Duration::from_secs(4)).map_err(|e| format!("연결하지 못했어요 — 상대 Hera가 켜져 있는지, 방화벽을 허용했는지 확인해 주세요 ({e})"))?;
     std::thread::spawn(move || {
-        let r = lf::run(s, false, &cfg(&app), sink(&app, Mode::Pair), &hold_pairing);
+        let r = lf::run(s, false, &cfg(&app), sink(&app, Mode::Pair, Some(addr.ip())), &hold_pairing);
         if let Err(e) = r {
             eprintln!("people pair: {e}");
             let _ = app.emit("people-pair", Value::Null);
@@ -307,7 +354,7 @@ fn open(app: &AppHandle, pk: &str) -> Result<Arc<Conn>, String> {
     let tx = Mutex::new(Some(tx));
     let a = app.clone();
     std::thread::spawn(move || {
-        let _ = lf::run(s, false, &cfg(&a), sink(&a, Mode::Send), &|c| match c {
+        let _ = lf::run(s, false, &cfg(&a), sink(&a, Mode::Send, None), &|c| match c {
             Some(c) if c.is_ready() => {
                 if let Some(t) = tx.lock().unwrap().take() {
                     let _ = t.send(c);
@@ -346,7 +393,7 @@ pub fn send_files(app: &AppHandle, pk: &str, paths: &[String]) {
     };
     let mut sent = 0;
     for p in paths {
-        match c.send_file(Path::new(p), &sink(app, Mode::Send)) {
+        match c.send_file(Path::new(p), &sink(app, Mode::Send, None)) {
             Ok(()) => sent += 1,
             Err(e) => fail(&e),
         }
@@ -367,6 +414,15 @@ pub fn people_send(app: AppHandle, pk: String, paths: Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ip_entry() {
+        assert_eq!(parse_addr("192.168.0.12"), Some("192.168.0.12:24812".parse().unwrap()));
+        assert_eq!(parse_addr(" 10.0.0.5:30000 "), Some("10.0.0.5:30000".parse().unwrap()));
+        assert_eq!(parse_addr(""), None);
+        assert_eq!(parse_addr("192.168 .0.1"), None);
+        assert_eq!(parse_addr("999.1.1.1"), None);
+    }
 
     #[test]
     fn beacons() {

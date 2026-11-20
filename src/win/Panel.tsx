@@ -8,7 +8,7 @@ import { Ico } from './icons'
 import { linkLook, useLink, useShare } from './link'
 import { Sw } from './Settings'
 import { UndoToast, deleteWithUndo } from '../surfaces/Undo'
-import { colorFor, initial, peopleConfirm, peopleForget, peoplePair, sendTo, targets, usePeople } from './people'
+import { colorFor, initial, peopleConfirm, peopleForget, peopleMyIp, peoplePair, peoplePairIp, sendTo, targets, usePeople } from './people'
 
 /* 트레이 패널 (승인 시안 win-tray-v3 의 .panel). 창은 숨긴 채 살아 있다 — 트레이를 누르면 Rust 가 자리를 잡고 보인다.
    한 화면: 연결 · 타일 3개 · 선반 · 메모 · 꾸미기. 내용 높이가 바뀌면 panel_fit 으로 창 높이를 맞춘다 (모서리는 그대로). */
@@ -101,6 +101,11 @@ export function Panel() {
   const [myName, setMyName] = useValue('people.name', '')
   const [nameDraft, setNameDraft] = useState('')
   const [adding, setAdding] = useState(false)
+  const [ip, setIp] = useState('')
+  const [ipErr, setIpErr] = useState('')
+  const [myIp, setMyIp] = useState<string | null>(null)
+  useEffect(() => void (adding && isTauri && peopleMyIp().then(setMyIp, () => {})), [adding])
+  const byIp = () => ip.trim() && (setIpErr(''), void peoplePairIp(ip.trim()).then(() => setIp(''), (e) => setIpErr(String(e))))
   const [overP, setOverP] = useState<string | null>(null)
   const tg = targets(link.filesPeer || null, people, online)
   const tgNow = useRef(tg)
@@ -241,7 +246,14 @@ export function Panel() {
                 <span className="av" style={{ '--c': colorFor(n.pk) } as CSSProperties}>{initial(n.name)}</span>{n.name}
               </button>
             ))}
-            {!near.some((n) => !n.known) && <p className="ppl-empty">근처에 다른 Hera가 없어요 — 같은 네트워크에서 Hera가 켜져 있어야 해요</p>}
+            {!near.some((n) => !n.known) && <p className="ppl-empty">근처에 자동으로 보이는 Hera가 없어요 — 아래에 IP로 추가해 보세요</p>}
+            <div className="byip">
+              <input className="inp" data-ip value={ip} placeholder="IP로 추가 (예: 192.168.0.12)" aria-label="상대 IP 주소" spellCheck={false}
+                onChange={(e) => (setIp(e.target.value), setIpErr(''))} onKeyDown={(e) => e.key === 'Enter' && byIp()} />
+              <button className="btn" data-ip-go disabled={!ip.trim()} onClick={byIp}>추가</button>
+            </div>
+            {ipErr && <p className="ppl-err" data-ip-err>{ipErr}</p>}
+            <small data-my-ip>{myIp ? `내 IP: ${myIp} — 상대가 이 주소로 추가할 수 있어요` : '내 IP를 찾지 못했어요'}</small>
           </div>
         )}
         {tg.length > 0 && <div className="hint">파일을 사람 위에 놓으면 그 사람 선반으로 · ⭐ 친한 친구 = 펫 빠른 톡을 받는 사람</div>}

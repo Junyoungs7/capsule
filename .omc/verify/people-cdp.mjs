@@ -12,6 +12,7 @@ try {
   h.store.set(`people:${A}`, { id: A, name: '박지윤', at: 1 })
   h.store.set(`people:${B}`, { id: B, name: '최서현', at: 2 })
   h.store.set('shelf:r', { id: 'r', path: 'C:/Users/me/Downloads/Hera/견적서.pdf', at: Date.now(), from: '박지윤' })
+  h.handlers.people_my_ip = () => '192.168.0.7'
   h.handlers.people_near = () => [{ pk: A, name: '박지윤', known: true }, { pk: C, name: '정다운', known: false }]
   const p = await h.open('panel', { geo: GEO })
   await until(() => p.eval(`document.querySelectorAll('[data-person]').length === 2`), 8000)
@@ -42,6 +43,12 @@ try {
   n = h.calls.length
   await p.eval(`document.querySelector('[data-near-pk="${C}"]').click()`)
   ok('click → people_pair(pk)', await until(() => called('people_pair', n, (a) => a.pk === C)))
+  ok('내 IP shown for the other side', await until(() => p.eval(`/192.168.0.7/.test(document.querySelector('[data-my-ip]').textContent)`)))
+  n = h.calls.length
+  await p.eval(`document.querySelector('[data-ip]').focus()`)
+  await p.send('Input.insertText', { text: '192.168.0.12' })
+  await p.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  ok('IP + Enter → people_pair_ip(ip)', await until(() => called('people_pair_ip', n, (a) => a.ip === '192.168.0.12')))
   await h.emit('people-pair', { name: '정다운', code: '4821' })
   ok('pairing card shows the 4-digit code', await until(() => p.eval(`document.querySelector('[data-people-code]')?.dataset.peopleCode === '4821' && /정다운/.test(document.querySelector('[data-people-code]').textContent)`)))
   n = h.calls.length

@@ -43,5 +43,7 @@ export function sendTo(id: string, paths: string[]) {
 }
 
 export const peoplePair = (pk: string) => invoke('people_pair', { pk })
+export const peoplePairIp = (ip: string) => invoke('people_pair_ip', { ip })
+export const peopleMyIp = () => invoke<string | null>('people_my_ip')
 export const peopleConfirm = (ok: boolean) => invoke('people_confirm', { ok })
 export const peopleForget = (pk: string) => invoke('people_forget', { pk })

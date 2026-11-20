@@ -363,3 +363,9 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .talkwin .dropover { position: absolute; inset: 44px 0 0; display: none; place-items: center; background: color-mix(in srgb, var(--accent) 12%, transparent); border: 2px dashed var(--accent); font-size: 14px; pointer-events: none; }
 .talkwin.drop .dropover { display: grid; }
 @media (prefers-reduced-motion: reduce) { .talkwin .m { animation: none; } }
+
+/* 사람 추가: IP 로 (자동 찾기가 막힌 망) */
+.near .byip { display: flex; gap: 6px; margin-top: 6px; }
+.near .byip .inp { flex: 1; height: 32px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12.5px; }
+.near .ppl-err { margin: 2px 4px 0; font-size: 12px; color: var(--danger); }
+.near > small[data-my-ip] { margin: 6px 4px 0; }
