@@ -28,6 +28,10 @@ try {
 
   /* 가장자리에 놓음 */
   await h.emitTo('drag', 'portal', { k: 1, side: 'right', x: 1920, y: 600 })
+  ok('open portal → its drawing becomes a drop target (hit rect, 140 deep)', await until(() => h.calls.some((c) => c[1] === 'report_hit_rects' && (c[2]?.rects ?? []).some((r) => Math.round(r[0]) === 1780 && Math.round(r[2]) === 140 && Math.round(r[1]) === 432))))
+  { const n0 = h.calls.length
+    await h.emitTo('drag', 'tauri://drag-drop', { paths: ['C:/x/a.txt'], position: { x: 1830, y: 600 } })
+    ok('drop on the portal drawing (not the 4 px strip) → portal_drop_here(paths)', await until(() => called('portal_drop_here', n0, (a) => a.paths?.[0] === 'C:/x/a.txt'))) }
   await until(async () => (await k()) === 1)
   let n = h.calls.length
   await h.emitTo('drag', 'portal-drop', { paths: ['C:\\x\\견적서_최종.pdf'], edge: 'left', pos: 0.42, x: 1916, y: 600 })

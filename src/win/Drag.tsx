@@ -29,6 +29,15 @@ export function DragLayer() {
   const st = useRef({ ended: false, sending: false })
   const P = useRef({ k: 0, target: 0, x: 0, y: 0, side: 'right' as Side, round: false, out: false, hot: false, flash: 0, shock: 0, spin: 0, run: false, last: 0, parts: [] as { a: number; r: number; v: number; s: number; h: number }[] })
   const REDUCE = reducedMotion()
+  // 드롭을 받는 자리 = 받침 + 다 열린 포탈 그림 (나머지는 클릭 통과 — 그 아래 앱이 받는다)
+  const hitPad = useRef<DOMRect | null>(null)
+  const hitPortal = useRef<DOMRect | null>(null)
+  const sendHits = () => reportHitRects([hitPad.current, hitPortal.current].filter((r): r is DOMRect => !!r))
+  /** 다 열린 포탈 그림 둘레 (가장자리에서 안쪽 140 · 가장자리를 따라 ±168) — Rust portal_drop_here 의 reach 와 같은 140 */
+  const portalRect = () => {
+    const { x, y, side } = P.current
+    return side === 'right' ? new DOMRect(x - 140, y - 168, 140, 336) : side === 'left' ? new DOMRect(x, y - 168, 140, 336) : side === 'up' ? new DOMRect(x - 168, y, 336, 140) : new DOMRect(x - 168, y - 140, 336, 140)
+  }
 
   /* ── 포탈 캔버스 ── */
   const place = () => {
@@ -56,7 +65,7 @@ export function DragLayer() {
     p.k += (p.target - p.k) * Math.min(1, dt * (p.target > p.k ? 10 : 7))
     if (Math.abs(p.target - p.k) < 0.002) p.k = p.target
     const hot = p.k > 0.9
-    if (hot !== p.hot) (p.hot = hot), setHint(hot && !st.current.sending)
+    if (hot !== p.hot) (p.hot = hot), setHint(hot && !st.current.sending), (hitPortal.current = hot && !st.current.sending && !p.out ? portalRect() : null), sendHits()
     p.spin += dt * (hot ? 2.6 : 1.4) * (REDUCE ? 0 : 1)
     p.flash = Math.max(0, p.flash - dt * 2.4)
     if (p.shock > 0) p.shock = Math.min(1.01, p.shock + dt * 2.2)
@@ -184,6 +193,7 @@ export function DragLayer() {
     const s = st.current
     if (s.ended && !s.sending && !P.current.run) {
       setPad(null), setOver(null), setDone(null), setHint(false)
+      hitPad.current = hitPortal.current = null
       reportHitRects([])
       if (isTauri) void invoke('drag_hide')
     }
@@ -280,7 +290,8 @@ export function DragLayer() {
     // 받침이 보이는 동안만 그 자리가 드롭 대상 (나머지는 클릭 통과).
     // 다 펼쳐진 자리로 (등장 스프링 중의 작은 모양이 아니라): 가운데 위, 커서 22px 위
     const el = padRef.current
-    reportHitRects(pad && el ? [new DOMRect(left - el.offsetWidth / 2, top - el.offsetHeight - 22, el.offsetWidth, el.offsetHeight)] : [])
+    hitPad.current = pad && el ? new DOMRect(left - el.offsetWidth / 2, top - el.offsetHeight - 22, el.offsetWidth, el.offsetHeight) : null
+    sendHits()
   }, [pad])
 
   useEffect(() => {
@@ -300,6 +311,7 @@ export function DragLayer() {
       onEvent<{ k: number; side: Side; x: number; y: number }>('portal', (e) => {
         const p = P.current
         if (e.k > 0) (p.x = e.x), (p.y = e.y), (p.side = e.side), (p.round = p.out = false), place()
+        if (p.hot && !st.current.sending) (hitPortal.current = portalRect()), sendHits()
         if (!st.current.sending) setPortal(e.k)
       }),
       onEvent<{ paths: string[]; edge: string; pos: number; x: number; y: number }>('portal-drop', (e) =>
@@ -318,6 +330,8 @@ export function DragLayer() {
       if (p.type !== 'drop') return setOver(z)
       setOver(null)
       const files = p.paths.length ? p.paths : paths.current
+      // 보이는 포탈 위에 놓음 → Rust 가 가장 가까운 맥 가장자리로 보낸다 ('portal-drop' 이 와서 빨려 들어감)
+      if (!z && files.length && P.current.hot && !st.current.sending) return void invoke('portal_drop_here', { paths: files })
       if (!z || !files.length) return
       setDone(z)
       if (z === 'shelf') {

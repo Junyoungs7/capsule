@@ -146,6 +146,18 @@ pub fn drag_file() {
     FILE_OK.store(true, Ordering::Relaxed);
 }
 
+/// JS: 보이는 포탈 위에서 놓았다 (오버레이가 받은 드롭) → 커서 자리에서 가장 가까운 맥 가장자리 띠로 보낸다.
+/// 다 열린 포탈 그림이 가장자리에서 안쪽 104 논리 px 까지 → 140 논리 px 까지 받는다.
+#[tauri::command]
+pub fn portal_drop_here(paths: Vec<String>) -> bool {
+    let mut p = windows::Win32::Foundation::POINT::default();
+    if unsafe { GetCursorPos(&mut p) }.is_err() {
+        return false;
+    }
+    let s = crate::watch::scale_at(p.x, p.y);
+    crate::edge::drop_near(paths, (p.x, p.y), (140.0 * s) as i32)
+}
+
 /// JS: 끝 애니메이션까지 다 했다 → 숨김
 #[tauri::command]
 pub fn drag_hide() {

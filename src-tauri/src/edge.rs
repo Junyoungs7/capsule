@@ -137,19 +137,46 @@ impl IDropTarget_Impl for Target_Impl {
         unsafe { *effect = DROPEFFECT_COPY };
         let files = data.as_ref().map(|d| unsafe { paths(d) }).unwrap_or_default();
         let strip = STRIPS.lock().unwrap().iter().find(|s| s.hwnd == self.hwnd).cloned();
-        if let (Some(s), Some(cb), false) = (strip, ON_DROP.get(), files.is_empty()) {
-            // 띠 위 위치 → 맥 가장자리 위 위치(0..1)
-            let along = if matches!(s.side.as_str(), "left" | "right") { (pt.y - s.rect[1]) as f64 / (s.rect[3] - s.rect[1]).max(1) as f64 } else { (pt.x - s.rect[0]) as f64 / (s.rect[2] - s.rect[0]).max(1) as f64 };
-            let pos = (s.mac.0 + along.clamp(0.0, 1.0) * (s.mac.1 - s.mac.0)) / 100.0;
-            let mac_side = match s.side.as_str() {
-                "right" => "left",
-                "left" => "right",
-                "up" => "down",
-                _ => "up",
-            };
-            cb(files, mac_side.into(), pos, (pt.x, pt.y));
+        if let (Some(s), false) = (strip, files.is_empty()) {
+            deliver(&s, files, (pt.x, pt.y));
         }
         Ok(())
+    }
+}
+
+/// 띠 위(또는 그 앞) 지점 → 맥 가장자리 위 위치(0..1) 로 바꿔 드롭 콜백
+fn deliver(s: &Strip, files: Vec<String>, pt: (i32, i32)) {
+    let Some(cb) = ON_DROP.get() else { return };
+    let along = if matches!(s.side.as_str(), "left" | "right") { (pt.1 - s.rect[1]) as f64 / (s.rect[3] - s.rect[1]).max(1) as f64 } else { (pt.0 - s.rect[0]) as f64 / (s.rect[2] - s.rect[0]).max(1) as f64 };
+    let pos = (s.mac.0 + along.clamp(0.0, 1.0) * (s.mac.1 - s.mac.0)) / 100.0;
+    let mac_side = match s.side.as_str() {
+        "right" => "left",
+        "left" => "right",
+        "up" => "down",
+        _ => "up",
+    };
+    cb(files, mac_side.into(), pos, pt);
+}
+
+/// 띠까지 안쪽 거리 (물리 px) — 구간 옆(±40px 밖)이면 None
+fn strip_dist(rect: [i32; 4], side: &str, pt: (i32, i32)) -> Option<i32> {
+    let m = 40;
+    match side {
+        "right" | "left" if pt.1 >= rect[1] - m && pt.1 <= rect[3] + m => Some(if side == "right" { rect[2] - pt.0 } else { pt.0 - rect[0] }),
+        "up" | "down" if pt.0 >= rect[0] - m && pt.0 <= rect[2] + m => Some(if side == "down" { rect[3] - pt.1 } else { pt.1 - rect[1] }),
+        _ => None,
+    }
+}
+
+/// 보이는 포탈 위에 놓음 (4px 띠가 아니라 끌기 오버레이가 받음): 가장 가까운 띠가 reach 안이면 그 띠로 드롭. 보냈으면 true.
+pub fn drop_near(files: Vec<String>, pt: (i32, i32), reach: i32) -> bool {
+    let best = STRIPS.lock().unwrap().iter().filter_map(|s| strip_dist(s.rect, &s.side, pt).filter(|d| (-THICK..=reach).contains(d)).map(|d| (d, s.clone()))).min_by_key(|x| x.0);
+    match best {
+        Some((_, s)) if !files.is_empty() => {
+            deliver(&s, files, pt);
+            true
+        }
+        _ => false,
     }
 }
 
@@ -206,6 +233,16 @@ fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drop_on_the_visible_portal_counts() {
+        let r = [1916, 540, 1920, 1080]; // 오른쪽 가장자리 아래 절반 (띠 4px)
+        assert_eq!(strip_dist(r, "right", (1919, 800)), Some(1)); // 띠 위
+        assert_eq!(strip_dist(r, "right", (1800, 800)), Some(120)); // 포탈 그림 위 (띠 밖) — reach 140 안이면 보낸다
+        assert_eq!(strip_dist(r, "right", (1800, 300)), None); // 연결 안 된 위 절반
+        assert_eq!(strip_dist([0, 0, 960, 4], "up", (500, 90)), Some(90));
+        assert_eq!(strip_dist([0, 0, 4, 1080], "left", (100, 10)), Some(100));
+    }
 
     #[test]
     fn near_strip() {
