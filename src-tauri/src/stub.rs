@@ -41,7 +41,7 @@ pub mod pet {
     #[tauri::command]
     pub fn pet_click() {}
     #[tauri::command]
-    pub fn pet_drag() {}
+    pub fn pet_press() {}
     #[tauri::command]
     pub fn pet_home() {}
     #[tauri::command]

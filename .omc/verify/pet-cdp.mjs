@@ -1,6 +1,6 @@
 // Pet suite — HEADLESS only (headless.mjs, mocked IPC). The `pet` window (always there — pet.rs, cargo tests cover the home spot and
-// keeping a moved pet on a monitor): built-in pet from pet.kind, hit rect = the pet box, click → pet_click main (panel), right-click → pet menu,
-// drag > 6px → pet_drag (and no click), custom image from pet_image, sleeps after a quiet spell, short reactions on file received / sent.   node .omc/verify/pet-cdp.mjs
+// keeping a moved pet on a monitor): built-in pet from pet.kind, hit rect = the pet box, press → pet_press (Rust: click = panel, move = drag), Enter → pet_click, right-click → pet menu,
+// custom image from pet_image, sleeps after a quiet spell, short reactions on file received / sent.   node .omc/verify/pet-cdp.mjs
 import { start, sleep, suite } from './headless.mjs'
 
 const { ok, until, done } = suite('pet')
@@ -17,7 +17,12 @@ try {
   ok('built-in pet drawn big enough for the floating window', (await p.eval(`document.querySelector('.pet').getBoundingClientRect().width`)) > 60)
   let n = h.calls.length
   await p.clickSel('.petbar')
-  ok('click → pet_click main (opens the panel)', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'main')))
+  ok('press → pet_press (Rust decides click = panel vs drag = move); a mouse click sends no second pet_click', (await until(() => called('pet_press', n))) && !called('pet_click', n))
+  n = h.calls.length
+  await p.eval(`document.querySelector('.petbar').focus()`)
+  await p.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: String.fromCharCode(13) })
+  await p.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  ok('keyboard Enter → pet_click main', await until(() => h.calls.slice(n).some((c) => c[1] === 'pet_click' && c[2]?.view === 'main')))
   n = h.calls.length
   await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 42, y: 60, button: 'right', buttons: 2, clickCount: 1 })
   await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 42, y: 60, button: 'right', buttons: 0, clickCount: 1 })
@@ -27,7 +32,7 @@ try {
   await p.mouse('mousePressed', 42, 60)
   for (const x of [44, 46, 50, 55]) await p.mouse('mouseMoved', x, 60, { buttons: 1 })
   await p.mouse('mouseReleased', 55, 60)
-  ok('drag > 6px → pet_drag, and that press is not a click', (await until(() => called('pet_drag', n))) && !called('pet_click', n))
+  ok('drag starts with the same pet_press (no web-side drag logic)', (await until(() => called('pet_press', n))) && !called('pet_click', n))
   h.store.set('pet.kind', 'custom')
   await h.emit('store://change', { path: 'hera.json', resourceId: 1, key: 'pet.kind', value: 'custom', exists: true })
   ok('custom image from pet_image', await until(() => p.eval(`document.querySelector('.petbar .pimg')?.src.startsWith('data:image/png')`)))
@@ -45,7 +50,7 @@ try {
   ok('asleep: no animation running', (await p.eval(`document.getAnimations().filter((a) => a.playState === 'running').length`)) === 0)
   n = h.calls.length
   await p.clickSel('.petbar')
-  ok('click wakes it and opens the panel', (await until(() => p.eval(`document.querySelector('.pet').dataset.s === 'idle'`))) && called('pet_click', n))
+  ok('press wakes it (and pet_press opens the panel)', (await until(() => p.eval(`document.querySelector('.pet').dataset.s === 'idle'`))) && called('pet_press', n))
   ok('no page errors', p.errors.length === 0, p.errors.join(' | '))
 } catch (e) {
   ok('suite ran', false, String(e?.stack ?? e))

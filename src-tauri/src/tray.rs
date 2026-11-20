@@ -124,8 +124,12 @@ pub fn toggle(app: &AppHandle, at: Option<(f64, f64)>, view: &str) {
 }
 
 /// view = "main" (트레이) | "fx" (펫: 효과 메뉴)
+/// 패널이 떠 있나 — 펫이 그 위로 다시 올라가지 않게 (pet::tick)
+pub static PANEL_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn show(app: &AppHandle, at: Option<(f64, f64)>, view: &str) {
     let Some(win) = app.get_webview_window("panel") else { return };
+    PANEL_ON.store(true, Ordering::Relaxed);
     if at.is_some() {
         *ANCHOR.lock().unwrap() = at;
     }
@@ -139,6 +143,7 @@ pub fn hide(app: &AppHandle) {
     let Some(win) = app.get_webview_window("panel") else { return };
     if win.is_visible().unwrap_or(false) {
         *HIDDEN_AT.lock().unwrap() = Some(Instant::now());
+        PANEL_ON.store(false, Ordering::Relaxed);
         let _ = win.hide();
         let _ = app.emit_to("panel", "panel-hide", ());
     }
@@ -217,7 +222,7 @@ pub fn toast_click(app: AppHandle) {
 /// 패널 내용 높이가 바뀜 (논리 px) — 열려 있으면 같은 모서리에 붙인 채 크기만
 #[tauri::command]
 pub fn panel_fit(app: AppHandle, h: f64) {
-    PANEL_H.store(h.clamp(120.0, 900.0).round() as u32, Ordering::Relaxed);
+    PANEL_H.store(h.clamp(120.0, 2000.0).round() as u32, Ordering::Relaxed);
     if let Some(w) = app.get_webview_window("panel") {
         place_panel(&app, &w);
     }

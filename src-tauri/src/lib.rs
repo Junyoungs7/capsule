@@ -317,8 +317,9 @@ async fn shelf_folder(app: AppHandle) -> Result<(), String> {
     open_path(dir.display().to_string()).await
 }
 
+/// async: 창 만들기를 동기 명령(메인 스레드)에서 하면 Windows 에서 멈춘다 (모두 보기가 안 열리던 원인)
 #[tauri::command]
-fn board_open(app: AppHandle) -> Result<(), String> {
+async fn board_open(app: AppHandle) -> Result<(), String> {
     open_board(&app).map_err(|e| e.to_string())
 }
 
@@ -450,7 +451,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, shelf_folder, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
-            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_drag, pet::pet_home, pet::pet_set_image, pet::pet_image,
+            tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_press, pet::pet_home, pet::pet_set_image, pet::pet_image,
             people::people_pair, people::people_confirm, people::people_near, people::people_forget, people::people_send,
         ])
         .setup(|app| {

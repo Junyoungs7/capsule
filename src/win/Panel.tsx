@@ -74,15 +74,16 @@ export function Panel() {
   tgNow.current = tg
   const hide = () => (isTauri ? void invoke('panel_hide') : undefined)
 
-  // 내용 높이 → 창 높이 (바뀔 때만)
+  // 내용 높이 → 창 높이 (바뀔 때만). 패널은 화면 높이까지만 → 안쪽(inner) 높이를 잰다 (넘치면 패널 안에서 스크롤)
+  const inner = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    if (!isTauri || !box.current) return
+    if (!isTauri || !inner.current) return
     let last = 0
     const ro = new ResizeObserver(() => {
-      const h = Math.ceil(box.current!.getBoundingClientRect().height)
-      if (h && h !== last) (last = h), void invoke('panel_fit', { h })
+      const h = Math.ceil(inner.current!.getBoundingClientRect().height) + 2 // 테두리
+      if (h > 2 && h !== last) (last = h), void invoke('panel_fit', { h })
     })
-    ro.observe(box.current)
+    ro.observe(inner.current)
     return () => ro.disconnect()
   }, [])
   useEffect(() => {
@@ -146,6 +147,7 @@ export function Panel() {
   ]
   return (
     <section className="pn" ref={box} role="dialog" aria-label="Hera">
+      <div ref={inner}>
       {view === 'fx' ? <FxMenu hide={hide} /> : <>
       <div className="sec">
         <div className="peer" data-st={look.st}>
@@ -243,6 +245,7 @@ export function Panel() {
         <button className="ib" data-settings onClick={() => (void openSettings('general'), hide())} aria-label="설정" title="설정"><Ico k="gear" /></button>
       </div>
       </>}
+      </div>
       <UndoToast />
     </section>
   )

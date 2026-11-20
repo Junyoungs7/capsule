@@ -42,7 +42,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .mono { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
 
 /* ── 패널 (Win11 빠른 설정 자리) ── */
-.pn { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 8px; background: var(--bg); border: 1px solid var(--stroke); overflow: hidden; }
+.pn { position: absolute; left: 0; right: 0; bottom: 0; max-height: 100vh; border-radius: 8px; background: var(--bg); border: 1px solid var(--stroke); overflow: hidden auto; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .22) transparent; }
+/* 화면보다 길면 패널 안에서 스크롤 (창 높이는 작업 영역까지) */
 .pn[data-show='false'] { visibility: hidden; }
 .pn.in { animation: pn-in 250ms var(--ease); }
 @keyframes pn-in { from { transform: translateY(12px); opacity: 0; } }

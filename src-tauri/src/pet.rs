@@ -98,8 +98,8 @@ pub fn tick(full: bool) {
         if SHOWN.swap(!full, Ordering::Relaxed) == full {
             let _ = ShowWindow(hwnd, if full { SW_HIDE } else { SW_SHOWNOACTIVATE });
         }
-        // 다른 최상위 창이 올라와도 다시 위로 (SWP_NOMOVE, 바뀐 것 없으면 싸다)
-        if !full {
+        // 다른 최상위 창이 올라와도 다시 위로 (SWP_NOMOVE, 바뀐 것 없으면 싸다). 패널이 떠 있으면 패널 아래에 둔다
+        if !full && !crate::tray::PANEL_ON.load(Ordering::Relaxed) {
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     }
@@ -123,9 +123,11 @@ pub fn pet_click(app: AppHandle, view: Option<String>) {
     crate::tray::toggle(&app, at, view.as_deref().unwrap_or("main"));
 }
 
-/// 끌어서 옮기기: 단추를 뗄 때까지 커서를 따라간다 (JS 는 6px 넘게 끌면 부른다). 다 옮기면 그 모니터 작업 영역 안으로 맞추고 기억.
+/// 왼쪽 단추로 누름 (JS pointerdown 이 바로 부른다 — 웹뷰의 pointermove 는 믿지 않는다):
+/// 단추를 뗄 때까지 Rust 가 커서를 본다. 6 논리 px 넘게 움직이면 그때부터 펫이 따라가고(옮기기), 안 움직이고 떼면 누르기 = 패널.
+/// 다 옮기면 그 모니터 작업 영역 안으로 맞추고 기억.
 #[tauri::command]
-pub fn pet_drag(app: AppHandle) {
+pub fn pet_press(app: AppHandle) {
     let h = HWND_PET.load(Ordering::Relaxed);
     if h == 0 || DRAGGING.swap(true, Ordering::Relaxed) {
         return;
@@ -138,15 +140,26 @@ pub fn pet_drag(app: AppHandle) {
             let _ = GetCursorPos(&mut p0);
         }
         let mut at = (r.left, r.top);
+        let slop = 6.0 * crate::watch::scale_at(p0.x, p0.y);
+        let mut moving = false;
         while crate::watch::left_down() {
             let mut p = POINT::default();
             if unsafe { GetCursorPos(&mut p) }.is_ok() {
-                at = (r.left + p.x - p0.x, r.top + p.y - p0.y);
-                unsafe {
-                    let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), at.0, at.1, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+                moving |= (((p.x - p0.x).pow(2) + (p.y - p0.y).pow(2)) as f64).sqrt() > slop;
+                if moving {
+                    at = (r.left + p.x - p0.x, r.top + p.y - p0.y);
+                    unsafe {
+                        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), at.0, at.1, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+                    }
                 }
             }
             std::thread::sleep(Duration::from_millis(8));
+        }
+        if !moving {
+            DRAGGING.store(false, Ordering::Relaxed);
+            let c = (((r.left + r.right) / 2) as f64, ((r.top + r.bottom) / 2) as f64);
+            crate::tray::toggle(&app, Some(c), "main");
+            return;
         }
         let at = fit(at, r.right - r.left, &works()).unwrap_or(at);
         *POS.lock().unwrap() = Some(at);
