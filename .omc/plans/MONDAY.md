@@ -122,3 +122,8 @@
 - 증상: 오류 이벤트·WER 보고서 없이 프로세스가 사라짐. 원인 후보 2: (1) 개편 뒤 늘 떠 있는 창이 없어 마지막 창이 닫히면 Tauri 가 앱 종료, (2) release panic = "abort" → 어느 스레드든 panic 이면 흔적 없이 종료.
 - 7be965b: ExitRequested(code 없음) → prevent_exit (트레이 '끝내기'만 종료), panic hook → %APPDATA%\dev.hera.dock\crash.log, 실행 중 값으로 범위를 정하는 clamp 6곳(crossing·drag) → max().min(). cargo 51 ok, clippy 깨끗.
 - 진단 실행 stderr: "link: unexpected end of file" 1줄 (종료와 무관, 계속 살아 있었음). 다음에 꺼지면 crash.log 확인.
+
+## a23 설치 (2026-11-19 18:12)
+- 473a6e6: 받는 포탈(시안 recv-portal 사용자 승인) — 맥 가장자리 포탈로 보낸 파일(meta via=edge)은 이어진 PC 가장자리 그 자리 큰 포탈, 아니면 트레이 아이콘 위 작은 포탈 → 파일이 트레이 아이콘으로 → 알림(1.9초 뒤). 끄는 중·전체화면이면 애니메이션 없음.
+- 포탈로 보냈는데 애니메이션만 나오고 안 간 문제: 파일 채널이 끊긴 채 보내면 오류가 JS 에서 버려져 알림도 없었다 → 보내기 전 실패(연결 없음·파일 못 읽음)는 "보내지 못했어요" 알림. link_files.rs(맥과 공유)는 안 건드림.
+- cargo 51 ok, clippy 깨끗, portal-cdp(받기 6항목 추가)·pad-cdp ALL PASS, tsc OK.
