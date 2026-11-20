@@ -187,7 +187,8 @@ export function Panel() {
     <section className="pn" ref={box} role="dialog" aria-label="Hera">
       <div ref={inner}>
       {view === 'quick' ? <QuickTalk hide={hide} /> : view === 'fx' ? <FxMenu hide={hide} /> : <>
-      <div className="sec">
+      {/* 연결(마우스·키보드 · 클립보드 · 물결)은 설정에서 연결을 켠 사람에게만 */}
+      {link.on && <div className="sec" data-link>
         <div className="peer" data-st={look.st}>
           <span className="dev"><Ico k="laptop" w={1.6} /><i /></span>
           <span className="tx"><b data-peer>{look.title}</b><small>{look.sub}</small></span>
@@ -205,7 +206,7 @@ export function Panel() {
             <button key={k} className="tile" data-tile={k} aria-pressed={on} onClick={() => set(!on)}><span className="bt"><Ico k={ic} w={1.6} /></span><small>{l}</small></button>
           ))}
         </div>
-      </div>
+      </div>}
 
       <div className="sec" data-people>
         {!myName.trim() && (

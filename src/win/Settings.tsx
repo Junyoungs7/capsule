@@ -61,7 +61,7 @@ export function SettingsWin({ sec: sec0 }: { sec: string | null }) {
         {sec === 'general' && <General say={say} />}
         {sec === 'link' && <LinkPane b={link} tab={ltab} setTab={(t) => setNav(['link', t])} say={say} />}
         {sec === 'deco' && <Deco say={say} />}
-        {sec === 'about' && <About />}
+        {sec === 'about' && <About say={say} />}
       </main>
       {msg && <div key={msg.n} className="say" role="status">{msg.t}</div>}
     </div>
@@ -242,13 +242,18 @@ function Deco({ say }: { say: (t: string) => void }) {
 }
 
 /* ── 정보 ── */
-function About() {
+function About({ say }: { say: (t: string) => void }) {
   const [v, setV] = useState('0.1.0')
+  const [busy, setBusy] = useState(false)
   useEffect(() => void (isTauri && getVersion().then(setV, () => {})), [])
+  const check = () => (setBusy(true), void invoke<string>('update_check').then(say, (e) => say(String(e))).finally(() => setBusy(false)))
   return (
     <>
       <h1>정보</h1>
-      <Row t={`Hera ${v}`} s="Windows와 맥을 하나처럼 — 연결 · 클립보드 · 파일 · 메모" />
+      <Row t={`Hera ${v}`} s="Windows와 맥을 하나처럼 — 연결 · 클립보드 · 파일 · 메모">
+        <button className="btn" data-update disabled={!isTauri || busy} onClick={check}>{busy ? '확인하는 중…' : '업데이트 확인'}</button>
+      </Row>
+      <Row t="자동 업데이트" s="켜져 있는 동안 3시간마다 새 판을 확인해 조용히 설치하고 다시 켜져요" />
       <Row t="오픈 소스 라이선스" s="내장 입력 엔진 deskflow-core (GPL-2.0) · Tauri (MIT/Apache-2.0) · 펫 그림은 모두 직접 그린 것" />
       <Row t="개인정보" s="메모·파일은 이 PC와 내 맥 사이에서만 오가요. 서버로 보내거나 사용 기록을 모으지 않아요" />
     </>

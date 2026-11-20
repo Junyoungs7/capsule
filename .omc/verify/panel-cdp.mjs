@@ -13,6 +13,10 @@ try {
   h.store.set('shelf:b', { id: 'b', path: 'C:\\Users\\me\\Downloads\\Hera\\IMG_2041.png', at: Date.now(), from: 'mac' })
   for (let i = 0; i < 4; i++) h.store.set(`note:m${i}`, { id: `m${i}`, text: `메모 ${i}`, color: i, x: 16, y: 16, w: 210, h: 140, at: 1000 + i })
   let p = await h.open('panel', { geo: GEO })
+  await until(() => p.eval(`!!document.querySelector('[data-people]')`), 8000)
+  ok('연결 off (default) → no connection row or tiles in the panel', await p.eval(`!document.querySelector('[data-link]') && !document.querySelector('.pn .tiles')`))
+  h.store.set('link.enabled', true)
+  await h.emit('store://change', { path: 'hera.json', resourceId: 1, key: 'link.enabled', value: true, exists: true })
   await until(() => p.eval(`!!document.querySelector('.pn .tiles')`), 8000)
 
   /* 한 화면 구성 */
