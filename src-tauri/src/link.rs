@@ -779,7 +779,7 @@ use std::sync::Arc;
 static CONN: Mutex<Option<Arc<Conn>>> = Mutex::new(None);
 static FILES: OnceLock<()> = OnceLock::new();
 
-fn files_cfg(app: &AppHandle) -> lf::Config {
+pub(crate) fn files_cfg(app: &AppHandle) -> lf::Config {
     let s = app.store("hera.json").ok();
     let get = |k: &str| s.as_ref().and_then(|s| s.get(k)).and_then(|v| v.as_str().map(String::from));
     // 장기 X25519 키: 처음 한 번 만들어 store 에 (hera.json 은 사용자 프로필 안)
@@ -794,6 +794,7 @@ fn files_cfg(app: &AppHandle) -> lf::Config {
         name: read_cfg(app).1.me,
         secret,
         known_peer: get("link.peerPk").and_then(|k| lf::unhex32(&k)),
+        known: vec![],
         engine_fp: my_fp(app),
         downloads: app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir()).join("Hera"),
         accept_any: false,

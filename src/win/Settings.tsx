@@ -75,6 +75,10 @@ function General({ say }: { say: (t: string) => void }) {
   const [getShare, setShare] = useShare()
   const [ripple, setRipple] = useValue('ripple.enabled', true)
   const [locator, setLocator] = useValue('locator.enabled', true)
+  const [people, setPeople] = useValue('people.enabled', true)
+  const [name, setName] = useValue('people.name', '')
+  const [draft, setDraft] = useState(name)
+  useEffect(() => setDraft(name), [name])
   const folder = () => void appDataDir().then((d) => openPath(d)).then(() => say('탐색기에서 열었어요'), (e) => say(String(e)))
   return (
     <>
@@ -84,6 +88,12 @@ function General({ say }: { say: (t: string) => void }) {
       <Row t="클립보드 공유" s="맥과 복사·붙여넣기를 함께 써요 (텍스트)"><Sw on={getShare('clip')} set={(v) => setShare('clip', v)} label="클립보드 공유" /></Row>
       <Row t="넘어갈 때 물결" s="마우스가 맥으로 넘어가고 돌아올 때 화면 끝에 물결"><Sw on={ripple} set={setRipple} label="넘어갈 때 물결" /></Row>
       <Row t="흔들어 커서 찾기" s="마우스를 좌우로 빠르게 흔들면 커서 둘레에 물결"><Sw on={locator} set={setLocator} label="흔들어 커서 찾기" /></Row>
+      <h2>사람에게 보내기</h2>
+      <Row t="같은 네트워크의 Hera와 파일 주고받기" s="등록한 사람끼리만 주고받아요 · 끄면 근처 사람 목록에 내 이름이 보이지 않아요"><Sw on={people} set={setPeople} label="사람에게 보내기" /></Row>
+      <Row t="내 이름" s="다른 사람 Hera에 보이는 이름 · 비워 두면 Windows 사용자 이름">
+        <input className="inp" data-people-name value={draft} placeholder="Windows 사용자 이름" maxLength={40} style={{ width: 160 }} aria-label="내 이름"
+          onChange={(e) => setDraft(e.target.value)} onBlur={() => draft.trim() !== name && setName(draft.trim())} onKeyDown={(e) => e.key === 'Enter' && draft.trim() !== name && setName(draft.trim())} />
+      </Row>
       <h2>데이터</h2>
       <Row t="설정 폴더" s={<span className="mono">%APPDATA%\dev.hera.dock</span>}><button className="btn" onClick={folder} disabled={!isTauri}><Ico k="folder" />열기</button></Row>
     </>

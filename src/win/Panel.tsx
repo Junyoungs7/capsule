@@ -8,6 +8,7 @@ import { Ico } from './icons'
 import { linkLook, useLink, useShare } from './link'
 import { Sw } from './Settings'
 import { UndoToast, deleteWithUndo } from '../surfaces/Undo'
+import { colorFor, initial, peopleConfirm, peopleForget, peoplePair, sendTo, targets, usePeople } from './people'
 
 /* 트레이 패널 (승인 시안 win-tray-v3 의 .panel). 창은 숨긴 채 살아 있다 — 트레이를 누르면 Rust 가 자리를 잡고 보인다.
    한 화면: 연결 · 타일 3개 · 선반 · 메모 · 꾸미기. 내용 높이가 바뀌면 panel_fit 으로 창 높이를 맞춘다 (모서리는 그대로). */
@@ -65,6 +66,12 @@ export function Panel() {
   const [over, setOver] = useState(false)
   const box = useRef<HTMLElement>(null)
   const mac = !!link.filesPeer
+  const { people, near, pair, online } = usePeople()
+  const [adding, setAdding] = useState(false)
+  const [overP, setOverP] = useState<string | null>(null)
+  const tg = targets(link.filesPeer || null, people, online)
+  const tgNow = useRef(tg)
+  tgNow.current = tg
   const hide = () => (isTauri ? void invoke('panel_hide') : undefined)
 
   // 내용 높이 → 창 높이 (바뀔 때만)
@@ -88,12 +95,19 @@ export function Panel() {
       }), onEvent('panel-hide', () => setOver(false))]
     const key = (e: KeyboardEvent) => e.key === 'Escape' && hide()
     addEventListener('keydown', key)
-    // 선반 놓기 = 네이티브 드롭 (경로가 필요)
+    // 놓기 = 네이티브 드롭 (경로가 필요): 사람 위면 그 사람에게, 아니면 선반
+    const who = (x: number, y: number) => {
+      const id = document.elementFromPoint(x / devicePixelRatio, y / devicePixelRatio)?.closest<HTMLElement>('[data-person]')?.dataset.person
+      return id && tgNow.current.some((t) => t.id === id && t.on) ? id : null
+    }
     const off = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload
-      if (p.type === 'enter' || p.type === 'over') return setOver(true)
-      setOver(false)
-      if (p.type === 'drop' && p.paths.length) void shelfAdd(p.paths)
+      if (p.type === 'enter' || p.type === 'over') return setOver(true), setOverP(who(p.position.x, p.position.y))
+      setOver(false), setOverP(null)
+      if (p.type !== 'drop' || !p.paths.length) return
+      const id = who(p.position.x, p.position.y)
+      if (id) sendTo(id, p.paths)
+      else void shelfAdd(p.paths)
     })
     return () => (offs.forEach((f) => f()), removeEventListener('keydown', key), void off.then((f) => f()))
   }, [])
@@ -153,6 +167,40 @@ export function Panel() {
         </div>
       </div>
 
+      <div className="sec" data-people>
+        <div className="sh"><b>보낼 사람</b><button className="link" data-people-add aria-expanded={adding} onClick={() => setAdding(!adding)}>{adding ? '닫기' : '+ 사람 추가'}</button></div>
+        {tg.length > 0 ? (
+          <div className="ppl">
+            {tg.map((t) => (
+              <div key={t.id} className={`pp ${t.on ? '' : 'off'} ${t.id === 'mac' ? 'mac' : ''} ${overP === t.id ? 'over' : ''}`} data-person={t.id} title={t.on ? `파일을 놓으면 ${t.name}${t.id === 'mac' ? '으로' : '님에게'} 보내요` : `${t.name} · 지금 Hera가 꺼져 있거나 근처에 없어요`}>
+                <span className="av" style={{ '--c': colorFor(t.id) } as CSSProperties}>{t.id === 'mac' ? <Ico k="laptop" w={1.6} /> : initial(t.name)}</span>
+                <span className="nm">{t.name}</span>
+                {t.id !== 'mac' && <button className="x" data-people-del={t.id} onClick={() => void peopleForget(t.id)} aria-label={`${t.name} 등록 지우기`} title="등록 지우기"><Ico k="x" /></button>}
+              </div>
+            ))}
+          </div>
+        ) : !adding && <p className="ppl-empty">같은 네트워크의 Hera를 추가하면 파일을 바로 보낼 수 있어요</p>}
+        {pair && (
+          <div className="pair" data-people-code={pair.code}>
+            <span className="code">{pair.code}<small>{pair.name} 화면의 숫자와 같나요?</small></span>
+            <button className="btn" data-people-pair="no" onClick={() => void peopleConfirm(false)}>아니요</button>
+            <button className="btn pri" data-people-pair="ok" onClick={() => (void peopleConfirm(true), setAdding(false))}>같아요</button>
+          </div>
+        )}
+        {adding && !pair && (
+          <div className="near" data-near>
+            <small>근처의 Hera · 눌러서 등록</small>
+            {near.filter((n) => !n.known).map((n) => (
+              <button key={n.pk} data-near-pk={n.pk} onClick={() => void peoplePair(n.pk).catch(() => {})}>
+                <span className="av" style={{ '--c': colorFor(n.pk) } as CSSProperties}>{initial(n.name)}</span>{n.name}
+              </button>
+            ))}
+            {!near.some((n) => !n.known) && <p className="ppl-empty">근처에 다른 Hera가 없어요 — 같은 네트워크에서 Hera가 켜져 있어야 해요</p>}
+          </div>
+        )}
+        {tg.length > 0 && <div className="hint">파일을 사람 위에 놓으면 그 사람 선반으로 가요</div>}
+      </div>
+
       <div className="sec">
         <div className="sh"><b>선반</b><small data-shelf-n>{files.length ? `${files.length}개` : '비어 있음'}</small></div>
         <div className={`drop ${over ? 'over' : ''}`} data-drop>파일을 여기에 놓으면 올려 둬요{mac ? ' · 맥으로 보낼 수 있어요' : ''}</div>
@@ -163,7 +211,7 @@ export function Panel() {
               return (
                 <li key={f.id} data-file={f.id}>
                   <span className="fi" style={{ background: colorOf(f.path) }}>{ext.toUpperCase().slice(0, 4) || '파일'}</span>
-                  <span className="nm"><b title={f.path}>{nameOf(f.path)}</b><small>{f.from === 'mac' ? '맥에서 받음' : '이 PC'} · {when(f.at)}{f.sent && <span className="badge">맥에 보냄</span>}</small></span>
+                  <span className="nm"><b title={f.path}>{nameOf(f.path)}</b><small>{f.from === 'mac' ? '맥에서 받음' : f.from === 'pc' ? '이 PC' : `${f.from}님에게 받음`} · {when(f.at)}{f.sent && <span className="badge">맥에 보냄</span>}</small></span>
                   <span className="acts">
                     <button className="ib go" data-send={f.id} disabled={!mac} onClick={() => send(f)} aria-label="맥으로 보내기" title={mac ? '맥으로 보내기' : '맥 Hera 연결 필요'}><Ico k="send" /></button>
                     <button className="ib" data-open={f.id} onClick={() => void openPath(f.path).catch(() => {})} aria-label="열기" title="열기"><Ico k="open" /></button>

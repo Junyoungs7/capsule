@@ -23,6 +23,7 @@ mod link;
 mod link_files;
 mod link_layout;
 mod notes; // 메모 보드 · 메모장으로 열기
+mod people; // 사람에게 파일 보내기 (같은 네트워크의 다른 Hera)
 mod tray; // 트레이 아이콘 · 패널 · 알림 카드
 mod ui;
 
@@ -442,6 +443,7 @@ pub fn run() {
             settings_open, close_self, autostart, report_hit_rects, shelf_add, open_path, board_open, fx, cover,
             link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
             tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_drag, pet::pet_home, pet::pet_set_image, pet::pet_image,
+            people::people_pair, people::people_confirm, people::people_near, people::people_forget, people::people_send,
         ])
         .setup(|app| {
             // 깨진 hera.json: 스토어 플러그인은 읽기 오류를 무시하고 빈 스토어로 열어 곧 덮어쓴다 → 먼저 옆으로 치워 둔다
@@ -475,9 +477,14 @@ pub fn run() {
             link::files_start(h);
             notes::migrate(h);
             pet::sync(h); // 펫 (항상)
+            people::start(h); // 사람에게 보내기 (켜져 있으면)
+            let a = h.clone();
             listen_store(h, move |k, _| {
                 if matches!(k, "ascii.idleMin" | "deco.enabled" | "locator.enabled") {
                     watch::RECHECK.store(true, Ordering::Relaxed); // 2초 기다리지 않고 바로 적용
+                }
+                if k == "people.enabled" {
+                    people::start(&a); // 꺼져 있다 켜면 시작 (끄면 비콘만 멈춘다)
                 }
             });
 
