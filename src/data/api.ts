@@ -141,7 +141,14 @@ export const noteNotepad = (id: string) => invoke<string>('note_notepad', { id }
 export type LinkCfg = {
   me: string; peer: string; side: 'left' | 'right' | 'top' | 'bottom'; port: number; tls: boolean; doubleTap: boolean; filePort: number
   keymap: string; keyRows: [string, string][]; ime: string
+  /** main = 이 PC 마우스·키보드로 다른 기기를 움직임 · sub = 다른 PC(중심)가 이 PC 를 움직임 */
+  role: 'main' | 'sub'
+  /** sub: 중심 PC 주소 (비우면 자동으로 찾음) */
+  server: string
 }
+/** 이어질 기기 (맥 · 다른 Windows) — files = 지금 이어짐, paired = 짝을 맞춤 (맥 자리 표시는 false) */
+export type LinkDev = { id: string; name: string; os: 'mac' | 'win'; files: boolean; paired: boolean }
+export const linkDevices = () => invoke<LinkDev[]>('link_devices')
 export type LinkStatus = { state: 'off' | 'starting' | 'waiting' | 'connected' | 'blocked' | 'error'; detail: string; peer: string; onPeer: boolean; fingerprint: string }
 export type LinkFilesEv =
   | { kind: 'peer'; state: 'pairing' | 'ready' | 'closed'; name: string; code: string }
@@ -154,9 +161,9 @@ export const linkApply = () => invoke('link_apply')
 export const linkImport = () => invoke<LinkCfg>('link_import')
 export const linkTrust = (fp: string) => invoke('link_trust', { fp })
 export const linkPair = (ok: boolean) => invoke('link_pair', { ok })
-export const linkUnpair = () => invoke('link_unpair')
+export const linkUnpair = (id?: string) => invoke('link_unpair', { id: id ?? null })
 /** edge·pos = 가장자리 포탈로 보냄 (맥이 그 자리에 물결) */
-export const linkSend = (path: string, edge?: string, pos?: number) => invoke('link_send', { path, edge: edge ?? null, pos: pos ?? null })
-export type LinkMon = { id: string; mac: boolean; rect: [number, number, number, number]; at: [number, number, number, number] }
+export const linkSend = (path: string, edge?: string, pos?: number, dev?: string) => invoke('link_send', { path, edge: edge ?? null, pos: pos ?? null, dev: dev ?? null })
+export type LinkMon = { id: string; mac: boolean; dev?: string; rect: [number, number, number, number]; at: [number, number, number, number] }
 export type LinkSeg = { side: 'left' | 'right' | 'up' | 'down'; win: [number, number]; mac: [number, number]; edge: [number, number, number, number] }
 export const linkPlan = () => invoke<[LinkMon[], { segs: LinkSeg[]; limits: string[] }]>('link_plan')

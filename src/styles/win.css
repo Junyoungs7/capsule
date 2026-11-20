@@ -369,3 +369,8 @@ input, textarea { font: inherit; color: inherit; user-select: text; }
 .near .byip .inp { flex: 1; height: 32px; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12.5px; }
 .near .ppl-err { margin: 2px 4px 0; font-size: 12px; color: var(--danger); }
 .near > small[data-my-ip] { margin: 6px 4px 0; }
+
+/* 다른 Windows 기기 (맥은 .mac) — 패널 · 펫 둘레 · 사람 포탈 */
+.pp.win .av, .fo.win .av { background: linear-gradient(160deg, #3a8dde, #1f5fa8); }
+.gate.win .ring { background: radial-gradient(circle, #050b1c 30%, #1f5fa8 62%, #60cdff 80%, transparent 82%); box-shadow: 0 0 30px #60cdff; }
+.presets.role { grid-template-columns: 1fr 1fr; }

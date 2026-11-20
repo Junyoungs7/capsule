@@ -33,6 +33,10 @@ pub struct Cfg {
     pub key_rows: Vec<(String, String)>,
     /// 한/영: hera(맥 Hera 가 입력 소스 전환) / capslock / ctrl-space / cmd-space / fn (엔진으로 단축키 보내기, 실험적)
     pub ime: String,
+    /// 이 PC 의 역할: main = 이 PC 마우스·키보드로 다른 기기를 움직임(엔진 서버) · sub = 다른 PC(중심)가 이 PC 를 움직임(엔진 클라이언트)
+    pub role: String,
+    /// sub: 중심 PC 주소 (비우면 같은 네트워크에서 자동으로 찾음)
+    pub server: String,
     /// 클립보드 공유 (store `link.share.clip`, 저장은 따로 — 바뀌면 엔진을 다시 띄운다)
     #[serde(skip)]
     pub clip: bool,
@@ -51,6 +55,8 @@ impl Default for Cfg {
             keymap: "habit".into(),
             key_rows: vec![],
             ime: "hera".into(),
+            role: "main".into(),
+            server: String::new(),
             clip: true,
         }
     }
@@ -58,8 +64,8 @@ impl Default for Cfg {
 
 /// 엔진 서버 설정 파일. 1.27 은 이름을 설정 INI 의 [computer_*] 에서 읽고 screens 섹션은 무시, options 는 keystroke/mousepress 만 →
 /// links(가장자리 범위) + 빈 options. 수식키·두 번 치기는 INI 로.
-pub fn server_conf(c: &Cfg, segs: &[crate::link_layout::Seg]) -> String {
-    crate::link_layout::links_section(&c.me, &c.peer, segs, &c.side) + "\nsection: options\nend\n"
+pub fn server_conf(c: &Cfg, devs: &[(String, String)], segs: &[crate::link_layout::Seg]) -> String {
+    crate::link_layout::links_section(&c.me, devs, segs, &c.side) + "\nsection: options\nend\n"
 }
 
 const MODS: [&str; 6] = ["shift", "ctrl", "alt", "altgr", "meta", "super"];
@@ -99,19 +105,33 @@ fn mod_key(k: &str) -> &'static str {
 }
 
 /// 엔진 설정 INI (portable: exe 옆 settings\Deskflow.conf)
-pub fn settings_ini(c: &Cfg, conf: &Path, cert: &Path) -> String {
+/// devs = (엔진 이름, 맥인가) — 맥에만 수식키 매핑 (윈도우끼리는 그대로)
+pub fn settings_ini(c: &Cfg, devs: &[(String, bool)], conf: &Path, cert: &Path) -> String {
     let p = |x: &Path| x.display().to_string().replace('\\', "/");
     format!(
-        "[core]\ncomputerName={me}\nport={port}\ncoreMode=2\npreventSleep=false\n\n[server]\nexternalConfig=true\nexternalConfigFile={conf}\nprotocol=barrier\nenableClipboard={clip}\nclipboardSize=3\nenableSwitchDoubleTap={dt}\nswitchDoubleTap=250\n\n[security]\ntlsEnabled={tls}\ncheckPeerFingerprints=true\ncertificate={cert}\n\n[log]\nlevel=INFO\n\n[computer_{me}]\nname={me}\n\n[computer_{peer}]\nname={peer}\n{mods}",
+        "[core]\ncomputerName={me}\nport={port}\ncoreMode=2\npreventSleep=false\n\n[server]\nexternalConfig=true\nexternalConfigFile={conf}\nprotocol=barrier\nenableClipboard={clip}\nclipboardSize=3\nenableSwitchDoubleTap={dt}\nswitchDoubleTap=250\n\n[security]\ntlsEnabled={tls}\ncheckPeerFingerprints=true\ncertificate={cert}\n\n[log]\nlevel=INFO\n\n[computer_{me}]\nname={me}\n{others}",
         me = c.me,
-        peer = c.peer,
         port = c.port,
         conf = p(conf),
         dt = c.double_tap,
         tls = c.tls,
         clip = c.clip,
         cert = p(cert),
-        mods = modifiers(c).iter().map(|(k, v)| format!("{}={v}\n", mod_key(k))).collect::<String>()
+        others = devs
+            .iter()
+            .map(|(n, mac)| format!("\n[computer_{n}]\nname={n}\n{}", if *mac { modifiers(c).iter().map(|(k, v)| format!("{}={v}\n", mod_key(k))).collect::<String>() } else { String::new() }))
+            .collect::<String>()
+    )
+}
+
+/// 받는 쪽(sub) 엔진 INI: 클라이언트 모드, 중심 PC 주소. 중심 PC 인증서 지문은 settings\tls\trusted-servers 로 믿는다
+pub fn client_ini(c: &Cfg, host: &str, cert: &Path) -> String {
+    let p = cert.display().to_string().replace('\\', "/");
+    format!(
+        "[core]\ncomputerName={me}\nport={port}\ncoreMode=1\npreventSleep=false\n\n[client]\nremoteHost={host}\n\n[security]\ntlsEnabled={tls}\ncheckPeerFingerprints=true\ncertificate={p}\n\n[log]\nlevel=INFO\n",
+        me = c.me,
+        port = c.port,
+        tls = c.tls
     )
 }
 
@@ -138,6 +158,13 @@ pub fn parse_line(line: &str) -> Option<LogEv> {
     if has("switch from \"") || has("jump from \"") {
         let at = msg.rsplit_once(" at ").and_then(|(_, xy)| xy.trim().split_once(',')).and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)));
         return Some(LogEv::Switch { from: quoted(msg, 0), to: quoted(msg, 1), at });
+    }
+    // 받는 쪽(클라이언트) 엔진
+    if has("connected to server") && !has("failed") {
+        return Some(LogEv::Connected { name: String::new() });
+    }
+    if has("disconnected from server") {
+        return Some(LogEv::Disconnected { name: String::new() });
     }
     if has("has connected") || has("accepted client connection") {
         return Some(LogEv::Connected { name: quoted(msg, 0) });
@@ -345,41 +372,87 @@ pub struct MacMon {
     pub rect: [f64; 4],
 }
 
-/// store `link.layout` = { at: { 모니터 id: [x, y] (캔버스) } }, `link.macMonitors` = 맥이 보고한 모니터(없으면 자리 표시 2대, 패널에서 크기 수정)
+/// store `link.layout` = { at: { 모니터 id: [x, y] (캔버스) } }
 #[derive(Deserialize, Default)]
 struct LayoutStore {
     #[serde(default)]
     at: std::collections::HashMap<String, [f64; 2]>,
 }
 
-pub fn mac_monitors(app: &AppHandle) -> Vec<MacMon> {
-    app.store("hera.json").ok().and_then(|s| s.get("link.macMonitors")).and_then(|v| serde_json::from_value(v).ok()).filter(|v: &Vec<MacMon>| !v.is_empty()).unwrap_or_else(|| {
-        vec![MacMon { id: "Mac 1".into(), rect: [0.0, 0.0, 1512.0, 982.0] }, MacMon { id: "Mac 2".into(), rect: [1512.0, 0.0, 1920.0, 1080.0] }]
-    })
+/// 이어진 기기 (맥 · 다른 윈도우 노트북 …). store `link.devices`.
+/// id = 파일 채널 공개키 hex (짝을 맞추기 전 맥 자리 표시는 "mac"), name = 엔진 화면 이름, os = "mac" | "win", mons = 그 기기가 보고한 모니터
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Dev {
+    pub id: String,
+    pub name: String,
+    pub os: String,
+    #[serde(default)]
+    pub mons: Vec<MacMon>,
 }
 
-/// 캔버스 위 모든 모니터. PC 모니터는 Windows 배치 그대로(주 모니터 배율로 나눔 — 맞닿음 유지), 맥 모니터는 저장 위치 또는 기본(설정한 방향 옆)
+/// 기기 목록. 없으면 예전 한 대(맥) 설정에서 만든다 (link.peerPk · link.macMonitors · 맥 이름)
+pub fn devices(app: &AppHandle) -> Vec<Dev> {
+    let Ok(s) = app.store("hera.json") else { return vec![] };
+    if let Some(v) = s.get("link.devices").and_then(|v| serde_json::from_value::<Vec<Dev>>(v).ok()) {
+        return v;
+    }
+    let id = s.get("link.peerPk").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "mac".into());
+    let mons = s.get("link.macMonitors").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    vec![Dev { id, name: read_cfg(app).1.peer, os: "mac".into(), mons }]
+}
+
+pub fn save_devices(app: &AppHandle, devs: &[Dev]) {
+    if let Ok(s) = app.store("hera.json") {
+        s.set("link.devices", serde_json::to_value(devs).unwrap_or(Value::Null));
+    }
+    let _ = app.emit("link-devices", ());
+}
+
+/// 모니터를 아직 모를 때의 자리 표시 (맥 2대 · 노트북 1대 — 설정 캔버스에서 위치만 맞추면 된다)
+pub fn placeholder(os: &str) -> Vec<MacMon> {
+    if os == "mac" {
+        vec![MacMon { id: "Mac 1".into(), rect: [0.0, 0.0, 1512.0, 982.0] }, MacMon { id: "Mac 2".into(), rect: [1512.0, 0.0, 1920.0, 1080.0] }]
+    } else {
+        vec![MacMon { id: "1".into(), rect: [0.0, 0.0, 1920.0, 1080.0] }]
+    }
+}
+
+/// 캔버스 모니터 id: 맥은 예전 그대로(저장된 위치 유지), 윈도우 기기는 "<이름>:<모니터>"
+pub fn mon_id(d: &Dev, m: &str) -> String {
+    if d.os == "mac" {
+        m.to_string()
+    } else {
+        format!("{}:{m}", d.name)
+    }
+}
+
+/// 캔버스 위 모든 모니터. PC 모니터는 Windows 배치 그대로(주 모니터 배율로 나눔 — 맞닿음 유지),
+/// 기기 모니터는 저장 위치 또는 기본(첫 기기 = 설정한 방향, 그다음 오른쪽 · 왼쪽 · 위 · 아래 중 남은 쪽)
 pub fn layout(app: &AppHandle) -> Vec<Mon> {
     let wins = crate::watch::monitors();
     let s = wins.iter().find(|m| m.3).or(wins.first()).map_or(1.0, |m| m.2).max(0.5);
-    let mut mons: Vec<Mon> = wins.iter().map(|(id, r, _, _)| Mon { id: id.clone(), mac: false, rect: *r, at: [r[0] / s, r[1] / s, r[2] / s, r[3] / s] }).collect();
+    let mut mons: Vec<Mon> = wins.iter().map(|(id, r, _, _)| Mon { id: id.clone(), mac: false, dev: String::new(), rect: *r, at: [r[0] / s, r[1] / s, r[2] / s, r[3] / s] }).collect();
     let store: LayoutStore = app.store("hera.json").ok().and_then(|st| st.get("link.layout")).and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
     let (wl, wt, wr, wb) = mons.iter().fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |a, m| (a.0.min(m.at[0]), a.1.min(m.at[1]), a.2.max(m.at[0] + m.at[2]), a.3.max(m.at[1] + m.at[3])));
-    let macs = mac_monitors(app);
-    let (ml, mt) = macs.iter().fold((f64::MAX, f64::MAX), |a, m| (a.0.min(m.rect[0]), a.1.min(m.rect[1])));
-    let (mw, mh) = macs.iter().fold((0.0f64, 0.0f64), |a, m| (a.0.max(m.rect[0] + m.rect[2] - ml), a.1.max(m.rect[1] + m.rect[3] - mt)));
-    let side = read_cfg(app).1.side;
-    // 기본 위치: 맥 배치를 통째로 PC 경계 상자의 설정 방향에 붙임
-    let (ox, oy) = match side.as_str() {
-        "left" => (wl - mw, wt),
-        "top" => (wl, wt - mh),
-        "bottom" => (wl, wb),
-        _ => (wr, wt),
-    };
-    for m in macs {
-        let def = [ox + m.rect[0] - ml, oy + m.rect[1] - mt];
-        let [x, y] = store.at.get(&m.id).copied().unwrap_or(def);
-        mons.push(Mon { id: m.id, mac: true, rect: m.rect, at: [x, y, m.rect[2], m.rect[3]] });
+    let first = read_cfg(app).1.side;
+    let order: Vec<&str> = std::iter::once(first.as_str()).chain(["right", "left", "top", "bottom"].into_iter().filter(|x| *x != first)).collect();
+    for (i, d) in devices(app).iter().enumerate() {
+        let ms = if d.mons.is_empty() { placeholder(&d.os) } else { d.mons.clone() };
+        let (ml, mt) = ms.iter().fold((f64::MAX, f64::MAX), |a, m| (a.0.min(m.rect[0]), a.1.min(m.rect[1])));
+        let (mw, mh) = ms.iter().fold((0.0f64, 0.0f64), |a, m| (a.0.max(m.rect[0] + m.rect[2] - ml), a.1.max(m.rect[1] + m.rect[3] - mt)));
+        // 기본 위치: 기기 배치를 통째로 PC 경계 상자의 그 방향에 붙임 (다섯째부터는 오른쪽에 이어서)
+        let (ox, oy) = match order.get(i).copied().unwrap_or("right") {
+            "left" => (wl - mw, wt),
+            "top" => (wl, wt - mh),
+            "bottom" => (wl, wb),
+            _ => (wr + if i >= 4 { (i - 3) as f64 * 2000.0 } else { 0.0 }, wt),
+        };
+        for m in ms {
+            let id = mon_id(d, &m.id);
+            let def = [ox + m.rect[0] - ml, oy + m.rect[1] - mt];
+            let [x, y] = store.at.get(&id).copied().unwrap_or(def);
+            mons.push(Mon { id, mac: true, dev: d.id.clone(), rect: m.rect, at: [x, y, m.rect[2], m.rect[3]] });
+        }
     }
     mons
 }
@@ -404,6 +477,67 @@ pub fn ensure_cert(path: &Path, name: &str) -> Result<(), String> {
     std::fs::write(path, format!("{}{}", key.serialize_pem(), cert.pem())).map_err(|e| e.to_string())
 }
 
+/// 엔진 설정 두 파일의 내용 (기기 · 배치가 바뀌면 달라진다 → 감독 스레드가 엔진을 다시 띄운다)
+fn engine_files(app: &AppHandle, c: &Cfg, conf: &Path, cert: &Path) -> (String, String) {
+    let devs = devices(app);
+    let names: Vec<(String, String)> = devs.iter().map(|d| (d.id.clone(), engine_name(c, d))).collect();
+    let kinds: Vec<(String, bool)> = devs.iter().map(|d| (engine_name(c, d), d.os == "mac")).collect();
+    (server_conf(c, &names, &plan(app).1.segs), settings_ini(c, &kinds, conf, cert))
+}
+
+/// 엔진 화면 이름: 맥 = 설정의 맥 이름(맥 Hera 가 그 이름으로 엔진을 띄운다), 윈도우 기기 = 그 PC 가 알려 준 이름
+pub fn engine_name(c: &Cfg, d: &Dev) -> String {
+    if d.os == "mac" {
+        c.peer.clone()
+    } else {
+        d.name.clone()
+    }
+}
+
+/// 받는 쪽: 중심 PC 주소 (설정에 적은 것 > 파일 채널로 찾은 것)
+pub fn server_host(app: &AppHandle, c: &Cfg) -> Option<String> {
+    let typed = c.server.trim().split(':').next().unwrap_or("").to_string();
+    if !typed.is_empty() {
+        return Some(typed);
+    }
+    app.store("hera.json").ok().and_then(|s| s.get("link.serverAddr")).and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty())
+}
+
+/// 받는 쪽 엔진 준비: 엔진 파일 · 내 인증서 · 클라이언트 INI (중심 PC 지문은 짝 맞출 때 trusted-servers 에)
+fn prepare_client(app: &AppHandle, c: &Cfg) -> Result<PathBuf, String> {
+    let d = engine_dir(app).ok_or("앱 데이터 폴더 없음")?;
+    install(app, &d)?;
+    let tls = d.join("settings").join("tls");
+    std::fs::create_dir_all(&tls).map_err(|e| e.to_string())?;
+    let cert = tls.join("deskflow.pem");
+    if c.tls {
+        ensure_cert(&cert, &c.me).map_err(|e| format!("암호화 인증서를 만들지 못했어요: {e}"))?;
+    }
+    let host = server_host(app, c).ok_or("중심 PC 주소가 없어요")?;
+    std::fs::write(d.join("settings").join("Deskflow.conf"), client_ini(c, &host, &cert)).map_err(|e| e.to_string())?;
+    Ok(d)
+}
+
+/// 받는 쪽: 중심 PC 엔진 지문 신뢰 (짝 맞출 때 파일 채널로 받은 값)
+fn trust_server(app: &AppHandle, fp: &str) {
+    let Some(f) = engine_dir(app).map(|d| d.join("settings").join("tls").join("trusted-servers")) else { return };
+    let _ = std::fs::create_dir_all(f.parent().unwrap());
+    let cur = std::fs::read_to_string(&f).unwrap_or_default();
+    if let Some(next) = trust_line(&cur, fp) {
+        let _ = std::fs::write(&f, next);
+    }
+}
+
+/// 감독 스레드 비교용: 설정 + 엔진 두 파일 내용
+fn engine_key(app: &AppHandle, c: &Cfg) -> String {
+    if c.role == "sub" {
+        return format!("{c:?}\n{:?}", server_host(app, c));
+    }
+    let d = engine_dir(app).unwrap_or_default();
+    let (a, b) = engine_files(app, c, &d.join("server.conf"), &d.join("settings").join("tls").join("deskflow.pem"));
+    format!("{c:?}\n{a}\n{b}")
+}
+
 fn prepare(app: &AppHandle, c: &Cfg) -> Result<PathBuf, String> {
     let d = engine_dir(app).ok_or("앱 데이터 폴더 없음")?;
     install(app, &d)?;
@@ -413,8 +547,9 @@ fn prepare(app: &AppHandle, c: &Cfg) -> Result<PathBuf, String> {
     if c.tls {
         ensure_cert(&cert, &c.me).map_err(|e| format!("암호화 인증서를 만들지 못했어요: {e}"))?;
     }
-    std::fs::write(&conf, server_conf(c, &plan(app).1.segs)).map_err(|e| e.to_string())?;
-    std::fs::write(d.join("settings").join("Deskflow.conf"), settings_ini(c, &conf, &cert)).map_err(|e| e.to_string())?;
+    let (conf_text, ini_text) = engine_files(app, c, &conf, &cert);
+    std::fs::write(&conf, conf_text).map_err(|e| e.to_string())?;
+    std::fs::write(d.join("settings").join("Deskflow.conf"), ini_text).map_err(|e| e.to_string())?;
     Ok(d)
 }
 
@@ -503,9 +638,9 @@ mod win {
     }
 }
 
-fn spawn(app: &AppHandle, d: &Path) -> Result<Child, String> {
+fn spawn(app: &AppHandle, d: &Path, mode: &str) -> Result<Child, String> {
     let mut cmd = Command::new(d.join("deskflow-core.exe"));
-    cmd.args(["server", "--new-instance"]).current_dir(d).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args([mode, "--new-instance"]).current_dir(d).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -613,31 +748,42 @@ fn crossing(app: &AppHandle, on_peer: bool, at: Option<(i32, i32)>) {
     let _ = cfg;
 }
 
-/// 파일 채널로 제어 메시지 (연결 없으면 조용히 무시)
+/// 파일 채널로 제어 메시지 — 이어진 기기 모두에게 (연결 없으면 조용히 무시)
 pub fn send(v: Value) {
-    if let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) {
+    for c in ready() {
+        let v = v.clone();
         std::thread::spawn(move || {
             let _ = c.send(v);
         });
     }
 }
 
-/// 접속 직후: 내 모니터 · 키 매핑
-fn hello_after_ready(app: &AppHandle) {
-    let mons: Vec<Value> = crate::watch::monitors().into_iter().map(|(id, r, s, p)| json!({ "id": id, "rect": r, "scale": s, "primary": p })).collect();
-    send(json!({ "t": "monitors", "list": mons }));
-    let c = read_cfg(app).1;
-    send(json!({ "t": "keymap", "preset": c.keymap, "rows": c.key_rows, "ime": c.ime }));
+/// 한 기기에게
+pub fn send_to(pk: &str, v: Value) {
+    if let Some(c) = ready().into_iter().find(|c| c.peer_pk == pk) {
+        std::thread::spawn(move || {
+            let _ = c.send(v);
+        });
+    }
 }
 
-fn on_msg(app: &AppHandle, m: &Value) {
+/// 접속 직후: 내 모니터 · 키 매핑 (그 기기에게)
+fn hello_after_ready(app: &AppHandle, pk: &str) {
+    let mons: Vec<Value> = crate::watch::monitors().into_iter().map(|(id, r, s, p)| json!({ "id": id, "rect": r, "scale": s, "primary": p })).collect();
+    send_to(pk, json!({ "t": "monitors", "list": mons }));
+    let c = read_cfg(app).1;
+    send_to(pk, json!({ "t": "keymap", "preset": c.keymap, "rows": c.key_rows, "ime": c.ime }));
+}
+
+/// 기기(pk)에서 온 제어 메시지
+fn on_msg(app: &AppHandle, pk: &str, m: &Value) {
     match m["t"].as_str().unwrap_or("") {
         "monitors" => {
             let list: Vec<MacMon> = m["list"].as_array().into_iter().flatten().filter_map(|x| Some(MacMon { id: x["id"].as_str()?.to_string(), rect: serde_json::from_value(x["rect"].clone()).ok()? })).collect();
-            if !list.is_empty() && list != mac_monitors(app) {
-                if let Ok(s) = app.store("hera.json") {
-                    s.set("link.macMonitors", serde_json::to_value(&list).unwrap_or(Value::Null));
-                }
+            let mut devs = devices(app);
+            if let Some(d) = devs.iter_mut().find(|d| d.id == pk).filter(|d| !list.is_empty() && d.mons != list) {
+                d.mons = list;
+                save_devices(app, &devs);
                 apply(); // 엔진 링크 다시 생성
                 update_edges(app);
             }
@@ -652,7 +798,12 @@ fn on_msg(app: &AppHandle, m: &Value) {
             }
         }
         // 전체 톡 (맥도 같은 방)
-        "talk" | "poke" => crate::talk::received(app, "mac", &files_connected().unwrap_or_else(|| "내 맥".into()), m),
+        "talk" | "poke" => {
+            let d = devices(app).into_iter().find(|d| d.id == pk);
+            let from = if d.as_ref().is_none_or(|d| d.os == "mac") { "mac".to_string() } else { pk.to_string() };
+            let name = d.map(|d| d.name).or_else(|| ready().into_iter().find(|c| c.peer_pk == pk).map(|c| c.peer_name.clone())).unwrap_or_else(|| "내 맥".into());
+            crate::talk::received(app, &from, &name, m)
+        }
         _ => {}
     }
 }
@@ -661,7 +812,8 @@ fn on_msg(app: &AppHandle, m: &Value) {
 pub fn update_edges(app: &AppHandle) {
     #[cfg(windows)]
     {
-        let segs: Vec<_> = if files_connected().is_some() { plan(app).1.segs.into_iter().map(|g| (g.side, g.edge, g.mac)).collect() } else { vec![] };
+        let on: Vec<String> = ready().iter().map(|c| c.peer_pk.clone()).collect();
+        let segs: Vec<_> = plan(app).1.segs.into_iter().filter(|g| on.contains(&g.dev)).map(|g| (g.side, g.edge, g.mac)).collect();
         crate::drag::set_segs(segs.iter().map(|(s, e, _)| (s.clone(), *e)).collect());
         crate::edge::set(segs);
     }
@@ -677,9 +829,15 @@ fn edge_drop(app: &AppHandle, files: Vec<String>, mac_side: String, pos: f64, pt
     }
     let side = ll::nearest_side(desk_bbox(), pt.0 as f64, pt.1 as f64);
     crate::ripple::show(pt.0, pt.1, Some(side), crate::ripple::Kind::Leave);
+    // 그 가장자리 구간의 기기
+    let dev = plan(app).1.segs.into_iter().filter(|g| ll::opposite_side(&g.side) == mac_side).min_by_key(|g| {
+        let e = g.edge;
+        let (cx, cy) = (e[0] + e[2] / 2.0, e[1] + e[3] / 2.0);
+        ((cx - pt.0 as f64).abs() + (cy - pt.1 as f64).abs()) as i64
+    }).map(|g| g.dev);
     let app = app.clone();
     std::thread::spawn(move || {
-        let Some(c) = CONN.lock().unwrap().clone().filter(|c| c.is_ready()) else { return };
+        let Some(c) = ready().into_iter().find(|c| dev.as_ref().is_none_or(|d| *d == c.peer_pk)) else { return };
         for f in files {
             let _ = c.send_file_meta(Path::new(&f), &sink(&app), json!({ "via": "edge", "edge": mac_side, "pos": pos }));
         }
@@ -712,11 +870,13 @@ pub fn start(app: AppHandle) {
         crate::edge::on_drop(move |files, side, pos, pt| edge_drop(&a, files, side, pos, pt));
     }
     std::thread::spawn(move || {
-        let mut child: Option<(Child, Cfg, Instant)> = None;
+        // 엔진 설정 내용(기기 · 배치 포함)이 바뀌면 다시 띄운다
+        let mut child: Option<(Child, String, Instant)> = None;
         let mut backoff = 1u64;
         loop {
             let (on, cfg) = read_cfg(&app);
-            let changed = child.as_ref().is_some_and(|(_, c, _)| *c != cfg);
+            let key = engine_key(&app, &cfg);
+            let changed = child.as_ref().is_some_and(|(_, k, _)| *k != key);
             if !on || changed {
                 if let Some((mut c, _, _)) = child.take() {
                     let _ = c.kill();
@@ -740,10 +900,19 @@ pub fn start(app: AppHandle) {
                     }
                     continue;
                 }
-                match prepare(&app, &cfg).and_then(|d| spawn(&app, &d)) {
+                let sub = cfg.role == "sub";
+                if sub && server_host(&app, &cfg).is_none() {
+                    set(&app, |s| (s.state = "waiting".into(), s.detail = "중심 PC를 찾는 중이에요 — 같은 네트워크에서 Hera 연결이 켜져 있어야 해요".into()).1);
+                    if matches!(rx.recv_timeout(Duration::from_secs(3)), Err(RecvTimeoutError::Disconnected)) {
+                        return;
+                    }
+                    continue;
+                }
+                let made = if sub { prepare_client(&app, &cfg).and_then(|d| spawn(&app, &d, "client")) } else { prepare(&app, &cfg).and_then(|d| spawn(&app, &d, "server")) };
+                match made {
                     Ok(c) => {
                         set(&app, |s| (s.state = "waiting".into(), s.detail.clear()).1);
-                        child = Some((c, cfg.clone(), Instant::now()));
+                        child = Some((c, key, Instant::now()));
                     }
                     Err(e) => {
                         set(&app, |s| (s.state = "error".into(), s.detail = e).1);
@@ -778,8 +947,28 @@ pub fn start(app: AppHandle) {
 use crate::link_files::{self as lf, Conn};
 use std::sync::Arc;
 
-static CONN: Mutex<Option<Arc<Conn>>> = Mutex::new(None);
+/// 이어진 기기들의 파일 채널 (기기마다 하나 — 같은 기기가 다시 붙으면 예전 것을 닫는다)
+static CONNS: Mutex<Vec<Arc<Conn>>> = Mutex::new(Vec::new());
+/// 숫자 확인을 기다리는 새 기기 연결 (한 번에 하나)
+static PAIRING: Mutex<Option<Arc<Conn>>> = Mutex::new(None);
 static FILES: OnceLock<()> = OnceLock::new();
+
+/// 준비된 연결들
+pub fn ready() -> Vec<Arc<Conn>> {
+    CONNS.lock().unwrap().iter().filter(|c| c.is_ready()).cloned().collect()
+}
+
+/// 이어진 기기 (pk, 이름, os) — 패널 · 보낼 곳 목록
+pub fn connected(app: &AppHandle) -> Vec<(String, String, String)> {
+    let devs = devices(app);
+    ready()
+        .iter()
+        .map(|c| {
+            let d = devs.iter().find(|d| d.id == c.peer_pk);
+            (c.peer_pk.clone(), d.map_or(c.peer_name.clone(), |d| if d.os == "mac" { c.peer_name.clone() } else { d.name.clone() }), d.map_or("mac".into(), |d| d.os.clone()))
+        })
+        .collect()
+}
 
 pub(crate) fn files_cfg(app: &AppHandle) -> lf::Config {
     let s = app.store("hera.json").ok();
@@ -796,7 +985,8 @@ pub(crate) fn files_cfg(app: &AppHandle) -> lf::Config {
         name: read_cfg(app).1.me,
         secret,
         known_peer: get("link.peerPk").and_then(|k| lf::unhex32(&k)),
-        known: vec![],
+        // 여러 기기: 짝을 맞춘 기기들의 키 (받는 쪽이면 중심 PC 키)
+        known: devices(app).iter().filter_map(|d| lf::unhex32(&d.id)).chain(get("link.serverPk").and_then(|k| lf::unhex32(&k))).collect(),
         engine_fp: my_fp(app),
         downloads: app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir()).join("Hera"),
         accept_any: false,
@@ -806,9 +996,15 @@ pub(crate) fn files_cfg(app: &AppHandle) -> lf::Config {
 /// 보내는 파일 이름 (전송 id → 이름) — '보냈어요' 알림에 쓴다
 static OUT_NAMES: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
 
+/// 연결 하나의 이벤트 처리 (pk = 그 연결의 상대 — Peer 이벤트로 안다)
 fn sink(app: &AppHandle) -> lf::Sink {
     let app = app.clone();
+    let me = Arc::new(Mutex::new(String::new()));
     Arc::new(move |e: lf::Event| {
+        if let lf::Event::Peer { pk, .. } = &e {
+            *me.lock().unwrap() = pk.clone();
+        }
+        let pk = me.lock().unwrap().clone();
         match &e {
             lf::Event::Peer { state, name, code, .. } if state == "pairing" => {
                 crate::tray::toast(&app, "pair", &format!("{name} 연결 확인"), &format!("숫자 {} {} · 눌러서 확인", &code[..code.len().min(3)], &code[code.len().min(3)..]));
@@ -831,11 +1027,30 @@ fn sink(app: &AppHandle) -> lf::Sink {
                     crate::tray::toast(&app, "fail", "보내지 못했어요", error);
                 }
             }
-            lf::Event::Paired { pk, name, fp } => {
+            lf::Event::Paired { pk, name, fp, .. } if read_cfg(&app).1.role == "sub" => {
+                // 받는 쪽: 중심 PC 를 기억하고 그 엔진 지문을 믿는다
                 if let Ok(s) = app.store("hera.json") {
-                    s.set("link.peerPk", pk.clone());
-                    s.set("link.peerName", name.clone());
+                    s.set("link.serverPk", pk.clone());
+                    s.set("link.serverName", name.clone());
                 }
+                if !fp.is_empty() {
+                    trust_server(&app, fp);
+                }
+                apply();
+            }
+            lf::Event::Paired { pk, name, fp, os } => {
+                // 기기 목록에 더한다: 맥은 자리 표시("mac")를 이 맥으로, 윈도우는 새 기기로 (같은 키면 갱신)
+                let mut devs = devices(&app);
+                devs.retain(|d| d.id != *pk && !(os == "mac" && d.id == "mac"));
+                devs.push(Dev { id: pk.clone(), name: name.clone(), os: os.clone(), mons: vec![] });
+                save_devices(&app, &devs);
+                if let Ok(s) = app.store("hera.json") {
+                    if os == "mac" {
+                        s.set("link.peerPk", pk.clone());
+                        s.set("link.peerName", name.clone());
+                    }
+                }
+                apply(); // 새 화면 → 엔진 설정 다시
                 // 맥 엔진(클라이언트)의 TLS 지문도 함께 신뢰 → 엔진 첫 연결에서 따로 묻지 않음
                 if !fp.is_empty() {
                     let _ = trust(&app, fp);
@@ -852,7 +1067,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
                     let edge = (meta["via"] == "edge")
                         .then(|| meta["edge"].as_str().zip(meta["pos"].as_f64()))
                         .flatten()
-                        .and_then(|(side, pos)| ll::mac_to_win(&plan(&app).1.segs, side, pos));
+                        .and_then(|(side, pos)| ll::mac_to_win(&plan(&app).1.segs.into_iter().filter(|g| g.dev == pk).collect::<Vec<_>>(), side, pos));
                     crate::drag::recv_portal(&app, edge, &name)
                 };
                 #[cfg(not(windows))]
@@ -869,13 +1084,15 @@ fn sink(app: &AppHandle) -> lf::Sink {
                     crate::tray::toast(&app, "recv", "맥에서 파일을 받았어요", &sub);
                 }
             }
-            lf::Event::Msg { msg } => on_msg(&app, msg),
+            lf::Event::Msg { msg } => on_msg(&app, &pk, msg),
             lf::Event::Peer { state, .. } if state == "ready" => {
                 let a = app.clone();
+                let k = pk.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(50)); // CONN 등록 뒤
-                    hello_after_ready(&a);
+                    std::thread::sleep(Duration::from_millis(50)); // CONNS 등록 뒤
+                    hello_after_ready(&a, &k);
                     update_edges(&a);
+                    let _ = a.emit("link-devices", ());
                 });
             }
             lf::Event::Peer { state, .. } if state == "closed" => {
@@ -883,6 +1100,7 @@ fn sink(app: &AppHandle) -> lf::Sink {
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(50));
                     update_edges(&a);
+                    let _ = a.emit("link-devices", ());
                 });
             }
             _ => {}
@@ -894,7 +1112,18 @@ fn sink(app: &AppHandle) -> lf::Sink {
 /// 파일 채널 서버: 링크가 켜질 때 1번 시작 (Hera 수명 동안 유지). 꺼져 있는 동안 들어온 접속은 바로 닫는다.
 /// ponytail: 포트 변경은 Hera 재시작 후 반영 — 자주 바꾸면 리스너 재생성으로
 pub fn files_start(app: &AppHandle) {
-    if !read_cfg(app).0 || FILES.set(()).is_err() {
+    if !read_cfg(app).0 {
+        return;
+    }
+    // 역할을 바꾸면 그 역할의 채널을 (한 번) 시작한다 — 다른 역할의 것은 스스로 쉰다
+    if read_cfg(app).1.role == "sub" {
+        static CLIENT: OnceLock<()> = OnceLock::new();
+        if CLIENT.set(()).is_ok() {
+            files_client(app);
+        }
+        return;
+    }
+    if FILES.set(()).is_err() {
         return;
     }
     let port = read_cfg(app).1.file_port;
@@ -905,52 +1134,139 @@ pub fn files_start(app: &AppHandle) {
             return;
         }
     };
-    let (a1, a2, a3) = (app.clone(), app.clone(), app.clone());
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let cfg: Arc<dyn Fn() -> lf::Config + Send + Sync> = Arc::new(move || files_cfg(&a1));
-    let on_conn: Arc<dyn Fn(Option<Arc<Conn>>) + Send + Sync> = Arc::new(move |c: Option<Arc<Conn>>| {
-        let mut cur = CONN.lock().unwrap();
-        if let (Some(old), Some(new)) = (cur.as_ref(), c.as_ref()) {
-            if !Arc::ptr_eq(old, new) {
-                old.close(); // 새 접속이 이전 연결을 대체
+    let a = app.clone();
+    std::thread::spawn(move || {
+        for st in listener.incoming().flatten() {
+            let (on, c) = read_cfg(&a);
+            if !on || c.role == "sub" {
+                continue; // 꺼져 있거나 받는 쪽인 동안 들어온 접속은 닫는다 (drop)
             }
+            let a = a.clone();
+            std::thread::spawn(move || {
+                let on_conn = |c: Option<Arc<Conn>>| {
+                    let mut all = CONNS.lock().unwrap();
+                    match c {
+                        Some(c) if c.is_ready() => {
+                            // 같은 기기가 다시 붙음 → 예전 연결은 닫는다 (다른 기기는 그대로)
+                            for old in all.iter().filter(|o| o.peer_pk == c.peer_pk && !Arc::ptr_eq(o, &c)) {
+                                old.close();
+                            }
+                            all.retain(|o| o.peer_pk != c.peer_pk);
+                            all.push(c);
+                        }
+                        Some(c) => {
+                            if let Some(old) = PAIRING.lock().unwrap().replace(c) {
+                                old.close();
+                            }
+                        }
+                        None => all.retain(|o| o.is_ready()),
+                    }
+                };
+                if let Err(e) = lf::run(st, true, &files_cfg(&a), sink(&a), &on_conn) {
+                    eprintln!("link: {e}");
+                }
+            });
         }
-        if !read_cfg(&a2).0 {
-            if let Some(c) = &c {
-                c.close();
-            }
-            *cur = None;
-            return;
-        }
-        *cur = c;
     });
-    let s = sink(app);
-    std::thread::spawn(move || lf::serve(listener, cfg, s, on_conn, stop));
     let name = read_cfg(app).1.me;
+    let a3 = app.clone();
     std::thread::spawn(move || {
         let never = std::sync::atomic::AtomicBool::new(false);
-        lf::beacon(&name, port, &never, &|| !read_cfg(&a3).0 || CONN.lock().unwrap().as_ref().is_some_and(|c| c.is_ready()));
+        // 여러 기기: 이어져 있어도 계속 알린다 (새 기기가 찾을 수 있게)
+        lf::beacon(&name, port, &never, &|| {
+            let (on, c) = read_cfg(&a3);
+            !on || c.role == "sub"
+        });
+    });
+}
+
+/// 받는 쪽: 중심 PC 의 파일 채널에 접속해 둔다 (끊기면 2→4→…30초 뒤 다시). 주소 = 설정에 적은 것, 없으면 비콘으로 찾기
+fn files_client(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut wait = 2u64;
+        loop {
+            let (on, c) = read_cfg(&app);
+            if on && c.role == "sub" {
+                let typed = c.server.trim().to_string();
+                let addr = if typed.is_empty() {
+                    lf::discover(Duration::from_secs(5)).map(|(a, _)| a)
+                } else {
+                    let host = typed.split(':').next().unwrap_or("").to_string();
+                    use std::net::ToSocketAddrs;
+                    format!("{host}:{}", c.file_port).to_socket_addrs().ok().and_then(|mut i| i.find(|a| a.is_ipv4()))
+                };
+                if let Some(a) = addr {
+                    if let Ok(s) = app.store("hera.json") {
+                        if s.get("link.serverAddr").and_then(|v| v.as_str().map(String::from)).as_deref() != Some(&a.ip().to_string()) {
+                            s.set("link.serverAddr", a.ip().to_string());
+                            apply(); // 엔진을 그 주소로
+                        }
+                    }
+                    let on_conn = |cn: Option<Arc<Conn>>| {
+                        let mut all = CONNS.lock().unwrap();
+                        match cn {
+                            Some(cn) if cn.is_ready() => {
+                                all.retain(|o| o.peer_pk != cn.peer_pk);
+                                all.push(cn);
+                            }
+                            Some(cn) => {
+                                if let Some(old) = PAIRING.lock().unwrap().replace(cn) {
+                                    old.close();
+                                }
+                            }
+                            None => all.retain(|o| o.is_ready()),
+                        }
+                    };
+                    let started = Instant::now();
+                    if let Err(e) = lf::connect(a, &files_cfg(&app), sink(&app), &on_conn) {
+                        eprintln!("link client: {e}");
+                    }
+                    if started.elapsed() > Duration::from_secs(60) {
+                        wait = 2;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_secs(wait));
+            wait = (wait * 2).min(30);
+        }
     });
 }
 
 pub fn pair_confirm(ok: bool) {
-    if let Some(c) = CONN.lock().unwrap().as_ref() {
+    if let Some(c) = PAIRING.lock().unwrap().take() {
         c.confirm(ok);
     }
 }
 
-pub fn unpair(app: &AppHandle) {
-    if let Ok(s) = app.store("hera.json") {
-        s.delete("link.peerPk");
-        s.delete("link.peerName");
+/// 기기 빼기 (id 없으면 모두 — 예전 '페어링 해제'). 맥을 빼면 맥 자리 표시로 돌아간다
+pub fn unpair(app: &AppHandle, id: Option<String>) {
+    let mut devs = devices(app);
+    let gone: Vec<Dev> = devs.iter().filter(|d| id.as_ref().is_none_or(|i| *i == d.id)).cloned().collect();
+    devs.retain(|d| !gone.contains(d));
+    if gone.iter().any(|d| d.os == "mac") {
+        if let Ok(s) = app.store("hera.json") {
+            s.delete("link.peerPk");
+            s.delete("link.peerName");
+        }
+        if !devs.iter().any(|d| d.os == "mac") {
+            devs.insert(0, Dev { id: "mac".into(), name: read_cfg(app).1.peer, os: "mac".into(), mons: vec![] });
+        }
     }
-    if let Some(c) = CONN.lock().unwrap().take() {
+    save_devices(app, &devs);
+    for c in CONNS.lock().unwrap().iter().filter(|c| gone.iter().any(|d| d.id == c.peer_pk)) {
         c.close();
     }
+    apply();
 }
 
 /// 파일을 맥으로 (블로킹 — spawn_blocking 에서). edge = 가장자리 포탈로 보냄 (맥 쪽 방향, 그 가장자리 위 0..1) → 맥이 그 자리에 물결
+/// dev = 보낼 기기 (pk). 없으면 첫 기기(맥)
 pub fn send_file(app: &AppHandle, path: &str, edge: Option<(String, f64)>) -> Result<(), String> {
+    send_file_to(app, path, edge, None)
+}
+
+pub fn send_file_to(app: &AppHandle, path: &str, edge: Option<(String, f64)>, dev: Option<&str>) -> Result<(), String> {
     // 보내기 전 실패(연결 없음 · 파일 못 읽음)는 여기서 알린다 — 보낸 뒤의 거절·응답 없음은 Sent 이벤트가 알린다.
     // ponytail: 보내는 도중 끊김은 따로 알리지 않는다 (연결 상태 줄이 '끊김'으로 바뀜)
     let fail = |e: String| {
@@ -958,7 +1274,7 @@ pub fn send_file(app: &AppHandle, path: &str, edge: Option<(String, f64)>) -> Re
         crate::tray::toast(app, "fail", "보내지 못했어요", &format!("{name} · {e}"));
         e
     };
-    let c = CONN.lock().unwrap().clone().filter(|c| c.is_ready()).ok_or_else(|| fail("맥 Hera와 연결되어 있지 않아요".into()))?;
+    let c = ready().into_iter().find(|c| dev.is_none_or(|d| d == c.peer_pk)).ok_or_else(|| fail("그 기기의 Hera와 연결되어 있지 않아요".into()))?;
     std::fs::File::open(path).map_err(|e| fail(e.to_string()))?;
     match edge {
         Some((side, pos)) => c.send_file_meta(Path::new(path), &sink(app), json!({ "via": "edge", "edge": side, "pos": pos })),
@@ -1000,8 +1316,9 @@ fn send_switch_shortcut(method: &str, c: &Cfg) {
     }
 }
 
+/// 첫 이어진 기기 이름 (예전 '맥 연결됨' 자리)
 pub fn files_connected() -> Option<String> {
-    CONN.lock().unwrap().as_ref().filter(|c| c.is_ready()).map(|c| c.peer_name.clone())
+    ready().first().map(|c| c.peer_name.clone())
 }
 
 #[cfg(test)]
@@ -1025,18 +1342,36 @@ mod tests {
     fn cfg(side: &str) -> Cfg {
         Cfg { me: "DEV-PC".into(), peer: "MacBook".into(), side: side.into(), port: 24900, ..Cfg::default() }
     }
+    fn mac() -> Vec<(String, String)> {
+        vec![("mac".into(), "MacBook".into())]
+    }
+
+    #[test]
+    fn several_devices_and_client_mode() {
+        // 맥 + 윈도우 노트북: 노트북에는 수식키 매핑이 없다 (윈도우끼리)
+        let ini = settings_ini(&cfg("right"), &[("MacBook".into(), true), ("LAPTOP".into(), false)], Path::new("c"), Path::new("p"));
+        assert!(ini.contains("[computer_MacBook]\nname=MacBook\nmodifierShift=shift"));
+        assert!(ini.ends_with("[computer_LAPTOP]\nname=LAPTOP\n"));
+        // 받는 쪽(sub) 엔진: 클라이언트 모드, 중심 PC 주소
+        let ci = client_ini(&cfg("right"), "192.168.0.10", Path::new(r"C:\x\tls\deskflow.pem"));
+        assert!(ci.contains("coreMode=1\n") && ci.contains("[client]\nremoteHost=192.168.0.10\n") && ci.contains("computerName=DEV-PC\n") && ci.contains("port=24900\n"));
+        assert!(ci.contains("certificate=C:/x/tls/deskflow.pem\n") && ci.contains("checkPeerFingerprints=true\n"));
+        assert_eq!(parse_line("[t] NOTE: connected to server"), Some(LogEv::Connected { name: String::new() }));
+        assert_eq!(parse_line("[t] WARNING: failed to connect to server: Timed out"), None);
+        assert_eq!(parse_line("[t] NOTE: disconnected from server"), Some(LogEv::Disconnected { name: String::new() }));
+    }
 
     #[test]
     fn config_generation() {
-        let s = server_conf(&cfg("right"), &[]);
+        let s = server_conf(&cfg("right"), &mac(), &[]);
         assert_eq!(s, "section: links\n\tDEV-PC:\n\t\tright = MacBook\n\tMacBook:\n\t\tleft = DEV-PC\nend\n\nsection: options\nend\n");
-        assert!(server_conf(&cfg("top"), &[]).contains("\t\tup = MacBook\n\tMacBook:\n\t\tdown = DEV-PC"));
-        assert!(server_conf(&cfg("bottom"), &[]).contains("down = MacBook"));
-        assert!(server_conf(&cfg("left"), &[]).contains("left = MacBook"));
-        assert!(!server_conf(&cfg("right"), &[]).contains("screens")); // 1.27 은 screens 섹션을 무시(경고)
-        let seg = crate::link_layout::Seg { side: "right".into(), win: (50.0, 100.0), mac: (0.0, 54.99), edge: [0.0; 4] };
-        assert!(server_conf(&cfg("right"), &[seg]).contains("\t\tright(50,100) = MacBook(0,54.99)\n\tMacBook:\n\t\tleft(0,54.99) = DEV-PC(50,100)\n"));
-        let ini = settings_ini(&cfg("right"), Path::new(r"C:\x\server.conf"), Path::new(r"C:\x\settings\tls\deskflow.pem"));
+        assert!(server_conf(&cfg("top"), &mac(), &[]).contains("\t\tup = MacBook\n\tMacBook:\n\t\tdown = DEV-PC"));
+        assert!(server_conf(&cfg("bottom"), &mac(), &[]).contains("down = MacBook"));
+        assert!(server_conf(&cfg("left"), &mac(), &[]).contains("left = MacBook"));
+        assert!(!server_conf(&cfg("right"), &mac(), &[]).contains("screens")); // 1.27 은 screens 섹션을 무시(경고)
+        let seg = crate::link_layout::Seg { dev: "mac".into(), side: "right".into(), win: (50.0, 100.0), mac: (0.0, 54.99), edge: [0.0; 4] };
+        assert!(server_conf(&cfg("right"), &mac(), &[seg]).contains("\t\tright(50,100) = MacBook(0,54.99)\n\tMacBook:\n\t\tleft(0,54.99) = DEV-PC(50,100)\n"));
+        let ini = settings_ini(&cfg("right"), &[("MacBook".into(), true)], Path::new(r"C:\x\server.conf"), Path::new(r"C:\x\settings\tls\deskflow.pem"));
         assert!(ini.contains("port=24900\n") && ini.contains("computerName=DEV-PC\n") && ini.contains("coreMode=2\n"));
         assert!(ini.contains("externalConfigFile=C:/x/server.conf\n") && ini.contains("certificate=C:/x/settings/tls/deskflow.pem\n"));
         assert!(ini.contains("tlsEnabled=true\n") && ini.contains("protocol=barrier\n"));
@@ -1054,7 +1389,7 @@ mod tests {
         assert_eq!(get(&Cfg { keymap: "shortcuts".into(), ..base.clone() }), "shift=shift,ctrl=ctrl,alt=alt,altgr=altgr,meta=meta,super=super");
         let custom = Cfg { keymap: "custom".into(), key_rows: vec![("alt".into(), "super".into()), ("super".into(), "alt".into()), ("altgr".into(), "none".into()), ("bogus".into(), "ctrl".into()), ("ctrl".into(), "xyz".into())], ..base.clone() };
         assert_eq!(get(&custom), "shift=shift,ctrl=ctrl,alt=super,altgr=none,meta=meta,super=alt");
-        let ini = settings_ini(&custom, Path::new("c"), Path::new("p"));
+        let ini = settings_ini(&custom, &[("MacBook".into(), true)], Path::new("c"), Path::new("p"));
         assert!(ini.ends_with("[computer_MacBook]\nname=MacBook\nmodifierShift=shift\nmodifierCtrl=ctrl\nmodifierAlt=super\nmodifierAltGr=none\nmodifierMeta=meta\nmodifierSuper=alt\n"));
     }
 

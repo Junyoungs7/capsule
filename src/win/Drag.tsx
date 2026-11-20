@@ -4,7 +4,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { isTauri, linkSend, onEvent, reportHitRects, shelfAdd, useValue } from '../data/api'
 import { reducedMotion } from '../surfaces/util'
 import { colorOf, extOf } from './Panel'
-import { colorFor, initial, sendTo, targets, usePeople, type Target } from './people'
+import { colorFor, initial, isDev, sendTo, targets, usePeople, type Target } from './people'
+import { useDevices } from './link'
 
 /* 끌기 오버레이 (?surface=drag) — 파일을 끄는 동안만 그 모니터를 덮는 투명 창 (Rust drag.rs 가 보이고 숨긴다).
    - 받침: 흔들면 커서 위에 [선반에 올리기 | 맥으로 보내기] (시안 win-tray-v3 .pad, 스프링 등장). 놓기 = 네이티브 드롭(경로).
@@ -49,7 +50,8 @@ export function DragLayer() {
   const dragging = useRef(false)
   const hitPokes = useRef<DOMRect[]>([])
   const pokeTimers = useRef(new Map<number, number>())
-  const live = (mac: boolean): Target[] => targets(mac ? peer || '내 맥' : null, people, online).filter((t) => t.on)
+  const devs = useDevices()
+  const live = (mac: boolean): Target[] => targets(mac ? devs : [], people, online).filter((t) => t.on)
   const [hint, setHint] = useState(false)
   const [peer] = useValue<string | null>('link.peerName', null)
   const padRef = useRef<HTMLDivElement>(null)
@@ -433,14 +435,14 @@ export function DragLayer() {
     <>
       <canvas ref={cv} className="portal" aria-hidden />
       {fan && fanT.map((t, i) => (
-        <div key={t.id} className={`fo ${t.id === 'shelf' ? 'shelf' : ''} ${t.id === 'mac' ? 'mac' : ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
+        <div key={t.id} className={`fo ${t.id === 'shelf' ? 'shelf' : ''} ${t.os ?? ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
           data-x={fanAt[i][0]} data-y={fanAt[i][1]} data-r={30}
           style={{ left: fan.x, top: fan.y, '--dx': `${fanAt[i][0] - fan.x}px`, '--dy': `${fanAt[i][1] - fan.y}px`, '--c': colorFor(t.id), animationDelay: `${i * 35}ms` } as CSSProperties}>
-          <span className="av">{t.id === 'shelf' ? '▤' : t.id === 'mac' ? '⌘' : initial(t.name)}</span>{t.name}
+          <span className="av">{t.id === 'shelf' ? '▤' : t.os === 'mac' ? '⌘' : isDev(t.id) ? '▭' : initial(t.name)}</span>{t.name}
         </div>
       ))}
       {gates && gateT.map((t, i) => (
-        <div key={t.id} className={`gate ${gates.side} ${t.id === 'mac' ? 'mac' : ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
+        <div key={t.id} className={`gate ${gates.side} ${t.os ?? ''} ${over === t.id ? 'over' : ''} ${done === t.id ? 'done' : ''}`} data-z={t.id}
           data-x={gx} data-y={gy0 + i * GATE_GAP} data-r={58}
           style={{ left: gx, top: gy0 + i * GATE_GAP, '--c': colorFor(t.id), animationDelay: `${i * 60}ms` } as CSSProperties}>
           <i className="ring" /><label>{t.name}</label>

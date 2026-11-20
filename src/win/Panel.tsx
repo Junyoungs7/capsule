@@ -8,7 +8,7 @@ import { Ico } from './icons'
 import { linkLook, useLink, useShare } from './link'
 import { Sw } from './Settings'
 import { UndoToast, deleteWithUndo } from '../surfaces/Undo'
-import { colorFor, initial, peopleConfirm, peopleForget, peopleMyIp, peoplePair, peoplePairIp, sendTo, targets, usePeople } from './people'
+import { colorFor, initial, isDev, peopleConfirm, peopleForget, peopleMyIp, peoplePair, peoplePairIp, sendTo, targets, usePeople } from './people'
 
 /* 트레이 패널 (승인 시안 win-tray-v3 의 .panel). 창은 숨긴 채 살아 있다 — 트레이를 누르면 Rust 가 자리를 잡고 보인다.
    한 화면: 연결 · 타일 3개 · 선반 · 메모 · 꾸미기. 내용 높이가 바뀌면 panel_fit 으로 창 높이를 맞춘다 (모서리는 그대로). */
@@ -107,7 +107,7 @@ export function Panel() {
   useEffect(() => void (adding && isTauri && peopleMyIp().then(setMyIp, () => {})), [adding])
   const byIp = () => ip.trim() && (setIpErr(''), void peoplePairIp(ip.trim()).then(() => setIp(''), (e) => setIpErr(String(e))))
   const [overP, setOverP] = useState<string | null>(null)
-  const tg = targets(link.filesPeer || null, people, online)
+  const tg = targets(link.devs, people, online)
   const tgNow = useRef(tg)
   tgNow.current = tg
   const hide = () => (isTauri ? void invoke('panel_hide') : undefined)
@@ -223,11 +223,11 @@ export function Panel() {
         {tg.length > 0 ? (
           <div className="ppl">
             {tg.map((t) => (
-              <div key={t.id} className={`pp ${t.on ? '' : 'off'} ${t.id === 'mac' ? 'mac' : ''} ${overP === t.id ? 'over' : ''}`} data-person={t.id} title={t.on ? `파일을 놓으면 ${t.name}${t.id === 'mac' ? '으로' : '님에게'} 보내요` : `${t.name} · 지금 Hera가 꺼져 있거나 근처에 없어요`}>
-                <span className="av" style={{ '--c': colorFor(t.id) } as CSSProperties}>{t.id === 'mac' ? <Ico k="laptop" w={1.6} /> : initial(t.name)}</span>
+              <div key={t.id} className={`pp ${t.on ? '' : 'off'} ${t.os ?? ''} ${overP === t.id ? 'over' : ''}`} data-person={t.id} title={t.on ? `파일을 놓으면 ${t.name}${isDev(t.id) ? '(으)로' : '님에게'} 보내요` : `${t.name} · 지금 Hera가 꺼져 있거나 근처에 없어요`}>
+                <span className="av" style={{ '--c': colorFor(t.id) } as CSSProperties}>{isDev(t.id) ? <Ico k="laptop" w={1.6} /> : initial(t.name)}</span>
                 <span className="nm">{t.name}</span>
-                {t.id !== 'mac' && <button className="star" data-fav={t.id} aria-pressed={!!people.find((p) => p.id === t.id)?.fav} onClick={() => toggleFav(t.id)} aria-label={`${t.name} 친한 친구`} title="친한 친구 (빠른 톡을 받는 사람)"><Ico k="star" /></button>}
-                {t.id !== 'mac' && <button className="x" data-people-del={t.id} onClick={() => void peopleForget(t.id)} aria-label={`${t.name} 등록 지우기`} title="등록 지우기"><Ico k="x" /></button>}
+                {!isDev(t.id) && <button className="star" data-fav={t.id} aria-pressed={!!people.find((p) => p.id === t.id)?.fav} onClick={() => toggleFav(t.id)} aria-label={`${t.name} 친한 친구`} title="친한 친구 (빠른 톡을 받는 사람)"><Ico k="star" /></button>}
+                {!isDev(t.id) && <button className="x" data-people-del={t.id} onClick={() => void peopleForget(t.id)} aria-label={`${t.name} 등록 지우기`} title="등록 지우기"><Ico k="x" /></button>}
               </div>
             ))}
           </div>

@@ -41,6 +41,20 @@ try {
   n = h.calls.length
   await sw.eval(`document.querySelector('[data-pair=ok]').click()`)
   ok('같아요 → link_pair(true)', await until(() => h.calls.slice(n).some((c) => c[1] === 'link_pair' && c[2].ok === true)))
+  // 여러 기기: 이어진 기기 목록 · 빼기 · 이 PC 의 역할
+  const M = 'd'.repeat(64), L = 'e'.repeat(64)
+  h.handlers.link_devices = () => [{ id: M, name: 'MacBook', os: 'mac', files: true, paired: true }, { id: L, name: 'LAPTOP', os: 'win', files: false, paired: true }]
+  await h.emit('link-devices', null)
+  ok('devices: Mac (연결됨) + Windows laptop (꺼져 있음)', await until(() => sw.eval(`/MacBook/.test(document.querySelector('.set main').textContent) && /Windows · 꺼져 있음/.test(document.querySelector('.set main').textContent)`)))
+  n = h.calls.length
+  await sw.eval(`document.querySelector('[data-dev-del="${L}"]').click()`)
+  ok('빼기 → link_unpair(id)', await until(() => h.calls.slice(n).some((c) => c[1] === 'link_unpair' && c[2].id === L)))
+  await sw.eval(`document.querySelector('[data-role=sub]').click()`)
+  ok('역할 받는 쪽 → link.cfg.role = sub, 중심 PC 주소 칸', (await until(() => h.store.get('link.cfg')?.role === 'sub')) && (await until(() => sw.eval(`!!document.querySelector('[data-server]')`))))
+  await sw.eval(`(() => { const i = document.querySelector('[data-server]'); i.focus(); i.value = '192.168.0.10'; i.blur() })()`)
+  ok('중심 PC 주소 → link.cfg.server', await until(() => h.store.get('link.cfg')?.server === '192.168.0.10'))
+  await sw.eval(`document.querySelector('[data-role=main]').click()`)
+  await until(() => h.store.get('link.cfg')?.role === 'main')
   await sw.eval(`document.querySelector('[data-ltab=keyboard]').click()`)
   await until(() => sw.eval(`!!document.querySelector('[data-keymap=position]')`))
   await sw.eval(`document.querySelector('[data-keymap=position]').click()`)

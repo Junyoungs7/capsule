@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Mon {
     pub id: String,
+    /// 다른 기기(맥 · 다른 윈도우)의 모니터인가 — 이름은 예전 그대로
     pub mac: bool,
+    /// 그 기기 (다른 기기일 때 — 기기 id). 이 PC 모니터는 ""
+    #[serde(default)]
+    pub dev: String,
     /// 그 OS 의 가상 데스크톱 좌표 [x, y, w, h] (윈도우 = 물리 px, 맥 = 포인트)
     pub rect: [f64; 4],
     /// 패널 캔버스 [x, y, w, h] (공통 단위 ≈ 논리 px)
@@ -19,6 +23,8 @@ pub struct Mon {
 #[derive(Clone, Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Seg {
+    /// 이어진 기기 (Mon.dev)
+    pub dev: String,
     /// 윈도우 화면 기준 방향: left / right / up / down
     pub side: String,
     /// 윈도우 경계 상자 가장자리 % 구간
@@ -47,6 +53,10 @@ fn bbox(ms: &[&Mon]) -> [f64; 4] {
         b = b.max(m.rect[1] + m.rect[3]);
     }
     [l, t, r, b]
+}
+
+pub fn opposite_side(side: &str) -> &'static str {
+    opposite(side)
 }
 
 fn opposite(side: &str) -> &'static str {
@@ -84,7 +94,23 @@ fn pct(m: &Mon, horizontal_edge: bool, a: f64, b: f64, bb: [f64; 4]) -> (f64, f6
     (round2(f(a).clamp(0.0, 100.0)), round2(f(b).clamp(0.0, 100.0)))
 }
 
+/// 여러 기기: 기기마다 따로 계산해서 합친다 (이 PC 쪽 같은 방향 구간은 기기끼리도 겹치면 안 된다)
 pub fn plan(mons: &[Mon]) -> Plan {
+    let mut devs: Vec<&str> = mons.iter().filter(|m| m.mac).map(|m| m.dev.as_str()).collect();
+    devs.dedup();
+    devs.sort();
+    devs.dedup();
+    let mut p = Plan::default();
+    for d in devs {
+        let one: Vec<Mon> = mons.iter().filter(|m| !m.mac || m.dev == d).cloned().collect();
+        let q = plan_one(&one, d);
+        p.segs.extend(q.segs);
+        p.limits.extend(q.limits);
+    }
+    trim(p)
+}
+
+fn plan_one(mons: &[Mon], dev: &str) -> Plan {
     let wins: Vec<&Mon> = mons.iter().filter(|m| !m.mac).collect();
     let macs: Vec<&Mon> = mons.iter().filter(|m| m.mac).collect();
     let mut p = Plan::default();
@@ -131,16 +157,20 @@ pub fn plan(mons: &[Mon]) -> Plan {
                     "down" => [s(win.0, bw[0], bw[2]), bw[3], s(win.1, bw[0], bw[2]) - s(win.0, bw[0], bw[2]), 0.0],
                     _ => [s(win.0, bw[0], bw[2]), bw[1], s(win.1, bw[0], bw[2]) - s(win.0, bw[0], bw[2]), 0.0],
                 };
-                p.segs.push(Seg { side: side.into(), win, mac, edge });
+                p.segs.push(Seg { dev: dev.into(), side: side.into(), win, mac, edge });
             }
         }
     }
-    // 같은 방향끼리 겹치면 엔진이 거부한다 → 앞 구간에 맞춰 자르고 알린다 (윈도우 쪽·맥 쪽 모두)
-    p.segs.sort_by(|a, b| (a.side.as_str(), a.win.0).partial_cmp(&(b.side.as_str(), b.win.0)).unwrap());
+    p
+}
+
+/// 같은 방향끼리 겹치면 엔진이 거부한다 → 앞 구간에 맞춰 자르고 알린다 (이 PC 쪽은 모든 기기끼리, 상대 쪽은 같은 기기 안에서)
+fn trim(mut p: Plan) -> Plan {
+    p.segs.sort_by(|a, b| (a.side.as_str(), a.win.0, a.dev.as_str()).partial_cmp(&(b.side.as_str(), b.win.0, b.dev.as_str())).unwrap());
     let mut out: Vec<Seg> = vec![];
     for s in p.segs.drain(..) {
         let clash = out.iter().any(|o| {
-            (o.side == s.side && s.win.0 < o.win.1 && o.win.0 < s.win.1) || (opposite(&o.side) == opposite(&s.side) && s.mac.0 < o.mac.1 && o.mac.0 < s.mac.1)
+            (o.side == s.side && s.win.0 < o.win.1 && o.win.0 < s.win.1) || (o.dev == s.dev && o.side == s.side && s.mac.0 < o.mac.1 && o.mac.0 < s.mac.1)
         });
         if clash {
             p.limits.push(format!("{} 쪽 연결 구간이 서로 겹쳐서 하나만 써요", kor(&s.side)));
@@ -185,30 +215,51 @@ fn kor(side: &str) -> &'static str {
     }
 }
 
-/// 엔진 links 섹션 (구간이 없으면 기존처럼 한 방향 전체 연결)
-pub fn links_section(me: &str, peer: &str, segs: &[Seg], fallback_side: &str) -> String {
+/// 엔진 links 섹션. devs = (기기 id, 엔진 이름). 구간이 없으면 첫 기기를 한 방향 전체로 (예전처럼)
+pub fn links_section(me: &str, devs: &[(String, String)], segs: &[Seg], fallback_side: &str) -> String {
     let f = |v: f64| {
         let s = format!("{v:.2}");
         s.trim_end_matches('0').trim_end_matches('.').to_string()
     };
-    let mut s = format!("section: links\n\t{me}:\n");
+    let mut s = format!("section: links
+	{me}:
+");
+    let name = |d: &str| devs.iter().find(|(id, _)| id == d).map(|(_, n)| n.clone());
     if segs.is_empty() {
+        let Some((_, peer)) = devs.first() else { return s + "end
+" };
         let (go, back) = match fallback_side {
             "left" => ("left", "right"),
             "top" => ("up", "down"),
             "bottom" => ("down", "up"),
             _ => ("right", "left"),
         };
-        return format!("{s}\t\t{go} = {peer}\n\t{peer}:\n\t\t{back} = {me}\nend\n");
+        return format!("{s}		{go} = {peer}
+	{peer}:
+		{back} = {me}
+end
+");
     }
     for g in segs {
-        s += &format!("\t\t{}({},{}) = {peer}({},{})\n", g.side, f(g.win.0), f(g.win.1), f(g.mac.0), f(g.mac.1));
+        if let Some(peer) = name(&g.dev) {
+            s += &format!("		{}({},{}) = {peer}({},{})
+", g.side, f(g.win.0), f(g.win.1), f(g.mac.0), f(g.mac.1));
+        }
     }
-    s += &format!("\t{peer}:\n");
-    for g in segs {
-        s += &format!("\t\t{}({},{}) = {me}({},{})\n", opposite(&g.side), f(g.mac.0), f(g.mac.1), f(g.win.0), f(g.win.1));
+    for (id, peer) in devs {
+        let mine: Vec<&Seg> = segs.iter().filter(|g| &g.dev == id).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        s += &format!("	{peer}:
+");
+        for g in mine {
+            s += &format!("		{}({},{}) = {me}({},{})
+", opposite(&g.side), f(g.mac.0), f(g.mac.1), f(g.win.0), f(g.win.1));
+        }
     }
-    s + "end\n"
+    s + "end
+"
 }
 
 #[cfg(test)]
@@ -216,10 +267,17 @@ mod tests {
     use super::*;
 
     fn win(id: &str, rect: [f64; 4], scale: f64) -> Mon {
-        Mon { id: id.into(), mac: false, rect, at: [rect[0] / scale, rect[1] / scale, rect[2] / scale, rect[3] / scale] }
+        Mon { id: id.into(), mac: false, dev: String::new(), rect, at: [rect[0] / scale, rect[1] / scale, rect[2] / scale, rect[3] / scale] }
     }
     fn mac(id: &str, rect: [f64; 4], at_xy: [f64; 2]) -> Mon {
-        Mon { id: id.into(), mac: true, rect, at: [at_xy[0], at_xy[1], rect[2], rect[3]] }
+        Mon { id: id.into(), mac: true, dev: "mac".into(), rect, at: [at_xy[0], at_xy[1], rect[2], rect[3]] }
+    }
+    fn on(dev: &str, mut m: Mon) -> Mon {
+        m.dev = dev.into();
+        m
+    }
+    fn names() -> Vec<(String, String)> {
+        vec![("mac".into(), "Mac".into())]
     }
 
     #[test]
@@ -228,7 +286,7 @@ mod tests {
         assert!(p.limits.is_empty());
         assert_eq!(p.segs.len(), 1);
         assert_eq!((p.segs[0].side.as_str(), p.segs[0].win, p.segs[0].mac), ("right", (0.0, 100.0), (0.0, 100.0)));
-        assert_eq!(links_section("PC", "Mac", &p.segs, "right"), "section: links\n\tPC:\n\t\tright(0,100) = Mac(0,100)\n\tMac:\n\t\tleft(0,100) = PC(0,100)\nend\n");
+        assert_eq!(links_section("PC", &names(), &p.segs, "right"), "section: links\n\tPC:\n\t\tright(0,100) = Mac(0,100)\n\tMac:\n\t\tleft(0,100) = PC(0,100)\nend\n");
     }
 
     #[test]
@@ -295,6 +353,39 @@ mod tests {
     }
 
     #[test]
+    fn two_devices_mac_right_laptop_left() {
+        // PC 오른쪽 = 맥, 왼쪽 = 윈도우 노트북 → 엔진 links 에 두 기기 다
+        let mons = [
+            win("1", [0.0, 0.0, 1920.0, 1080.0], 1.0),
+            mac("m", [0.0, 0.0, 1512.0, 982.0], [1920.0, 0.0]),
+            on("lap", mac("L", [0.0, 0.0, 1536.0, 864.0], [-1536.0, 108.0])),
+        ];
+        let p = plan(&mons);
+        assert!(p.limits.is_empty(), "{:?}", p.limits);
+        assert_eq!(p.segs.len(), 2);
+        let l = p.segs.iter().find(|g| g.dev == "lap").unwrap();
+        assert_eq!((l.side.as_str(), l.win, l.mac), ("left", (10.0, 90.0), (0.0, 100.0)));
+        let devs = vec![("mac".to_string(), "Mac".to_string()), ("lap".to_string(), "LAPTOP".to_string())];
+        let ls = links_section("PC", &devs, &p.segs, "right");
+        assert!(ls.contains("left(10,90) = LAPTOP(0,100)") && ls.contains("right(0,90.93) = Mac(0,100)"), "{ls}");
+        assert!(ls.contains("	LAPTOP:
+		right(0,100) = PC(10,90)") && ls.contains("	Mac:
+		left(0,100) = PC(0,90.93)"), "{ls}");
+    }
+
+    #[test]
+    fn two_devices_same_edge_must_not_overlap() {
+        // 맥과 노트북을 PC 오른쪽 같은 높이에 → 하나만, 알림
+        let mons = [win("1", [0.0, 0.0, 1920.0, 1080.0], 1.0), mac("m", [0.0, 0.0, 1000.0, 800.0], [1920.0, 0.0]), on("lap", mac("L", [0.0, 0.0, 1000.0, 800.0], [1920.0, 200.0]))];
+        let p = plan(&mons);
+        assert_eq!(p.segs.len(), 1);
+        assert!(p.limits.iter().any(|l| l.contains("겹쳐")));
+        // 위아래로 나눠 붙이면 둘 다
+        let mons = [win("1", [0.0, 0.0, 1920.0, 1080.0], 1.0), mac("m", [0.0, 0.0, 1000.0, 540.0], [1920.0, 0.0]), on("lap", mac("L", [0.0, 0.0, 1000.0, 540.0], [1920.0, 540.0]))];
+        assert_eq!(plan(&mons).segs.len(), 2);
+    }
+
+    #[test]
     fn edge_helpers() {
         let bb = [0.0, 0.0, 3840.0, 1080.0];
         assert_eq!(nearest_side(bb, 3839.0, 500.0), "right");
@@ -309,7 +400,7 @@ mod tests {
 
     #[test]
     fn no_layout_falls_back() {
-        assert_eq!(links_section("PC", "Mac", &[], "top"), "section: links\n\tPC:\n\t\tup = Mac\n\tMac:\n\t\tdown = PC\nend\n");
+        assert_eq!(links_section("PC", &names(), &[], "top"), "section: links\n\tPC:\n\t\tup = Mac\n\tMac:\n\t\tdown = PC\nend\n");
         assert_eq!(plan(&[win("1", [0.0, 0.0, 10.0, 10.0], 1.0)]), Plan::default());
     }
 }

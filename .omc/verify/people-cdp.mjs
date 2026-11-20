@@ -7,19 +7,22 @@ const { ok, until, done } = suite('people')
 const h = await start()
 const GEO = { x: 1540, y: 300, w: 368, h: 760 }
 const called = (cmd, n0, f = () => true) => h.calls.slice(n0).some((c) => c[1] === cmd && f(c[2] ?? {}))
-const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64)
+const A = 'a'.repeat(64), B = 'b'.repeat(64), C = 'c'.repeat(64), M = 'd'.repeat(64), L = 'e'.repeat(64)
+let devs = []
 try {
   h.store.set(`people:${A}`, { id: A, name: '박지윤', at: 1 })
   h.store.set(`people:${B}`, { id: B, name: '최서현', at: 2 })
   h.store.set('shelf:r', { id: 'r', path: 'C:/Users/me/Downloads/Hera/견적서.pdf', at: Date.now(), from: '박지윤' })
   h.handlers.people_my_ip = () => '192.168.0.7'
+  h.handlers.link_devices = () => devs
   h.handlers.people_near = () => [{ pk: A, name: '박지윤', known: true }, { pk: C, name: '정다운', known: false }]
   const p = await h.open('panel', { geo: GEO })
   await until(() => p.eval(`document.querySelectorAll('[data-person]').length === 2`), 8000)
   ok('registered people listed, online first; offline dimmed', await p.eval(`(() => { const r = [...document.querySelectorAll('[data-person]')]; return r[0].dataset.person === '${A}' && !r[0].classList.contains('off') && r[1].classList.contains('off') })()`))
   ok('shelf: "박지윤님에게 받음"', await p.eval(`/박지윤님에게 받음/.test(document.querySelector('[data-file=r]').textContent)`))
-  await h.emit('link-files', { kind: 'peer', state: 'ready', name: 'MacBook', code: '' })
-  ok('my Mac joins the row first once connected', await until(() => p.eval(`document.querySelector('[data-person]').dataset.person === 'mac'`)))
+  devs = [{ id: M, name: 'MacBook', os: 'mac', files: true, paired: true }, { id: L, name: 'LAPTOP', os: 'win', files: true, paired: true }]
+  await h.emit('link-devices', null)
+  ok('connected devices (Mac + Windows laptop) join the row first', await until(() => p.eval(`[...document.querySelectorAll('[data-person]')].slice(0, 2).map((e) => e.dataset.person + ':' + e.className.includes(e.dataset.person.endsWith('${M}') ? 'mac' : 'win')).join() === 'dev:${M}:true,dev:${L}:true'`)))
 
   const at = async (sel) => p.eval(`(() => { const r = document.querySelector('${sel}').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`)
   let pos = await at(`[data-person="${A}"]`)
@@ -32,8 +35,11 @@ try {
   await h.emitTo('panel', 'tauri://drag-drop', { paths: ['C:/x/c.txt'], position: await at(`[data-person="${B}"]`) })
   ok('drop on an offline person → shelf instead (nothing sent)', (await until(() => called('shelf_add', n))) && !called('people_send', n))
   n = h.calls.length
-  await h.emitTo('panel', 'tauri://drag-drop', { paths: ['C:/x/d.txt'], position: await at('[data-person=mac]') })
-  ok('drop on my Mac → link_send', await until(() => called('link_send', n, (a) => a.path === 'C:/x/d.txt')))
+  await h.emitTo('panel', 'tauri://drag-drop', { paths: ['C:/x/d.txt'], position: await at(`[data-person="dev:${M}"]`) })
+  ok('drop on my Mac → link_send(dev = Mac)', await until(() => called('link_send', n, (a) => a.path === 'C:/x/d.txt' && a.dev === M)))
+  n = h.calls.length
+  await h.emitTo('panel', 'tauri://drag-drop', { paths: ['C:/x/w.txt'], position: await at(`[data-person="dev:${L}"]`) })
+  ok('drop on the Windows laptop → link_send(dev = laptop)', await until(() => called('link_send', n, (a) => a.path === 'C:/x/w.txt' && a.dev === L)))
   n = h.calls.length
   await h.emitTo('panel', 'tauri://drag-drop', { paths: ['C:/x/e.txt'], position: await at('[data-drop]') })
   ok('drop elsewhere → shelf', await until(() => called('shelf_add', n, (a) => a.paths[0] === 'C:/x/e.txt')))

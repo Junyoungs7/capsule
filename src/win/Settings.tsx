@@ -116,7 +116,7 @@ function LinkPane({ b, tab, setTab, say }: { b: Link; tab: LinkTab; setTab: (t: 
         else put({ [key]: v })
       }} />
   )
-  const paired = b.pairedName || (b.status?.state === 'connected' ? look.peer : null)
+  const sub = c.role === 'sub'
   return (
     <>
       <h1>연결</h1>
@@ -138,10 +138,31 @@ function LinkPane({ b, tab, setTab, say }: { b: Link; tab: LinkTab; setTab: (t: 
       </div>
       {tab === 'devices' && (
         <>
-          <Row t="이 PC 이름" s={`맥 Hera에 이 이름으로 보여요 · 포트 ${c.port}`}>{field('me', '이 PC 이름', 160)}</Row>
-          {paired
-            ? <Row t={paired} s={b.filesPeer ? '파일 주고받기 준비됨' : '입력 공유 중'}><button className="btn danger" data-unpair onClick={() => (b.onUnpair(), say('페어링을 해제했어요'))}>페어링 해제</button></Row>
-            : <Row t="페어링한 맥이 없어요" s="맥 Hera에서 이 PC를 고르면 위에 6자리 숫자가 떠요" />}
+          <Row t="이 PC 이름" s={`다른 기기 Hera에 이 이름으로 보여요 · 포트 ${c.port}`}>{field('me', '이 PC 이름', 160)}</Row>
+          <h2>이 PC의 역할</h2>
+          <div className="presets role" role="radiogroup" aria-label="이 PC의 역할">
+            <button role="radio" aria-checked={!sub} data-role="main" onClick={() => put({ role: 'main' })}><b>중심</b><small>이 PC 마우스·키보드로 맥과 다른 Windows를 움직여요</small></button>
+            <button role="radio" aria-checked={sub} data-role="sub" onClick={() => put({ role: 'sub' })}><b>받는 쪽</b><small>다른 PC(중심)의 마우스·키보드가 이 PC를 움직여요</small></button>
+          </div>
+          {sub ? (
+            <>
+              <Row t="중심 PC 주소" s="비워 두면 같은 네트워크에서 자동으로 찾아요 · 못 찾으면 중심 PC의 IP를 적어 주세요">
+                <input className="inp mono" data-server key={c.server} defaultValue={c.server} placeholder="자동" style={{ width: 160 }} aria-label="중심 PC 주소"
+                  onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} onBlur={(e) => e.target.value.trim() !== c.server && put({ server: e.target.value.trim() })} />
+              </Row>
+              {b.serverName && <Row t={b.serverName} s={b.status?.state === 'connected' ? '이 PC를 움직이는 중' : '짝을 맞춘 중심 PC'}><button className="btn danger" data-unpair onClick={() => (b.onUnpair(), say('중심 PC와의 짝을 풀었어요'))}>짝 풀기</button></Row>}
+            </>
+          ) : (
+            <>
+              <h2>이어진 기기</h2>
+              {b.devs.map((d) => (
+                <Row key={d.id} t={d.name} s={`${d.os === 'mac' ? '맥' : 'Windows'} · ${d.files ? '연결됨' : d.paired ? '꺼져 있음' : '아직 짝을 맞추지 않았어요'}`}>
+                  {d.paired && <button className="btn danger" data-dev-del={d.id} onClick={() => (b.onUnpair(d.id), say(`${d.name}을(를) 뺐어요`))}>빼기</button>}
+                </Row>
+              ))}
+              <p className="note-line">기기를 더하려면: 맥은 맥 Hera에서 이 PC를 고르고, 다른 Windows는 그 PC의 Hera 설정 › 연결에서 <b>받는 쪽</b>을 고르세요. 이 PC에 숫자 확인이 떠요.</p>
+            </>
+          )}
         </>
       )}
       {tab === 'layout' && (

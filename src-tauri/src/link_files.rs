@@ -30,8 +30,8 @@ const T_CHUNK: u8 = 2;
 pub enum Event {
     /// state: pairing(코드 확인 대기) / ready / closed. pk = 상대 공개키 hex (사람에게 보내기: 누가 보냈는지)
     Peer { state: String, name: String, code: String, pk: String },
-    /// 새로 페어링됨 → 저장할 것 (pk hex, 상대 엔진 TLS 지문)
-    Paired { pk: String, name: String, fp: String },
+    /// 새로 페어링됨 → 저장할 것 (pk hex, 상대 엔진 TLS 지문, 상대 OS — hello 의 "os", 없으면 맥)
+    Paired { pk: String, name: String, fp: String, os: String },
     Xfer { dir: String, id: u32, name: String, bytes: u64, size: u64 },
     /// meta = offer 의 부가 필드 (via: "edge" 면 화면 가장자리로 끌어 보낸 것, edge·pos)
     Received { id: u32, path: String, meta: Value },
@@ -194,6 +194,8 @@ impl Rx {
 pub struct Conn {
     tx: Mutex<Tx>,
     pub peer_name: String,
+    /// 상대 공개키 hex (여러 기기: 어느 연결인지)
+    pub peer_pk: String,
     ready: AtomicBool,
     next_id: AtomicU32,
     confirm: Mutex<Option<Sender<bool>>>,
@@ -322,7 +324,8 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let mut rd = BufReader::new(stream.try_clone()?);
     let mut wr = stream.try_clone()?;
     let eph = random32();
-    let hello = json!({ "t": "hello", "v": VERSION, "name": cfg.name, "pk": hex(&public_of(&cfg.secret)), "eph": hex(&public_of(&eph)), "fp": cfg.engine_fp });
+    // os: 윈도우 Hera 는 "windows" (맥 Hera 는 보내지 않는다 → 받는 쪽은 맥으로 본다). 옛 판은 모르는 필드를 무시한다
+    let hello = json!({ "t": "hello", "v": VERSION, "name": cfg.name, "pk": hex(&public_of(&cfg.secret)), "eph": hex(&public_of(&eph)), "fp": cfg.engine_fp, "os": std::env::consts::OS });
     write_frame(&mut wr, hello.to_string().as_bytes())?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let peer: Value = serde_json::from_slice(&read_frame(&mut rd)?).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -334,6 +337,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let (ppk, peph) = (unhex32(peer["pk"].as_str().unwrap_or("")).ok_or_else(bad)?, unhex32(peer["eph"].as_str().unwrap_or("")).ok_or_else(bad)?);
     let peer_name = peer["name"].as_str().unwrap_or("?").to_string();
     let peer_fp = peer["fp"].as_str().unwrap_or("").to_string();
+    let peer_os = if peer["os"] == "windows" { "win" } else { "mac" }.to_string();
     let k = derive(server, &cfg.secret, &eph, &ppk, &peph);
     let tx = Tx { stream: wr, aead: ChaCha20Poly1305::new(Key::from_slice(&k.send)), n: 0 };
     let closed = Arc::new(AtomicBool::new(false));
@@ -344,6 +348,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
     let conn = Arc::new(Conn {
         tx: Mutex::new(tx),
         peer_name: peer_name.clone(),
+        peer_pk: hex(&ppk),
         ready: AtomicBool::new(false),
         next_id: AtomicU32::new(1),
         confirm: Mutex::new(Some(ctx)),
@@ -369,7 +374,7 @@ pub fn run(stream: TcpStream, server: bool, cfg: &Config, sink: Sink, on_conn: &
             conn.close();
             return Ok(());
         }
-        sink(Event::Paired { pk: hex(&ppk), name: peer_name.clone(), fp: peer_fp });
+        sink(Event::Paired { pk: hex(&ppk), name: peer_name.clone(), fp: peer_fp, os: peer_os });
     }
     conn.ready.store(true, Ordering::Relaxed);
     on_conn(Some(conn.clone()));
@@ -495,7 +500,7 @@ pub fn broadcast(msg: &[u8], port: u16) {
 }
 
 /// 맥(클라이언트) 쪽: 비콘 1개를 기다려 서버 주소를 돌려준다 (윈도우 빌드에선 안 씀)
-#[allow(dead_code)] // 맥 포트(클라이언트)에서 사용
+// 받는 쪽(맥 · 윈도우 sub)이 쓴다
 pub fn discover(timeout: Duration) -> Option<(SocketAddr, String)> {
     let sock = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, BEACON_PORT)).ok()?;
     sock.set_read_timeout(Some(timeout)).ok()?;
@@ -509,6 +514,7 @@ pub fn discover(timeout: Duration) -> Option<(SocketAddr, String)> {
 }
 
 /// 서버(윈도우): 대기하다 접속 1개씩 처리. 새 접속이 오면 이전 연결은 닫는다. stop 이 서면 다음 접속 시도 때 끝.
+#[allow(dead_code)] // 맥 포트 · 시험 (윈도우는 link.rs 가 연결마다 sink 를 따로 만든다)
 pub fn serve(listener: TcpListener, cfg: Arc<dyn Fn() -> Config + Send + Sync>, sink: Sink, on_conn: Arc<dyn Fn(Option<Arc<Conn>>) + Send + Sync>, stop: Arc<AtomicBool>) {
     for s in listener.incoming() {
         if stop.load(Ordering::Relaxed) {
@@ -525,7 +531,7 @@ pub fn serve(listener: TcpListener, cfg: Arc<dyn Fn() -> Config + Send + Sync>, 
 }
 
 /// 맥(클라이언트)·테스트: 접속해서 run (윈도우 빌드에선 안 씀)
-#[allow(dead_code)] // 맥 포트(클라이언트)에서 사용
+// 받는 쪽(맥 · 윈도우 sub) · 시험
 pub fn connect(addr: SocketAddr, cfg: &Config, sink: Sink, on_conn: &dyn Fn(Option<Arc<Conn>>)) -> std::io::Result<()> {
     run(TcpStream::connect_timeout(&addr, Duration::from_secs(5))?, false, cfg, sink, on_conn)
 }

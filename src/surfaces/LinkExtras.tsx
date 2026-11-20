@@ -19,7 +19,6 @@ const DEMO: LinkMon[] = [
 export function MonitorCanvas({ connected }: { connected: boolean }) {
   const [plan, setPlan] = useState<{ mons: LinkMon[]; segs: LinkSeg[]; limits: string[] }>({ mons: isTauri ? [] : DEMO, segs: [], limits: [] })
   const [, setLayout] = useValue<{ at: At }>('link.layout', { at: {} })
-  const [macMons, setMacMons] = useValue<{ id: string; rect: [number, number, number, number] }[] | null>('link.macMonitors', null)
   const [drag, setDrag] = useState<{ id: string; at: [number, number] } | null>(null)
   const start = useRef<{ x: number; y: number; at: [number, number] } | null>(null)
   const refresh = () => void (isTauri && linkPlan().then(([mons, p]) => setPlan({ mons, segs: p.segs, limits: p.limits })))
@@ -77,7 +76,6 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
     return vert ? { left: px(edge) - 2, top: py(s0), width: 4, height: (s1 - s0) * k } : { left: px(s0), top: py(edge) - 2, width: (s1 - s0) * k, height: 4 }
   }
 
-  const macs = macMons ?? plan.mons.filter((m) => m.mac).map((m) => ({ id: m.id, rect: m.rect }))
   return (
     <div className="mon-wrap">
       <div className="mon-canvas" style={{ width: W, height: h }}>
@@ -91,28 +89,15 @@ export function MonitorCanvas({ connected }: { connected: boolean }) {
             onPointerDown={(e) => down(m, e)}
             onPointerMove={(e) => move(m, e)}
             onPointerUp={up}
-            title={`${m.mac ? '맥' : 'PC'} · ${m.id} · ${Math.round(m.rect[2])}×${Math.round(m.rect[3])}`}
+            title={`${m.mac ? '기기' : '이 PC'} · ${m.id} · ${Math.round(m.rect[2])}×${Math.round(m.rect[3])}`}
           >
             <span>{m.mac ? '' : ''}{m.id.replace(/^DISPLAY/, 'PC ')}</span>
           </div>
         ))}
         {!drag && plan.segs.map((g, i) => <i key={i} className="mon-link" style={bar(g)} />)}
       </div>
-      <small className="mon-hint">PC 모니터는 Windows 배치 그대로 · 맥 모니터를 끌어 붙이면 맞닿은 구간(파란 선)만 넘어가요</small>
+      <small className="mon-hint">이 PC 모니터는 Windows 배치 그대로 · 맥 · 다른 Windows 모니터를 끌어 붙이면 맞닿은 구간(파란 선)만 넘어가요{connected ? '' : ' · 기기가 이어지면 실제 모니터 크기로 바뀌어요'}</small>
       {plan.limits.map((l, i) => <small key={i} className="mon-limit">⚠ {l}</small>)}
-      {!connected && (
-        <div className="mon-sizes">
-          <small>맥이 연결되면 실제 모니터로 바뀌어요 · 지금은 크기만 정해 두기</small>
-          {macs.map((m, i) => (
-            <label key={m.id}>
-              {m.id}
-              <input type="number" value={m.rect[2]} onChange={(e) => setMacMons(macs.map((x, j) => (j === i ? { ...x, rect: [x.rect[0], x.rect[1], Number(e.target.value) || 1, x.rect[3]] } : x)))} aria-label={`${m.id} 너비`} />×
-              <input type="number" value={m.rect[3]} onChange={(e) => setMacMons(macs.map((x, j) => (j === i ? { ...x, rect: [x.rect[0], x.rect[1], x.rect[2], Number(e.target.value) || 1] } : x)))} aria-label={`${m.id} 높이`} />
-            </label>
-          ))}
-          <button onClick={() => isTauri && window.setTimeout(() => (void linkApply(), refresh()), 300)}>반영</button>
-        </div>
-      )}
     </div>
   )
 }

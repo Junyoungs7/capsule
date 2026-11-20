@@ -398,15 +398,30 @@ fn link_pair(ok: bool) {
     link::pair_confirm(ok);
 }
 
+/// 기기 빼기 (id 없으면 모두)
 #[tauri::command]
-fn link_unpair(app: AppHandle) {
-    link::unpair(&app);
+fn link_unpair(app: AppHandle, id: Option<String>) {
+    link::unpair(&app, id);
+}
+
+/// 이어질 기기 목록 + 지금 이어졌나 (설정 · 패널)
+#[tauri::command]
+fn link_devices(app: AppHandle) -> Vec<serde_json::Value> {
+    let on = link::connected(&app);
+    let c = link::read_cfg(&app).1;
+    link::devices(&app)
+        .iter()
+        .map(|d| {
+            let name = link::engine_name(&c, d);
+            serde_json::json!({ "id": d.id, "name": name, "os": d.os, "files": on.iter().any(|x| x.0 == d.id), "paired": d.id != "mac" })
+        })
+        .collect()
 }
 
 /// edge·pos = 가장자리 포탈로 보냄 (맥이 그 자리에 물결)
 #[tauri::command]
-async fn link_send(app: AppHandle, path: String, edge: Option<String>, pos: Option<f64>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || link::send_file(&app, &path, edge.zip(pos))).await.map_err(|e| e.to_string())?
+async fn link_send(app: AppHandle, path: String, edge: Option<String>, pos: Option<f64>, dev: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || link::send_file_to(&app, &path, edge.zip(pos), dev.as_deref())).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -477,7 +492,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             settings_open, close_self, autostart, report_hit_rects, shelf_add, shelf_folder, open_path, board_open, fx, cover,
-            link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_send, link_plan, notes::note_notepad,
+            link_status, link_apply, link_import, link_trust, link_pair, link_unpair, link_devices, link_send, link_plan, notes::note_notepad,
             tray::panel_fit, tray::panel_hide, tray::toast_next, tray::toast_done, tray::toast_click, drag::drag_file, drag::drag_hide, drag::portal_drop_here, pet::pet_click, pet::pet_press, pet::pet_home, pet::pet_set_image, pet::pet_image,
             talk::talk_list, talk::talk_send, talk::talk_file, talk::talk_clear, talk::talk_invite, talk::poke_send, talk::talk_read, talk_open, update::update_check,
             people::people_pair, people::people_pair_ip, people::people_my_ip, people::people_confirm, people::people_near, people::people_forget, people::people_send,

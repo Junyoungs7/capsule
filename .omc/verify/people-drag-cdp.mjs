@@ -7,13 +7,14 @@ import { start, sleep, suite } from './headless.mjs'
 const { ok, until, done } = suite('people-drag')
 const h = await start()
 const called = (cmd, n0, f = () => true) => h.calls.slice(n0).some((c) => c[1] === cmd && f(c[2] ?? {}))
-const A = 'a'.repeat(64), B = 'b'.repeat(64)
+const A = 'a'.repeat(64), B = 'b'.repeat(64), M = 'd'.repeat(64)
 const FILES = ['C:/Users/me/Desktop/견적서.pdf']
 try {
   h.store.set(`people:${A}`, { id: A, name: '박지윤', at: 1 })
   h.store.set(`people:${B}`, { id: B, name: '최서현', at: 2 })
   h.store.set('link.peerName', 'MacBook')
   h.handlers.people_near = () => [{ pk: A, name: '박지윤', known: true }]
+  h.handlers.link_devices = () => [{ id: M, name: 'MacBook', os: 'mac', files: true, paired: true }]
   const d = await h.open('drag', { geo: { x: 0, y: 0, w: 1920, h: 1079 } })
   await until(() => d.eval(`!!document.querySelector('canvas.portal')`), 8000)
   const at = (sel) => d.eval(`(() => { const e = document.querySelector('${sel}'); return { x: +e.dataset.x, y: +e.dataset.y } })()`)
@@ -22,7 +23,7 @@ try {
   /* 펫 둘레 */
   await drag()
   await h.emitTo('drag', 'fan', { on: true, x: 1440, y: 950, mac: true })
-  ok('fan: 선반 · 내 맥 · online person (offline 최서현 left out)', await until(() => d.eval(`[...document.querySelectorAll('.fo')].map((e) => e.dataset.z).join() === 'shelf,mac,${A}'`)))
+  ok('fan: 선반 · 내 맥 · online person (offline 최서현 left out)', await until(() => d.eval(`[...document.querySelectorAll('.fo')].map((e) => e.dataset.z).join() === 'shelf,dev:${M},${A}'`)))
   ok('pet near the bottom → orbs open upwards, all on screen', await d.eval(`[...document.querySelectorAll('.fo')].every((e) => +e.dataset.y <= 950 && +e.dataset.x > 0 && +e.dataset.x < 1920)`))
   ok('every orb is a drop target (hit rects)', await until(() => (h.hits.get('drag') ?? []).length >= 3))
   await sleep(600) // 등장 스프링이 끝난 뒤
@@ -38,10 +39,10 @@ try {
   /* 가장자리 사람 포탈 */
   await drag()
   await h.emitTo('drag', 'gates', { on: true, side: 'right', y: 500, mac: true })
-  ok('gates: 내 맥 + online person in a column at the right edge', await until(() => d.eval(`(() => { const g = [...document.querySelectorAll('.gate')]; return g.map((e) => e.dataset.z).join() === 'mac,${A}' && g.every((e) => +e.dataset.x > 1850) && +g[1].dataset.y > +g[0].dataset.y })()`)))
+  ok('gates: 내 맥 + online person in a column at the right edge', await until(() => d.eval(`(() => { const g = [...document.querySelectorAll('.gate')]; return g.map((e) => e.dataset.z).join() === 'dev:${M},${A}' && g.every((e) => +e.dataset.x > 1850) && +g[1].dataset.y > +g[0].dataset.y })()`)))
   n = h.calls.length
-  await h.emitTo('drag', 'tauri://drag-drop', { paths: FILES, position: await at('.gate[data-z=mac]') })
-  ok('drop on the Mac gate → link_send', await until(() => called('link_send', n, (a) => a.path === FILES[0])))
+  await h.emitTo('drag', 'tauri://drag-drop', { paths: FILES, position: await at(`.gate[data-z="dev:${M}"]`) })
+  ok('drop on the Mac gate → link_send(dev)', await until(() => called('link_send', n, (a) => a.path === FILES[0] && a.dev === M)))
   await h.emitTo('drag', 'drag-end', null)
   await until(() => d.eval(`!document.querySelector('.gate')`))
 
